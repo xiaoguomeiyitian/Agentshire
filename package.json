@@ -58,7 +58,6 @@
     "postinstall": "echo '' && echo '  🏘️  Agentshire installed successfully!' && echo '' && echo '  Next: (re)start the OpenClaw Gateway to activate the plugin.' && echo '        The town will open automatically in your browser.' && echo ''",
     "test": "vitest run",
     "start": "openclaw gateway",
-    "start:bg": "setsid openclaw gateway > /tmp/agentshire-gateway.log 2>&1 < /dev/null &",
     "stop": "openclaw gateway stop || true"
   },
   "dependencies": {
@@ -78,6 +77,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.5.10",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^5.4.0",
     "vitest": "^4.1.0"
   },

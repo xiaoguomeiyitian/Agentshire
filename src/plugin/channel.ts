@@ -28,7 +28,7 @@ export interface ResolvedTownAccount {
   autoLaunch: boolean;
 }
 
-function resolveAccount(
+export function resolveAccount(
   cfg: Record<string, unknown>,
   accountId: string,
 ): ResolvedTownAccount {
