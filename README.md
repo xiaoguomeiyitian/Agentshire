@@ -15,9 +15,10 @@ Agentshire is an OpenClaw/QClaw plugin that turns AI agents into living NPCs ins
 > | Platform | Version | Status |
 > |---|---|---|
 > | **OpenClaw CLI** | 2026.3.13 | ✅ Recommended |
+> | **OpenClaw CLI** | 2026.6.11+ | ✅ Supported (migrated to `defineChannelPluginEntry`) |
 > | **QClaw Desktop** | 0.2.x | ✅ Supported |
 > | OpenClaw CLI | 2026.3.7 – 3.12 | ⚠️ May work |
-> | OpenClaw CLI | 2026.4.x+ | ❌ Not yet — channel init regression |
+> | OpenClaw CLI | 2026.4.x – 2026.6.10 | ❌ Channel init regression (fixed by migration) |
 >
 > See [Troubleshooting](#troubleshooting) for version-specific issues.
 
@@ -405,9 +406,9 @@ Without the asset pack: the game runs normally, editor has basic assets, and the
 
 **Symptom**: Plugin loads successfully but no WebSocket connection is established; the town page shows "connecting…" indefinitely.
 
-**Cause**: OpenClaw 2026.4.x introduced a regression in external plugin channel initialization. The `defineChannelPluginEntry` lifecycle is not correctly invoked.
+**Cause**: OpenClaw 2026.4.x introduced a regression in external plugin channel initialization. The `defineChannelPluginEntry` lifecycle is not correctly invoked for plugins that register channels via the legacy `register(api) { api.registerChannel(...) }` path.
 
-**Fix**: Downgrade to OpenClaw 2026.3.13. This is a known upstream issue.
+**Fix**: Upgrade Agentshire to a build that registers via `defineChannelPluginEntry` (the entry point now wraps `agentTownPlugin` with `defineChannelPluginEntry` from `openclaw/plugin-sdk/channel-core`). This is compatible with OpenClaw 2026.6.11+. For older OpenClaw 2026.4.x–2026.6.10, downgrade to OpenClaw 2026.3.13.
 
 ### Citizen Workshop "AI Generate" returns error 500
 

@@ -32,15 +32,22 @@ function resolveAccount(
   cfg: Record<string, unknown>,
   accountId: string,
 ): ResolvedTownAccount {
+  // Config paths tried in order:
+  //   1. channels.agentshire.* (legacy / SDK configPrefixes)
+  //   2. plugins.entries.agentshire.config.* (openclaw.json plugin config)
   interface ChannelConfig {
     channels?: Record<string, { wsPort?: number; townPort?: number; autoLaunch?: boolean }>;
   }
+  interface PluginConfig {
+    plugins?: { entries?: Record<string, { config?: { wsPort?: number; townPort?: number; autoLaunch?: boolean } }> };
+  }
   const channelCfg = (cfg as ChannelConfig)?.channels?.[CHANNEL_ID] ?? {};
+  const pluginCfg = (cfg as PluginConfig)?.plugins?.entries?.[CHANNEL_ID]?.config ?? {};
   return {
     accountId,
-    wsPort: channelCfg.wsPort ?? 55211,
-    townPort: channelCfg.townPort ?? 55210,
-    autoLaunch: channelCfg.autoLaunch ?? true,
+    wsPort: channelCfg.wsPort ?? pluginCfg.wsPort ?? 20008,
+    townPort: channelCfg.townPort ?? pluginCfg.townPort ?? 20009,
+    autoLaunch: channelCfg.autoLaunch ?? pluginCfg.autoLaunch ?? true,
   };
 }
 

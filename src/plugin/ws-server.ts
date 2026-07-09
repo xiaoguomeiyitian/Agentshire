@@ -9,6 +9,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stateDir } from "./paths.js";
+import { parseSessionToken, isValidSession, isPasswordAuthEnabled } from "./auth.js";
 
 export interface TownWsServerOptions {
   port: number;
@@ -350,7 +351,15 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
   if (wss) return;
   customAssetMgr = opts.customAssetManager;
 
-  wss = new WebSocketServer({ port: opts.port });
+  wss = new WebSocketServer({
+    port: opts.port,
+    verifyClient: (info, cb) => {
+      if (!isPasswordAuthEnabled()) return cb(true); // 免密直接放行
+      const token = parseSessionToken(info.req);
+      if (isValidSession(token)) cb(true);
+      else cb(false, 401, "Unauthorized");
+    },
+  });
   console.log(`[agentshire] WebSocket server listening on ws://localhost:${opts.port}`);
 
   wss.on("error", (err: NodeJS.ErrnoException) => {

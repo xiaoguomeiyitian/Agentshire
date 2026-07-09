@@ -38,7 +38,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const lastAgentSyncRef = useRef('')
 
   const wsUrl = useMemo(() => {
-    return new URLSearchParams(window.location.search).get('ws') || 'ws://localhost:55211'
+    const param = new URLSearchParams(window.location.search).get('ws')
+    return param || `ws://${window.location.hostname || 'localhost'}:${(window.location.port ? Number(window.location.port) - 1 : 20008)}`
   }, [])
 
   const isLive = useMemo(() => {

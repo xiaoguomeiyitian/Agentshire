@@ -35,3 +35,4 @@ coverage/
 town-data/custom-assets/characters/
 town-data/custom-assets/thumbnails/
 town-data/souls/
+town-frontend/dist

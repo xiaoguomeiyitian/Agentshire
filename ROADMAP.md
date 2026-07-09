@@ -49,7 +49,7 @@ No matter how many features we add, if users can't install it or upgrading break
 - [x] ~~**QClaw compatibility**: Auto-detect state directory (`~/.qclaw/` vs `~/.openclaw/`), centralized path resolution~~
 - [x] ~~**Agent routing fix**: SessionKey format updated to ensure correct routing to `town-steward` regardless of `agents.list` order~~
 - [x] ~~**Dynamic model display**: Show actual model name from runtime config instead of hardcoded value~~
-- [ ] **4.x Channel initialization regression**: External plugin `defineChannelPluginEntry` lifecycle is not correctly invoked — needs upstream fix or a compatibility workaround
+- [x] **4.x Channel initialization regression**: Resolved by migrating the entry point to `defineChannelPluginEntry` from `openclaw/plugin-sdk/channel-core` (compatible with OpenClaw 2026.6.11+)
 - [ ] **Rollup code-splitting breaks tool registration**: `api.registerTool()` state is isolated across JS chunks — needs upstream fix or workaround
 - [ ] **Plugin SDK API availability varies by version**: needs a unified compatibility layer
 - [x] ~~**Security scanner false positives**~~: Resolved

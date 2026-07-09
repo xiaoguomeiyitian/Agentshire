@@ -1,4 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
 import { agentTownPlugin } from "./src/plugin/channel.js";
 import { setTownRuntime } from "./src/plugin/runtime.js";
 import { initStateDir } from "./src/plugin/paths.js";
@@ -258,129 +259,142 @@ function registerHooks(api: OpenClawPluginApi): void {
   });
 }
 
-export default {
-  id: "agentshire",
-  name: "Agentshire",
-  description: "OpenClaw plugin for building a living 3D town with social NPCs, a map editor, and a character workshop.",
-  register(api: any) {
-    setTownRuntime(api.runtime);
-    initStateDir(api.runtime.config);
-    api.registerChannel(agentTownPlugin);
-    registerHooks(api);
-    api.registerTool(createTownTools());
+// Full-runtime registration. Runs in "full" and "tool-discovery" modes.
+// Side-effecting work (openclaw.json mutation, HTTP server) is gated to "full"
+// so tool-discovery / discovery snapshots stay lightweight.
+function registerFull(api: OpenClawPluginApi): void {
+  setTownRuntime(api.runtime);
+  initStateDir(api.runtime.config);
+  registerHooks(api);
+  api.registerTool(createTownTools());
 
-    import("./src/plugin/auto-config.js")
-      .then((m) => m.ensureTownAgentConfig())
-      .catch((err) => console.error("[agentshire] auto-config failed:", err));
+  import("./src/plugin/auto-config.js")
+    .then((m) => m.ensureTownAgentConfig())
+    .catch((err) => console.error("[agentshire] auto-config failed:", err));
 
-    api.on("subagent_spawning", async (event: any) => {
-      try {
-        const soulId = event.soul || event.persona || event.label;
-        if (soulId) {
-          const { loadTownSoul } = await import("./src/town-souls.js");
-          const { join } = await import("node:path");
-          const { fileURLToPath } = await import("node:url");
-          const pluginDir = join(fileURLToPath(import.meta.url), "..");
-          const townSoul = loadTownSoul(soulId, pluginDir);
-          if (townSoul.soul) return { prependSystemContext: townSoul.soul };
-        }
-      } catch (err) {
-        console.error("[agentshire] Failed to load citizen soul:", err);
+  api.on("subagent_spawning", async (event: any) => {
+    try {
+      const soulId = event.soul || event.persona || event.label;
+      if (soulId) {
+        const { loadTownSoul } = await import("./src/town-souls.js");
+        const { join } = await import("node:path");
+        const { fileURLToPath } = await import("node:url");
+        const pluginDir = join(fileURLToPath(import.meta.url), "..");
+        const townSoul = loadTownSoul(soulId, pluginDir);
+        if (townSoul.soul) return { prependSystemContext: townSoul.soul };
       }
-    });
+    } catch (err) {
+      console.error("[agentshire] Failed to load citizen soul:", err);
+    }
+  });
 
-    api.registerService({
-      id: "agentshire-frontend",
-      start: async () => {
-        const config = api.pluginConfig as Record<string, unknown> | undefined;
-        const townPort = (config?.townPort as number) ?? 55210;
-        try {
-          const { createServer } = await import("node:http");
-          const { join } = await import("node:path");
-          const { readFileSync, existsSync, statSync } = await import("node:fs");
-          const { fileURLToPath } = await import("node:url");
-          const pluginDir = join(fileURLToPath(import.meta.url), "..");
-          const distDir = join(pluginDir, "town-frontend", "dist");
-          if (!existsSync(distDir)) {
-            console.log(`[agentshire] Town frontend not built yet. Run: cd ${join(pluginDir, "town-frontend")} && npm run build`);
-            return;
-          }
-          ensureEditorDirs(pluginDir);
+  // openclaw.json mutation + HTTP server are full-mode-only side effects.
+  if (api.registrationMode !== "full") return;
 
-          const server = createServer(async (req, res) => {
-            let urlPath = new URL(req.url ?? "/", `http://localhost:${townPort}`).pathname;
-            if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
+  api.registerService({
+    id: "agentshire-frontend",
+    start: async () => {
+      const config = api.pluginConfig as Record<string, unknown> | undefined;
+      const townPort = (config?.townPort as number) ?? 55210;
+      try {
+        const { createServer } = await import("node:http");
+        const { join } = await import("node:path");
+        const { readFileSync, existsSync, statSync } = await import("node:fs");
+        const { fileURLToPath } = await import("node:url");
+        const pluginDir = join(fileURLToPath(import.meta.url), "..");
+        const distDir = join(pluginDir, "town-frontend", "dist");
+        if (!existsSync(distDir)) {
+          console.log(`[agentshire] Town frontend not built yet. Run: cd ${join(pluginDir, "town-frontend")} && npm run build`);
+          return;
+        }
+        ensureEditorDirs(pluginDir);
 
-            // Editor routes: ext-assets, citizen-workshop, custom-assets
-            if (await handleEditorRequest(req, res, pluginDir)) return;
+        const server = createServer(async (req, res) => {
+          let urlPath = new URL(req.url ?? "/", `http://localhost:${townPort}`).pathname;
+          if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
 
-            // Steward workspace: projects & tasks
-            const stewardPrefix = "/steward-workspace/";
-            if (urlPath.startsWith(stewardPrefix)) {
-              const { stateDir } = await import("./src/plugin/paths.js");
-              const relPath = decodeURIComponent(urlPath.slice(stewardPrefix.length));
-              const wsFile = join(stateDir(), "workspace-town-steward", relPath);
-              if (existsSync(wsFile) && statSync(wsFile).isFile()) {
-                const ext = wsFile.substring(wsFile.lastIndexOf("."));
-                res.writeHead(200, {
-                  "Content-Type": MIME_TYPES[ext] ?? "application/octet-stream",
-                  "Access-Control-Allow-Origin": "*",
-                });
-                res.end(readFileSync(wsFile));
-                return;
-              }
-            }
+          // —— 鉴权中间件（新增）——
+          const { requireAuth } = await import("./src/plugin/auth.js");
+          if (await requireAuth(req, res, urlPath, config)) return;
 
-            // Fallback: serve from dist/
-            const filePath = join(distDir, decodeURIComponent(urlPath));
-            if (existsSync(filePath) && statSync(filePath).isFile()) {
-              const ext = filePath.substring(filePath.lastIndexOf("."));
+          // Editor routes: ext-assets, citizen-workshop, custom-assets
+          if (await handleEditorRequest(req, res, pluginDir)) return;
+
+          // Steward workspace: projects & tasks
+          const stewardPrefix = "/steward-workspace/";
+          if (urlPath.startsWith(stewardPrefix)) {
+            const { stateDir } = await import("./src/plugin/paths.js");
+            const relPath = decodeURIComponent(urlPath.slice(stewardPrefix.length));
+            const wsFile = join(stateDir(), "workspace-town-steward", relPath);
+            if (existsSync(wsFile) && statSync(wsFile).isFile()) {
+              const ext = wsFile.substring(wsFile.lastIndexOf("."));
               res.writeHead(200, {
                 "Content-Type": MIME_TYPES[ext] ?? "application/octet-stream",
                 "Access-Control-Allow-Origin": "*",
               });
-              res.end(readFileSync(filePath));
+              res.end(readFileSync(wsFile));
               return;
             }
+          }
 
-            // SPA fallback for HTML pages
-            const htmlFile = urlPath.endsWith(".html") ? join(distDir, urlPath) : null;
-            if (htmlFile && existsSync(htmlFile)) {
-              res.writeHead(200, { "Content-Type": "text/html" });
-              res.end(readFileSync(htmlFile));
-              return;
-            }
-            const indexPath = join(distDir, "index.html");
-            if (existsSync(indexPath)) {
-              res.writeHead(200, { "Content-Type": "text/html" });
-              res.end(readFileSync(indexPath));
-            } else {
-              res.writeHead(404);
-              res.end("Not Found");
-            }
-          });
-          httpServer = server;
-          server.listen(townPort, () => console.log(`[agentshire] HTTP server listening on port ${townPort}`));
-          server.on("error", (err: NodeJS.ErrnoException) => {
-            if (err.code === "EADDRINUSE") {
-              console.error(`[agentshire] ❌ HTTP port ${townPort} is already in use.`);
-              console.error(`[agentshire]    Fix: stop the process using this port (vite dev server?), or change townPort in openclaw.json:`);
-              console.error(`[agentshire]    { "plugins": { "entries": { "agentshire": { "config": { "townPort": ${townPort + 1} } } } } }`);
-            } else {
-              console.error("[agentshire] Frontend server error:", err);
-            }
-          });
-        } catch (err) {
-          console.error("[agentshire] Failed to start town frontend server:", err);
-        }
-      },
-      stop: async () => {
-        stopAllWatchers();
-        if (httpServer) {
-          httpServer.close();
-          httpServer = null;
-        }
-      },
-    });
-  },
-};
+          // Fallback: serve from dist/
+          const filePath = join(distDir, decodeURIComponent(urlPath));
+          if (existsSync(filePath) && statSync(filePath).isFile()) {
+            const ext = filePath.substring(filePath.lastIndexOf("."));
+            res.writeHead(200, {
+              "Content-Type": MIME_TYPES[ext] ?? "application/octet-stream",
+              "Access-Control-Allow-Origin": "*",
+            });
+            res.end(readFileSync(filePath));
+            return;
+          }
+
+          // SPA fallback for HTML pages
+          const htmlFile = urlPath.endsWith(".html") ? join(distDir, urlPath) : null;
+          if (htmlFile && existsSync(htmlFile)) {
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(readFileSync(htmlFile));
+            return;
+          }
+          const indexPath = join(distDir, "index.html");
+          if (existsSync(indexPath)) {
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(readFileSync(indexPath));
+          } else {
+            res.writeHead(404);
+            res.end("Not Found");
+          }
+        });
+        httpServer = server;
+        server.listen(townPort, () => console.log(`[agentshire] HTTP server listening on port ${townPort}`));
+        server.on("error", (err: NodeJS.ErrnoException) => {
+          if (err.code === "EADDRINUSE") {
+            console.error(`[agentshire] ❌ HTTP port ${townPort} is already in use.`);
+            console.error(`[agentshire]    Fix: stop the process using this port (vite dev server?), or change townPort in openclaw.json:`);
+            console.error(`[agentshire]    { "plugins": { "entries": { "agentshire": { "config": { "townPort": ${townPort + 1} } } } } }`);
+          } else {
+            console.error("[agentshire] Frontend server error:", err);
+          }
+        });
+      } catch (err) {
+        console.error("[agentshire] Failed to start town frontend server:", err);
+      }
+    },
+    stop: async () => {
+      stopAllWatchers();
+      if (httpServer) {
+        httpServer.close();
+        httpServer = null;
+      }
+    },
+  });
+}
+
+export default defineChannelPluginEntry({
+  id: "agentshire",
+  name: "Agentshire",
+  description: "OpenClaw plugin for building a living 3D town with social NPCs, a map editor, and a character workshop.",
+  plugin: agentTownPlugin,
+  setRuntime: setTownRuntime,
+  registerFull,
+});

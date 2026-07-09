@@ -56,7 +56,10 @@
     "build": "npm run build:town",
     "dev:town": "cd town-frontend && npm run dev",
     "postinstall": "echo '' && echo '  🏘️  Agentshire installed successfully!' && echo '' && echo '  Next: (re)start the OpenClaw Gateway to activate the plugin.' && echo '        The town will open automatically in your browser.' && echo ''",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "openclaw gateway",
+    "start:bg": "setsid openclaw gateway > /tmp/agentshire-gateway.log 2>&1 < /dev/null &",
+    "stop": "openclaw gateway stop || true"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.3.0",
@@ -82,15 +85,6 @@
     "extensions": [
       "./index.ts"
     ],
-    "channel": {
-      "id": "agentshire",
-      "label": "Agentshire",
-      "selectionLabel": "Agentshire (3D Visualization)",
-      "docsPath": "/channels/agentshire",
-      "docsLabel": "agentshire",
-      "blurb": "Visualize your AI agents as NPCs in an interactive 3D low-poly town. Watch them work, chat, and collaborate in real-time.",
-      "order": 100
-    },
     "install": {
       "npmSpec": "agentshire",
       "localPath": "extensions/agentshire",

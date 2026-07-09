@@ -2,6 +2,7 @@ import './styles.css'
 import { initLocale } from './i18n'
 initLocale()
 
+import { ensureAuthed } from './app/AuthGate'
 import { t } from './i18n'
 import { Engine } from './engine'
 import { MainScene } from './game/MainScene'
@@ -70,6 +71,12 @@ function applyHtmlLocale(): void {
 }
 
 async function main() {
+  // ── 门卫：启动前先验票 ──
+  // 未登录会跳转 /login 并返回 false；此时中止后续初始化，
+  // 不 new Engine / MainScene / WebSocket，避免 WS 握手被拒、场景空转报错。
+  const authed = await ensureAuthed()
+  if (!authed) return
+
   const params = new URLSearchParams(location.search)
 
   const container = document.getElementById('game-container')
@@ -85,9 +92,11 @@ async function main() {
     params.get('townSessionId') || configStore.getSessionId() || createTownSessionId()
   configStore.setSessionId(initialTownSessionId)
 
-  const syncTownSessionUrl = (townSessionId: string) => {
-    const url = new URL(window.location.href)
-    url.searchParams.set('townSessionId', townSessionId)
+const useMock = params.get('mock') === 'true'
+const syncTownSessionUrl = (townSessionId: string) => {
+  const url = new URL(window.location.href)
+  url.searchParams.set('townSessionId', townSessionId)
+  if (useMock) url.searchParams.set('mock', 'true')
     history.replaceState({}, '', url.toString())
   }
 
@@ -102,7 +111,6 @@ async function main() {
   syncTownSessionLabel(initialTownSessionId)
 
   let dataSource: IWorldDataSource
-  const useMock = params.get('mock') === 'true'
 
   let bridgeModule: any = null
   let townWs: WebSocket | null = null
@@ -118,7 +126,10 @@ async function main() {
   if (!useMock) {
     // @ts-ignore -- resolved by Vite alias at runtime
     bridgeModule = await import('agentshire_bridge')
-    const wsUrl = params.get('ws') || 'ws://localhost:55211'
+    // Derive WS URL: explicit ?ws= param > same-origin port-1 convention
+    const wsParam = params.get('ws')
+    const wsUrl = wsParam
+      || `ws://${window.location.hostname || 'localhost'}:${(window.location.port ? Number(window.location.port) - 1 : 20008)}`
 
     const { DirectorBridge } = bridgeModule
     const director = new DirectorBridge()
