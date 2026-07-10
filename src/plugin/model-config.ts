@@ -1,0 +1,315 @@
+/**
+ * Model configuration manager for OpenClaw openclaw.json `models.providers`.
+ *
+ * Reads/writes the `models.providers` section of openclaw.json directly,
+ * keeping the rest of the config intact. Format follows the OpenClaw
+ * official schema (providers is an object keyed by provider id):
+ *
+ *   models: {
+ *     providers: {
+ *       "<id>": {
+ *         baseUrl: string,
+ *         apiKey: string,            // supports ${ENV} template refs
+ *         api?: string,              // e.g. "openai-completions"
+ *         models?: ModelConfig[]
+ *       }
+ *     }
+ *   }
+ *
+ * ModelConfig: {
+ *   id: string,
+ *   name?: string,
+ *   input?: string[],
+ *   cost?: { input, output, cacheRead, cacheWrite },
+ *   contextWindow?: number,
+ *   maxTokens?: number,
+ *   api?: string
+ * }
+ */
+
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { stateDir } from "./paths.js";
+
+export interface ModelCost {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export interface ModelConfig {
+  id: string;
+  name?: string;
+  input?: string[];
+  cost?: ModelCost;
+  contextWindow?: number;
+  maxTokens?: number;
+  api?: string;
+}
+
+export interface ProviderConfig {
+  baseUrl: string;
+  apiKey?: string;
+  api?: string;
+  models?: ModelConfig[];
+}
+
+export type ProvidersMap = Record<string, ProviderConfig>;
+
+export interface ModelFile {
+  providers: ProvidersMap;
+}
+
+export type ModelErrorCode =
+  | "DUPLICATE_PROVIDER"
+  | "PROVIDER_NOT_FOUND"
+  | "MODEL_NOT_FOUND"
+  | "INVALID_PROVIDER_ID"
+  | "EMPTY_PROVIDER_ID"
+  | "EMPTY_BASE_URL"
+  | "EMPTY_MODEL_ID"
+  | "MISSING_PARAMS"
+  | "INTERNAL_ERROR";
+
+export interface ModelError {
+  code: ModelErrorCode;
+  message: string;
+}
+
+export class ModelConfigError extends Error {
+  code: ModelErrorCode;
+  constructor(code: ModelErrorCode, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "ModelConfigError";
+  }
+}
+
+export const PROVIDER_ID_PATTERN = /^[a-z0-9_-]+$/;
+
+// Matches machine-specific secret refs like ${input:openai-key.AB12CD}
+const MACHINE_SECRET_RE = /\$\{input:[^}]*\.[0-9a-fA-F]{6,}\}/;
+
+function getOpenClawConfigPath(): string {
+  return join(stateDir(), "openclaw.json");
+}
+
+function loadOpenClawConfig(): any {
+  const configPath = getOpenClawConfigPath();
+  if (!existsSync(configPath)) throw new ModelConfigError("INTERNAL_ERROR", "openclaw.json not found");
+  return JSON.parse(readFileSync(configPath, "utf-8"));
+}
+
+function saveOpenClawConfig(cfg: any): void {
+  const configPath = getOpenClawConfigPath();
+  writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
+}
+
+function clone<T>(v: T): T {
+  return JSON.parse(JSON.stringify(v));
+}
+
+function getProviders(cfg: any): ProvidersMap {
+  return (cfg?.models?.providers ?? {}) as ProvidersMap;
+}
+
+// ── Read ──
+
+export function readModelsConfig(): ModelFile {
+  const cfg = loadOpenClawConfig();
+  return { providers: clone(getProviders(cfg)) };
+}
+
+// ── Write (whole file) ──
+
+export function writeModelsConfig(providers: ProvidersMap): void {
+  const cfg = loadOpenClawConfig();
+  cfg.models = cfg.models ?? {};
+  cfg.models.providers = clone(providers);
+  saveOpenClawConfig(cfg);
+}
+
+// ── Provider CRUD ──
+
+export function addProvider(id: string, provider: ProviderConfig): ProvidersMap {
+  if (!id || !PROVIDER_ID_PATTERN.test(id)) {
+    throw new ModelConfigError("INVALID_PROVIDER_ID", `Provider id must match ${PROVIDER_ID_PATTERN}`);
+  }
+  if (!provider?.baseUrl) {
+    throw new ModelConfigError("EMPTY_BASE_URL", "baseUrl is required");
+  }
+  const cfg = loadOpenClawConfig();
+  const providers = getProviders(cfg);
+  if (providers[id]) {
+    throw new ModelConfigError("DUPLICATE_PROVIDER", `Provider "${id}" already exists`);
+  }
+  const next = clone(providers);
+  next[id] = {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey ?? "",
+    ...(provider.api ? { api: provider.api } : {}),
+    models: provider.models ? clone(provider.models) : [],
+  };
+  cfg.models = cfg.models ?? {};
+  cfg.models.providers = next;
+  saveOpenClawConfig(cfg);
+  return next;
+}
+
+export function updateProvider(id: string, provider: ProviderConfig): ProvidersMap {
+  if (!id) throw new ModelConfigError("EMPTY_PROVIDER_ID", "Provider id is required");
+  const cfg = loadOpenClawConfig();
+  const providers = getProviders(cfg);
+  if (!providers[id]) {
+    throw new ModelConfigError("PROVIDER_NOT_FOUND", `Provider "${id}" not found`);
+  }
+  if (!provider?.baseUrl) {
+    throw new ModelConfigError("EMPTY_BASE_URL", "baseUrl is required");
+  }
+  const next = clone(providers);
+  next[id] = {
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey ?? "",
+    ...(provider.api ? { api: provider.api } : {}),
+    models: provider.models ? clone(provider.models) : (next[id].models ?? []),
+  };
+  cfg.models = cfg.models ?? {};
+  cfg.models.providers = next;
+  saveOpenClawConfig(cfg);
+  return next;
+}
+
+export function deleteProvider(id: string): ProvidersMap {
+  if (!id) throw new ModelConfigError("EMPTY_PROVIDER_ID", "Provider id is required");
+  const cfg = loadOpenClawConfig();
+  const providers = getProviders(cfg);
+  if (!providers[id]) {
+    throw new ModelConfigError("PROVIDER_NOT_FOUND", `Provider "${id}" not found`);
+  }
+  const next = clone(providers);
+  delete next[id];
+  cfg.models = cfg.models ?? {};
+  cfg.models.providers = next;
+  saveOpenClawConfig(cfg);
+  return next;
+}
+
+// ── Model CRUD (scoped to a provider) ──
+
+function withProviderModelMutated(
+  providerId: string,
+  mutate: (models: ModelConfig[]) => ModelConfig[],
+): ProvidersMap {
+  if (!providerId) throw new ModelConfigError("EMPTY_PROVIDER_ID", "Provider id is required");
+  const cfg = loadOpenClawConfig();
+  const providers = getProviders(cfg);
+  if (!providers[providerId]) {
+    throw new ModelConfigError("PROVIDER_NOT_FOUND", `Provider "${providerId}" not found`);
+  }
+  const next = clone(providers);
+  const models = next[providerId].models ?? [];
+  next[providerId].models = mutate(models);
+  cfg.models = cfg.models ?? {};
+  cfg.models.providers = next;
+  saveOpenClawConfig(cfg);
+  return next;
+}
+
+export function addModel(providerId: string, model: ModelConfig): ProvidersMap {
+  if (!model?.id) throw new ModelConfigError("EMPTY_MODEL_ID", "Model id is required");
+  return withProviderModelMutated(providerId, (models) => {
+    if (models.some((m) => m.id === model.id)) {
+      throw new ModelConfigError("DUPLICATE_PROVIDER", `Model "${model.id}" already exists in provider "${providerId}"`);
+    }
+    return [...models, clone(model)];
+  });
+}
+
+export function updateModel(providerId: string, modelId: string, model: ModelConfig): ProvidersMap {
+  if (!modelId) throw new ModelConfigError("EMPTY_MODEL_ID", "Model id is required");
+  return withProviderModelMutated(providerId, (models) => {
+    const idx = models.findIndex((m) => m.id === modelId);
+    if (idx < 0) {
+      throw new ModelConfigError("MODEL_NOT_FOUND", `Model "${modelId}" not found in provider "${providerId}"`);
+    }
+    const updated: ModelConfig = { ...clone(models[idx]), ...clone(model), id: modelId };
+    const next = [...models];
+    next[idx] = updated;
+    return next;
+  });
+}
+
+export function deleteModel(providerId: string, modelId: string): ProvidersMap {
+  if (!modelId) throw new ModelConfigError("EMPTY_MODEL_ID", "Model id is required");
+  return withProviderModelMutated(providerId, (models) => {
+    const next = models.filter((m) => m.id !== modelId);
+    if (next.length === models.length) {
+      throw new ModelConfigError("MODEL_NOT_FOUND", `Model "${modelId}" not found in provider "${providerId}"`);
+    }
+    return next;
+  });
+}
+
+// ── Import / Export ──
+
+export type ImportMode = "append" | "new" | "replace";
+
+/**
+ * Import providers from a partial ModelFile.
+ * - append: merge into existing providers (skip duplicates by id)
+ * - new:    only add providers whose id does not already exist
+ * - replace: replace the entire providers map
+ */
+export function importModels(
+  incoming: ModelFile,
+  mode: ImportMode,
+  existing?: ModelFile,
+): ProvidersMap {
+  const current = existing ?? readModelsConfig();
+  const incomingProviders = incoming?.providers ?? {};
+
+  if (mode === "replace") {
+    const next = clone(incomingProviders);
+    writeModelsConfig(next);
+    return next;
+  }
+
+  const next = clone(current.providers);
+  for (const [id, provider] of Object.entries(incomingProviders)) {
+    // append: skip ids that already exist (merge = keep existing)
+    // new:    skip ids that already exist (add new only)
+    if (next[id]) continue;
+    next[id] = clone(provider);
+  }
+  writeModelsConfig(next);
+  return next;
+}
+
+/**
+ * Export providers as a ModelFile. Machine-specific secret refs
+ * (${input:*.HEX}) are stripped to avoid leaking cross-machine secrets.
+ */
+export function exportModels(): ModelFile {
+  const { providers } = readModelsConfig();
+  const cleaned: ProvidersMap = {};
+  for (const [id, provider] of Object.entries(providers)) {
+    const p = clone(provider);
+    if (p.apiKey && MACHINE_SECRET_RE.test(p.apiKey)) {
+      p.apiKey = "";
+    }
+    if (p.models) {
+      p.models = p.models.map((m) => {
+        const cm = clone(m);
+        if (cm.api && MACHINE_SECRET_RE.test(cm.api)) cm.api = "";
+        return cm;
+      });
+    }
+    cleaned[id] = p;
+  }
+  return { providers: cleaned };
+}
+
+export function isMachineSpecificApiKey(value: string): boolean {
+  return MACHINE_SECRET_RE.test(value ?? "");
+}

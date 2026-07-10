@@ -112,6 +112,7 @@ const en: Record<string, string> = {
   'topnav.citizens': 'Citizens',
   'topnav.town_editor': 'Town Editor',
   'topnav.skill_store': 'Skill Store',
+  'topnav.model_manager': 'Model Manager',
   'topnav.settings': 'Settings',
 
   // ── Screen ──
@@ -142,6 +143,7 @@ const en: Record<string, string> = {
   // ── Editor ──
   'editor.scene_workshop': 'Scene Editor',
   'editor.citizen_workshop': 'Character Workshop',
+  'editor.model_workshop': 'Model Manager',
   'editor.save': 'Save',
   'editor.preview': 'Preview',
   'editor.publish': 'Publish',
@@ -195,6 +197,35 @@ const en: Record<string, string> = {
   'editor.add': 'Add',
   'editor.confirm_title': 'Confirm',
   'editor.publish_to_town': 'Publish',
+
+  // ── Model Manager ──
+  'editor.provider_list': 'Providers',
+  'editor.add_provider': '+ Add',
+  'editor.model_empty_hint': 'Select a provider from the left, or click "+ Add" to create one.',
+  'editor.no_providers': 'No providers yet. Click "+ Add".',
+  'editor.no_models': 'This provider has no models.',
+  'editor.edit': 'Edit',
+  'editor.delete': 'Delete',
+  'editor.add_model': '+ Add Model',
+  'editor.model_list': 'Models',
+  'editor.provider_id': 'Provider ID',
+  'editor.provider_id_hint': 'Lowercase letters, digits, hyphen, underscore only',
+  'editor.display_name': 'Display Name',
+  'editor.api_type': 'API Type',
+  'editor.base_url': 'Base URL',
+  'editor.api_key': 'API Key',
+  'editor.api_key_hint': 'Supports ${ENV} refs, e.g. ${API_KEY}',
+  'editor.model_id': 'Model ID',
+  'editor.max_input_tokens': 'Max Input Tokens',
+  'editor.max_output_tokens': 'Max Output Tokens',
+  'editor.import_models': 'Import Models',
+  'editor.export_models': 'Export Models',
+  'editor.import_mode': 'Import Mode',
+  'editor.import_append': 'Merge (skip duplicate IDs)',
+  'editor.import_new': 'Add new only (skip existing IDs)',
+  'editor.import_replace': 'Replace all',
+  'editor.import_json': 'Config JSON',
+  'editor.import_apply': 'Import',
 }
 
 export default en

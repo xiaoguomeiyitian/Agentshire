@@ -1,6 +1,6 @@
 node_modules/
 town-frontend/node_modules/
-/dist/
+dist/
 town-frontend/dist/**/*.map
 .DS_Store
 .cursor/
@@ -35,4 +35,3 @@ coverage/
 town-data/custom-assets/characters/
 town-data/custom-assets/thumbnails/
 town-data/souls/
-town-frontend/dist

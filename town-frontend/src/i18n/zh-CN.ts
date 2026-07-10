@@ -112,6 +112,7 @@ const zhCN: Record<string, string> = {
   'topnav.citizens': '居民管理',
   'topnav.town_editor': '小镇改造',
   'topnav.skill_store': '技能商店',
+  'topnav.model_manager': '模型管理',
   'topnav.settings': '设置',
 
   // ── Screen ──
@@ -142,6 +143,7 @@ const zhCN: Record<string, string> = {
   // ── Editor ──
   'editor.scene_workshop': '场景工坊',
   'editor.citizen_workshop': '角色工坊',
+  'editor.model_workshop': '模型管理',
   'editor.save': '保存',
   'editor.preview': '预览',
   'editor.publish': '发布',
@@ -195,6 +197,35 @@ const zhCN: Record<string, string> = {
   'editor.add': '添加',
   'editor.confirm_title': '确认',
   'editor.publish_to_town': '发布到小镇',
+
+  // ── Model Manager ──
+  'editor.provider_list': '模型供应商',
+  'editor.add_provider': '+ 添加',
+  'editor.model_empty_hint': '从左侧选择一个供应商，或点击「+ 添加」新建供应商。',
+  'editor.no_providers': '暂无供应商，点击「+ 添加」。',
+  'editor.no_models': '该供应商暂无模型。',
+  'editor.edit': '编辑',
+  'editor.delete': '删除',
+  'editor.add_model': '+ 添加模型',
+  'editor.model_list': '模型列表',
+  'editor.provider_id': '供应商 ID',
+  'editor.provider_id_hint': '仅限小写字母、数字、连字符、下划线',
+  'editor.display_name': '显示名称',
+  'editor.api_type': 'API 类型',
+  'editor.base_url': 'Base URL',
+  'editor.api_key': 'API Key',
+  'editor.api_key_hint': '支持 ${ENV} 环境变量引用，如 ${API_KEY}',
+  'editor.model_id': '模型 ID',
+  'editor.max_input_tokens': '最大输入 Token',
+  'editor.max_output_tokens': '最大输出 Token',
+  'editor.import_models': '导入模型配置',
+  'editor.export_models': '导出模型配置',
+  'editor.import_mode': '导入模式',
+  'editor.import_append': '合并（跳过重复 ID）',
+  'editor.import_new': '仅新增（跳过已存在 ID）',
+  'editor.import_replace': '替换全部',
+  'editor.import_json': '配置 JSON',
+  'editor.import_apply': '导入',
 }
 
 export default zhCN

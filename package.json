@@ -58,7 +58,8 @@
     "postinstall": "echo '' && echo '  🏘️  Agentshire installed successfully!' && echo '' && echo '  Next: (re)start the OpenClaw Gateway to activate the plugin.' && echo '        The town will open automatically in your browser.' && echo ''",
     "test": "vitest run",
     "start": "openclaw gateway",
-    "stop": "openclaw gateway stop || true"
+    "stop": "openclaw gateway stop || true",
+    "bs": "npm run build && npm run start"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.3.0",

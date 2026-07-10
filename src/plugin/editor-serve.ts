@@ -15,7 +15,7 @@ import {
   statSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { stateDir } from "./paths.js";
+import { stateDir, initStateDir } from "./paths.js";
 
 function getStewardWorkspaceDir(): string {
   try {
@@ -1238,6 +1238,92 @@ async function handleCitizenWorkshopApi(
   return true;
 }
 
+// ── Model (LLM provider) management API ──
+
+async function handleModelsApi(
+  req: any,
+  res: any,
+  route: string,
+): Promise<boolean> {
+  let body: any = {};
+  try {
+    const raw = await readBody(req);
+    if (raw) body = JSON.parse(raw);
+  } catch {
+    jsonRes(res, { error: "Invalid JSON body" }, 400);
+    return true;
+  }
+
+  try {
+    const m = await import("./model-config.js");
+    switch (route) {
+      case "load": {
+        const file = m.readModelsConfig();
+        jsonRes(res, { providers: file.providers });
+        return true;
+      }
+      case "save": {
+        if (!body.providers || typeof body.providers !== "object") {
+          jsonRes(res, { error: "providers object required" }, 400);
+          return true;
+        }
+        m.writeModelsConfig(body.providers);
+        jsonRes(res, { success: true });
+        return true;
+      }
+      case "add-provider": {
+        const next = m.addProvider(String(body.id ?? ""), body.provider ?? {});
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "update-provider": {
+        const next = m.updateProvider(String(body.id ?? ""), body.provider ?? {});
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "delete-provider": {
+        const next = m.deleteProvider(String(body.id ?? ""));
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "add-model": {
+        const next = m.addModel(String(body.providerId ?? ""), body.model ?? {});
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "update-model": {
+        const next = m.updateModel(String(body.providerId ?? ""), String(body.modelId ?? ""), body.model ?? {});
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "delete-model": {
+        const next = m.deleteModel(String(body.providerId ?? ""), String(body.modelId ?? ""));
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "import": {
+        const mode = (body.mode ?? "append") as "append" | "new" | "replace";
+        const next = m.importModels(body.file ?? { providers: {} }, mode);
+        jsonRes(res, { success: true, providers: next });
+        return true;
+      }
+      case "export": {
+        const file = m.exportModels();
+        jsonRes(res, { success: true, file });
+        return true;
+      }
+      default:
+        jsonRes(res, { error: "Unknown API" }, 404);
+        return true;
+    }
+  } catch (err: any) {
+    const code = err?.code ?? "INTERNAL_ERROR";
+    const message = err?.message ?? "Internal error";
+    jsonRes(res, { error: message, code }, 400);
+    return true;
+  }
+}
+
 // ── custom-assets static file serving ──
 
 function handleCustomAssetsStatic(
@@ -1263,6 +1349,13 @@ export async function handleEditorRequest(
       ? url.split("?")[0]
       : new URL(url, "http://localhost").pathname;
   const method = req.method ?? "GET";
+
+  // Ensure stateDir() is initialized (dev server may not have run initStateDir).
+  try {
+    stateDir();
+  } catch {
+    try { initStateDir(undefined); } catch {}
+  }
 
   const d = resolveDirs(pluginDir);
 
@@ -1347,6 +1440,15 @@ export async function handleEditorRequest(
   ) {
     const route = urlPath.slice("/citizen-workshop/_api/".length).split("?")[0];
     return handleCitizenWorkshopApi(req, res, route, pluginDir);
+  }
+
+  // /models/_api/* → model (LLM provider) management API
+  if (
+    urlPath.startsWith("/models/_api/") &&
+    method === "POST"
+  ) {
+    const route = urlPath.slice("/models/_api/".length).split("?")[0];
+    return handleModelsApi(req, res, route);
   }
 
   // /board/plans → read-only plan snapshot for office whiteboard

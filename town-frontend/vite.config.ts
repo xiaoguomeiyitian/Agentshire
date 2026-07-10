@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => ({
         editor: resolve(__dirname, 'editor.html'),
         preview: resolve(__dirname, 'preview.html'),
         citizenEditor: resolve(__dirname, 'citizen-editor.html'),
+        modelManager: resolve(__dirname, 'model-manager.html'),
       },
     },
   },
