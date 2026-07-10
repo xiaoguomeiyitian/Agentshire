@@ -32,6 +32,7 @@ export interface TownWsServerOptions {
     maxTokens: number;
     temperature: number;
     stop: string[];
+    agentId?: string;
   }) => Promise<{ text: string; usage?: { input: number; output: number } }>;
   onCitizenChat?: (payload: { npcId: string; message: string; townSessionId: string }) => void;
   onTopicStart?: (payload: { npcIds: string[]; townSessionId: string }) => void;
@@ -390,7 +391,11 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
             try {
               const { getTownRuntime } = require("./runtime.js") as typeof import("./runtime.js");
               const rt = getTownRuntime();
-              const cfg = typeof (rt.config as any)?.loadConfig === "function" ? (rt.config as any).loadConfig() : rt.config;
+              const cfg = typeof (rt.config as any)?.current === "function"
+                ? (rt.config as any).current()
+                : typeof (rt.config as any)?.loadConfig === "function"
+                  ? (rt.config as any).loadConfig()
+                  : (rt.config as any);
               modelName = cfg?.agents?.defaults?.model?.primary;
             } catch {}
             ws.send(JSON.stringify({ type: "town_session_bound", townSessionId, ...(modelName ? { model: modelName } : {}) }));
@@ -465,6 +470,7 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
             maxTokens: Number(msg.maxTokens ?? 200),
             temperature: Number(msg.temperature ?? 0.85),
             stop: Array.isArray(msg.stop) ? msg.stop.map(String) : [],
+            ...(typeof msg.agentId === "string" ? { agentId: msg.agentId } : {}),
           }).then((result) => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "implicit_chat_response", id: msg.id, text: result.text, usage: result.usage }));

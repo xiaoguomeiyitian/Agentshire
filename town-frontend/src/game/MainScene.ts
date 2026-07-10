@@ -290,6 +290,7 @@ export class MainScene implements GameScene {
       getTownJournal: () => this.townJournal,
       getCurrentSceneType: () => this.sceneSwitcher.getSceneType(),
       getNpcSpecialty: (npcId) => this.getNpcProfilesCached().get(npcId)?.specialty,
+      getAgentIdForNpc: (npcId) => this.bootstrap?.agentConfigMap.get(npcId)?.agentId,
     })
 
     this.dialogManager = new DialogManager({
@@ -1724,7 +1725,7 @@ __workflow 演出测试指令:
   }
 
   setImplicitChatFn(fn: ((req: {
-    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
   }) => Promise<{ text: string; fallback: boolean }>) | null): void {
     this.dailyScheduler.setImplicitChatFn(fn)
   }

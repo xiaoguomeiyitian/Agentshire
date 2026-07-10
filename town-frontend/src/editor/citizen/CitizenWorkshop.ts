@@ -42,6 +42,7 @@ export class CitizenWorkshop {
   private _activeColor = 1
   private agentList: { id: string; name: string }[] = []  // kept for potential future use
   private buildingList: { id: string; name: string }[] = []
+  private modelOptions: { value: string; label: string }[] = []
   private animDialog: AnimMappingDialog | null = null
   private lastRawHeight = 1
   private lastModelSource: ModelSource = 'builtin'
@@ -64,10 +65,11 @@ export class CitizenWorkshop {
   }
 
   private async loadRemoteData(): Promise<void> {
-    const [fileConfig, agents, buildings] = await Promise.all([
+    const [fileConfig, agents, buildings, modelOptions] = await Promise.all([
       this.loadFromFile(),
       this.fetchAgents(),
       this.fetchBuildings(),
+      this.fetchModelOptions(),
     ])
     if (fileConfig && !this.loadDraft()) {
       this.config = fileConfig
@@ -79,6 +81,7 @@ export class CitizenWorkshop {
     }
     this.agentList = agents
     this.buildingList = buildings
+    this.modelOptions = modelOptions
     if (this.selection) this.renderInspector()
   }
 
@@ -95,6 +98,14 @@ export class CitizenWorkshop {
       const r = await fetch('/citizen-workshop/_api/buildings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const d = await r.json()
       return d.buildings ?? []
+    } catch { return [] }
+  }
+
+  private async fetchModelOptions(): Promise<{ value: string; label: string }[]> {
+    try {
+      const r = await fetch('/citizen-workshop/_api/models', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const d = await r.json()
+      return d.options ?? []
     } catch { return [] }
   }
 
@@ -486,6 +497,11 @@ export class CitizenWorkshop {
       <div id="cw-stew-model-variant" class="cw-field cw-field-conditional"></div>
       <div id="cw-stew-model-color" class="cw-field cw-field-conditional"></div>
       <div class="cw-field">
+        <div class="cw-field-label">${getLocale() === 'en' ? 'LLM Model' : '大模型'}</div>
+        <div id="cw-stew-model-dd"></div>
+        <div class="cw-agent-hint">${s.modelRef ? (getLocale() === 'en' ? `Using ${this.esc(s.modelRef)}` : `使用 ${this.esc(s.modelRef)}`) : (getLocale() === 'en' ? 'Inherits global default' : '继承全局默认模型')}</div>
+      </div>
+      <div class="cw-field">
         <div class="cw-field-label">${getLocale() === 'en' ? 'OpenClaw Binding' : 'OpenClaw 绑定'}</div>
         <div class="cw-agent-auto-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
@@ -509,6 +525,13 @@ export class CitizenWorkshop {
     })
 
     this.renderModelSettingsSection(el, '#cw-stew-model-variant', '#cw-stew-model-color', this.config.steward)
+    this.createDropdown(
+      el, 'cw-stew-model-dd',
+      this.modelOptions,
+      this.config.steward.modelRef ?? '',
+      getLocale() === 'en' ? 'Default (global)' : '默认(继承全局)',
+      (val) => { this.config.steward.modelRef = val || undefined; this.saveDraft(); this.renderInspector() }
+    )
     this.renderAnimMappingSection(el, '#cw-stew-anim-container', this.config.steward)
     this.renderTransformSection(el, '#cw-stew-transform')
   }
@@ -565,6 +588,11 @@ export class CitizenWorkshop {
         <div class="cw-agent-hint">${c.agentEnabled ? (getLocale() === 'en' ? 'A sub-agent will be created for direct chat' : '发布后将创建常驻子 Agent，用户可与该居民直接聊天') : (getLocale() === 'en' ? 'Enable for independent AI personality' : '开启后该居民将拥有独立 AI 人格，可与用户对话')}</div>
       </div>
       <div class="cw-field">
+        <div class="cw-field-label">${getLocale() === 'en' ? 'LLM Model' : '大模型'}</div>
+        <div id="cw-cit-model-dd"></div>
+        <div class="cw-agent-hint">${c.modelRef ? (getLocale() === 'en' ? `Using ${this.esc(c.modelRef)}` : `使用 ${this.esc(c.modelRef)}`) : (getLocale() === 'en' ? 'Inherits global default' : '继承全局默认模型')}</div>
+      </div>
+      <div class="cw-field">
         <div class="cw-field-label">${getLocale() === 'en' ? 'Assign Home' : '分配场景住宅'}</div>
         <div id="cw-cit-home-dd"></div>
       </div>
@@ -617,6 +645,14 @@ export class CitizenWorkshop {
       this.buildingList.map(b => ({ value: b.id, label: b.name })),
       c.homeId || '', getLocale() === 'en' ? 'Unassigned' : '未分配',
       (val) => { c.homeId = val; this.saveDraft() }
+    )
+
+    this.createDropdown(
+      el, 'cw-cit-model-dd',
+      this.modelOptions,
+      c.modelRef ?? '',
+      getLocale() === 'en' ? 'Default (global)' : '默认(继承全局)',
+      (val) => { c.modelRef = val || undefined; this.saveDraft(); this.renderInspector() }
     )
 
     this.bindAvatarClickable('#cw-cit-avatar-btn', (url) => {

@@ -163,12 +163,23 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
         port: account.wsPort,
         customAssetManager,
         onImplicitChat: async (payload) => {
+          let modelRef: string | undefined;
+          if (payload.agentId) {
+            try {
+              const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
+              const agent = (cfg?.agents?.list ?? []).find((a: any) => a.id === payload.agentId);
+              if (agent?.model) {
+                modelRef = typeof agent.model === "string" ? agent.model : agent.model.primary;
+              }
+            } catch { /* fall back to default */ }
+          }
           return llmChat({
             system: payload.system,
             user: payload.user,
             maxTokens: payload.maxTokens,
             temperature: payload.temperature,
             stop: payload.stop,
+            ...(modelRef ? { modelRef } : {}),
           });
         },
         onChat: async ({ message, townSessionId }) => {

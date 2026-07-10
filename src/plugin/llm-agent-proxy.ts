@@ -13,6 +13,8 @@ export interface LLMChatRequest {
   maxTokens: number;
   temperature: number;
   stop: string[];
+  /** Optional model ref "providerId/modelId" to override the default provider+model */
+  modelRef?: string;
 }
 
 export interface LLMChatResult {
@@ -37,7 +39,7 @@ function resolveEnvRef(value: string, env: Record<string, string>): string {
 function loadProvider(): ProviderConfig | null {
   try {
     const rt = getTownRuntime();
-    const cfg = rt.config.loadConfig() as any;
+    const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
     const env: Record<string, string> = cfg?.env ?? {};
     const providers = cfg?.models?.providers;
     if (!providers || typeof providers !== "object") return null;
@@ -62,6 +64,41 @@ function loadProvider(): ProviderConfig | null {
     console.warn("[llm-agent-proxy] Failed to load provider:", (err as Error).message);
   }
   return null;
+}
+
+/**
+ * Load a provider+model by a "providerId/modelId" ref.
+ * Falls back to loadProvider() (first available) when ref is empty or not found.
+ */
+function loadProviderByModelRef(modelRef?: string): ProviderConfig | null {
+  if (!modelRef) return loadProvider();
+  const slashIdx = modelRef.indexOf("/");
+  if (slashIdx <= 0) return loadProvider();
+  const providerId = modelRef.slice(0, slashIdx);
+  const modelId = modelRef.slice(slashIdx + 1);
+  try {
+    const rt = getTownRuntime();
+    const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
+    const env: Record<string, string> = cfg?.env ?? {};
+    const providers = cfg?.models?.providers;
+    if (!providers || typeof providers !== "object") return loadProvider();
+    const provider = providers[providerId];
+    if (!provider || !provider.baseUrl || !provider.apiKey) return loadProvider();
+    const apiKey = resolveEnvRef(String(provider.apiKey), env);
+    if (!apiKey) return loadProvider();
+    const apiFormat = provider.api?.startsWith("openai") ? "openai" as const : "anthropic-messages" as const;
+    const models = Array.isArray(provider.models) ? provider.models : [];
+    const model = models.find((m: any) => m.id === modelId) ?? models[0];
+    return {
+      baseUrl: String(provider.baseUrl).replace(/\/+$/, ""),
+      apiKey,
+      model: model?.id ?? modelId,
+      apiFormat,
+    };
+  } catch (err) {
+    console.warn("[llm-agent-proxy] Failed to load provider by modelRef:", (err as Error).message);
+    return loadProvider();
+  }
 }
 
 async function callAnthropicMessages(config: ProviderConfig, req: LLMChatRequest): Promise<LLMChatResult> {
@@ -161,7 +198,7 @@ function drainQueue(): void {
 async function executeChat(req: LLMChatRequest): Promise<LLMChatResult> {
   activeRequests++;
   try {
-    const config = loadProvider();
+    const config = loadProviderByModelRef(req.modelRef);
     if (!config) return { text: "" };
     return config.apiFormat === "openai"
       ? await callOpenAI(config, req)

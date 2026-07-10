@@ -40,6 +40,7 @@ export interface AgentBrainDeps {
     user: string
     maxTokens?: number
     extraStop?: string[]
+    npcId?: string
   }) => Promise<{ text: string; fallback: boolean }>
 
   getNearbyNpcs: (npcId: string, radius: number) => NearbyNpcInfo[]
@@ -224,6 +225,7 @@ export class AgentBrain {
         scene: 'daily_plan',
         system,
         user,
+        npcId: this.npcId,
       })
 
       if (!result.fallback) {
@@ -319,6 +321,7 @@ export class AgentBrain {
         scene: 'tactical_decision',
         system,
         user,
+        npcId: this.npcId,
       })
 
       if (!result.fallback) {

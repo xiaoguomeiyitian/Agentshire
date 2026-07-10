@@ -79,6 +79,8 @@ export interface WorkshopStewardConfig {
   detectedClips?: string[]
   animFileUrls?: string[]
   animFileUrl?: string             // deprecated, migrated to animFileUrls
+  /** LLM model ref in "providerId/modelId" form; empty/undefined = inherit global default */
+  modelRef?: string
 }
 
 export interface WorkshopCitizenConfig {
@@ -100,6 +102,8 @@ export interface WorkshopCitizenConfig {
   detectedClips?: string[]
   animFileUrls?: string[]
   animFileUrl?: string             // deprecated, migrated to animFileUrls
+  /** LLM model ref in "providerId/modelId" form; empty/undefined = inherit global default */
+  modelRef?: string
 }
 
 export interface CitizenWorkshopConfig {
@@ -135,6 +139,8 @@ export interface PublishedCharacterEntry {
   animFileUrls: string[]
   detectedClips?: string[]
   modelTransform: ModelTransform
+  /** LLM model ref in "providerId/modelId" form; empty/undefined = inherit global default */
+  modelRef?: string
 }
 
 export interface PublishedCitizenConfig {

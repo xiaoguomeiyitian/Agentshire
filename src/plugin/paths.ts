@@ -11,8 +11,10 @@ import { homedir } from "node:os";
 let _stateDir: string;
 
 export function initStateDir(runtimeConfig: any): void {
-  let cfg = runtimeConfig;
-  if (typeof cfg?.loadConfig === "function") {
+  let cfg: any = runtimeConfig;
+  if (typeof cfg?.current === "function") {
+    try { cfg = cfg.current(); } catch {}
+  } else if (typeof cfg?.loadConfig === "function") {
     try { cfg = cfg.loadConfig(); } catch {}
   }
   const workspace: string | undefined = cfg?.agents?.defaults?.workspace;

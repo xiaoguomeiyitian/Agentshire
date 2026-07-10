@@ -1,4 +1,4 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { defineChannelPluginEntry } from "openclaw/plugin-sdk/channel-core";
 import { agentTownPlugin } from "./src/plugin/channel.js";
 import { setTownRuntime } from "./src/plugin/runtime.js";
@@ -257,6 +257,47 @@ function registerHooks(api: OpenClawPluginApi): void {
     if (!isStewardDirect(ctx)) return;
     dispatchSteward("message_sending", event as any, ctx);
   });
+
+  // 灵魂注入：从 subagent_spawning 迁移到 before_prompt_build
+  // subagent_spawning 的返回类型在 2026.6.11 不再支持 prependSystemContext，
+  // 改用 before_prompt_build 在每次 turn 前注入灵魂系统提示。
+  const soulCache = new Map<string, { soul: string; ts: number }>();
+  const SOUL_CACHE_TTL_MS = 60_000;
+
+  api.on("before_prompt_build", async (event: any, ctx: any) => {
+    try {
+      const sessionKey = ctx?.sessionKey as string | undefined;
+      if (!sessionKey) return;
+
+      // 从 sessionKey 提取 agentId（格式: agent:<agentId>:<uuid>）
+      const agentIdMatch = sessionKey.match(/^agent:([^:]+):/);
+      if (!agentIdMatch) return;
+      const agentId = agentIdMatch[1];
+
+      // 跳过管家
+      if (agentId === "town-steward") return;
+
+      // 读灵魂文件（带缓存）
+      const now = Date.now();
+      const cached = soulCache.get(agentId);
+      if (cached && (now - cached.ts) < SOUL_CACHE_TTL_MS) {
+        return { prependSystemContext: cached.soul };
+      }
+
+      const { loadTownSoul } = await import("./src/town-souls.js");
+      const { join } = await import("node:path");
+      const { fileURLToPath } = await import("node:url");
+      const pluginDir = join(fileURLToPath(import.meta.url), "..");
+      const townSoul = loadTownSoul(agentId, pluginDir);
+      if (townSoul.soul) {
+        soulCache.set(agentId, { soul: townSoul.soul, ts: now });
+        console.log(`[agentshire] injecting soul for ${agentId} via before_prompt_build`);
+        return { prependSystemContext: townSoul.soul };
+      }
+    } catch (err) {
+      console.error("[agentshire] Failed to inject citizen soul:", err);
+    }
+  });
 }
 
 // Full-runtime registration. Runs in "full" and "tool-discovery" modes.
@@ -271,22 +312,6 @@ function registerFull(api: OpenClawPluginApi): void {
   import("./src/plugin/auto-config.js")
     .then((m) => m.ensureTownAgentConfig())
     .catch((err) => console.error("[agentshire] auto-config failed:", err));
-
-  api.on("subagent_spawning", async (event: any) => {
-    try {
-      const soulId = event.soul || event.persona || event.label;
-      if (soulId) {
-        const { loadTownSoul } = await import("./src/town-souls.js");
-        const { join } = await import("node:path");
-        const { fileURLToPath } = await import("node:url");
-        const pluginDir = join(fileURLToPath(import.meta.url), "..");
-        const townSoul = loadTownSoul(soulId, pluginDir);
-        if (townSoul.soul) return { prependSystemContext: townSoul.soul };
-      }
-    } catch (err) {
-      console.error("[agentshire] Failed to load citizen soul:", err);
-    }
-  });
 
   // openclaw.json mutation + HTTP server are full-mode-only side effects.
   if (api.registrationMode !== "full") return;

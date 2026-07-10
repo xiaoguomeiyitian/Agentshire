@@ -3,7 +3,7 @@
   "steward": {
     "id": "steward",
     "name": "shire",
-    "personaFile": "town-souls/SOUL.md",
+    "personaFile": "town-data/souls/soul.md",
     "characterKey": "char-female-b",
     "role": "steward",
     "specialty": "管家",

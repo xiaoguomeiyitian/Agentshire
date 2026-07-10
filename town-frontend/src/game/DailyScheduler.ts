@@ -19,6 +19,7 @@ export interface DailySchedulerDeps {
   getTownJournal: () => TownJournal
   getCurrentSceneType: () => string
   getNpcSpecialty?: (npcId: string) => string | undefined
+  getAgentIdForNpc?: (npcId: string) => string | undefined
 }
 
 export class DailyScheduler {
@@ -29,7 +30,7 @@ export class DailyScheduler {
   private dailyBehaviorEligibleNpcIds = new Set<string>()
   private spotAllocator = new SpotAllocator()
   private _implicitChatFn: ((req: {
-    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
   }) => Promise<{ text: string; fallback: boolean }>) | null = null
 
   private deps: DailySchedulerDeps
@@ -202,10 +203,14 @@ export class DailyScheduler {
   }
 
   async implicitChatForBrain(req: {
-    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string
   }): Promise<{ text: string; fallback: boolean }> {
     if (!this._implicitChatFn) return { text: '', fallback: true }
-    return this._implicitChatFn(req)
+    let agentId: string | undefined
+    if (req.npcId && this.deps.getAgentIdForNpc) {
+      agentId = this.deps.getAgentIdForNpc(req.npcId)
+    }
+    return this._implicitChatFn({ ...req, ...(agentId ? { agentId } : {}) })
   }
 
   getNearbyNpcsForBrain(npcId: string, radius: number): Array<{ npcId: string; name: string; distance: number }> {
@@ -317,6 +322,8 @@ export class DailyScheduler {
       system,
       user,
       extraStop: ['[END]'],
+      npcId: opts.speaker.id,
+      ...(this.deps.getAgentIdForNpc?.(opts.speaker.id) ? { agentId: this.deps.getAgentIdForNpc!(opts.speaker.id) } : {}),
     })
 
     return result.text

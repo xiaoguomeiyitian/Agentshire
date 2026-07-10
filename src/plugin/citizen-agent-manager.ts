@@ -16,6 +16,8 @@ export interface AgentChange {
   agentId: string;
   soulContent?: string;
   specialty?: string;
+  /** LLM model ref in "providerId/modelId" form; undefined = inherit global default */
+  modelRef?: string;
 }
 
 export interface AgentChangeResult {
@@ -95,7 +97,7 @@ function updateSoulFile(agentId: string, soulContent: string, name: string, spec
   syncSharedFiles(workspace);
 }
 
-function addAgentToConfig(agentId: string, citizenName: string, specialty?: string): void {
+function addAgentToConfig(agentId: string, citizenName: string, specialty?: string, modelRef?: string): void {
   const cfg = loadOpenClawConfig();
   const agents: any[] = cfg.agents?.list ?? [];
   if (agents.some((a: any) => a.id === agentId)) return;
@@ -103,14 +105,35 @@ function addAgentToConfig(agentId: string, citizenName: string, specialty?: stri
   if (!cfg.agents) cfg.agents = {};
   if (!cfg.agents.list) cfg.agents.list = [];
   const identity: Record<string, string> = { name: citizenName };
-  cfg.agents.list.push({
+  const entry: Record<string, any> = {
     id: agentId,
     name: citizenName,
     workspace: getAgentWorkspacePath(agentId),
     identity,
-  });
+  };
+  if (modelRef) entry.model = modelRef;
+  cfg.agents.list.push(entry);
   saveOpenClawConfig(cfg);
-  console.log(`[citizen-agent-manager] Added agent ${agentId} to openclaw.json`);
+  console.log(`[citizen-agent-manager] Added agent ${agentId} to openclaw.json${modelRef ? ` (model=${modelRef})` : ""}`);
+}
+
+/** Update an existing agent's model ref in openclaw.json. */
+function updateAgentModel(agentId: string, modelRef: string | undefined): void {
+  const cfg = loadOpenClawConfig();
+  const agents: any[] = cfg.agents?.list ?? [];
+  const agent = agents.find((a: any) => a.id === agentId);
+  if (!agent) return;
+  let changed = false;
+  if (modelRef) {
+    if (agent.model !== modelRef) { agent.model = modelRef; changed = true; }
+  } else if (agent.model) {
+    delete agent.model;
+    changed = true;
+  }
+  if (changed) {
+    saveOpenClawConfig(cfg);
+    console.log(`[citizen-agent-manager] Updated agent ${agentId} model to ${modelRef ?? "(default)"}`);
+  }
 }
 
 function removeAgentFromConfig(agentId: string): void {
@@ -148,7 +171,7 @@ export async function applyAgentChanges(
         case "create": {
           if (!change.soulContent) throw new Error("soulContent is required for create");
           createAgentWorkspace(change.agentId, change.soulContent, change.citizenName, change.specialty);
-          addAgentToConfig(change.agentId, change.citizenName, change.specialty);
+          addAgentToConfig(change.agentId, change.citizenName, change.specialty, change.modelRef);
           results.push({ citizenId: change.citizenId, action: "create", success: true, agentId: change.agentId });
           break;
         }
@@ -161,7 +184,9 @@ export async function applyAgentChanges(
           if (!change.soulContent) throw new Error("soulContent is required for update_soul");
           updateSoulFile(change.agentId, change.soulContent, change.citizenName, change.specialty);
           if (!isAgentInConfig(change.agentId)) {
-            addAgentToConfig(change.agentId, change.citizenName);
+            addAgentToConfig(change.agentId, change.citizenName, undefined, change.modelRef);
+          } else {
+            updateAgentModel(change.agentId, change.modelRef);
           }
           results.push({ citizenId: change.citizenId, action: "update_soul", success: true, agentId: change.agentId });
           break;

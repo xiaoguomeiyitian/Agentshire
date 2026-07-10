@@ -1,5 +1,4 @@
-// @ts-ignore — OpenClawPluginToolFactory not re-exported from SDK barrel
-import type { OpenClawPluginToolFactory } from "openclaw/plugin-sdk";
+import type { OpenClawPluginToolFactory } from "openclaw/plugin-sdk/core";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

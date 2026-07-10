@@ -282,14 +282,14 @@ const syncTownSessionUrl = (townSessionId: string) => {
   await engine.loadScene(scene)
 
   let implicitChatFnRef: ((req: {
-    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
   }) => Promise<{ text: string; fallback: boolean }>) | null = null
 
   if (bridgeModule && townWs) {
     const IMPLICIT_CHAT_TIMEOUT_MS = 12000
     const _ws = townWs
     implicitChatFnRef = async (req: {
-      scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]
+      scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
     }) => {
       if (_ws.readyState !== WebSocket.OPEN) {
         const result = await bridgeModule.implicitChat({
@@ -316,6 +316,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
           maxTokens: req.maxTokens ?? 200,
           temperature: 0.85,
           stop: ['\n\n', ...(req.extraStop ?? [])],
+          ...(req.agentId ? { agentId: req.agentId } : {}),
         }))
       })
     }

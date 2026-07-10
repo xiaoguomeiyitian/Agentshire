@@ -656,6 +656,7 @@ function buildPublishedConfig(
       animMapping: animData.animMapping ?? {},
       animFileUrls: animData.animFileUrls ?? [],
       detectedClips: animData.detectedClips ?? [],
+      modelRef: src.modelRef ?? "",
     };
   };
 
@@ -800,6 +801,7 @@ function computeChangeset(
     agentId: string;
     soulContent?: string;
     specialty?: string;
+    modelRef?: string;
   }> = [];
 
   function buildAgentId(citizenId: string): string {
@@ -862,10 +864,10 @@ function computeChangeset(
 
     if (newEnabled && !oldEnabled) {
       agentToCreate.push(nc.name);
-      changes.push({ action: "create", citizenId: id, citizenName: nc.name, agentId, soulContent: resolveSoulFromFile(nc), specialty: nc.specialty });
+      changes.push({ action: "create", citizenId: id, citizenName: nc.name, agentId, soulContent: resolveSoulFromFile(nc), specialty: nc.specialty, modelRef: nc.modelRef || undefined });
     } else if (newEnabled && oldEnabled && !oc?.agentId) {
       agentToCreate.push(nc.name);
-      changes.push({ action: "create", citizenId: id, citizenName: nc.name, agentId, soulContent: resolveSoulFromFile(nc), specialty: nc.specialty });
+      changes.push({ action: "create", citizenId: id, citizenName: nc.name, agentId, soulContent: resolveSoulFromFile(nc), specialty: nc.specialty, modelRef: nc.modelRef || undefined });
     } else if (!newEnabled && oldEnabled) {
       agentToDisable.push(nc.name ?? oc?.name ?? id);
       changes.push({ action: "disable", citizenId: id, citizenName: nc.name ?? id, agentId: oc?.agentId ?? agentId });
@@ -874,9 +876,10 @@ function computeChangeset(
         || nc.name !== oc?.name
         || nc.bio !== oc?.bio
         || nc.specialty !== oc?.specialty;
-      if (soulChanged) {
+      const modelChanged = (nc.modelRef || "") !== (oc?.modelRef || "");
+      if (soulChanged || modelChanged) {
         agentToUpdateSoul.push(nc.name);
-        changes.push({ action: "update_soul", citizenId: id, citizenName: nc.name, agentId: oc?.agentId ?? agentId, soulContent: resolveSoulFromFile(nc), specialty: nc.specialty });
+        changes.push({ action: "update_soul", citizenId: id, citizenName: nc.name, agentId: oc?.agentId ?? agentId, soulContent: resolveSoulFromFile(nc), specialty: nc.specialty, modelRef: nc.modelRef || undefined });
       }
     }
   }
@@ -897,7 +900,7 @@ const SOUL_GEN_TIMEOUT_MS = 90_000;
 async function generateSoulViaAgent(system: string, user: string): Promise<string> {
   const { getTownRuntime } = require("./runtime.js") as typeof import("./runtime.js");
   const rt = getTownRuntime();
-  const cfg = rt.config.loadConfig() as any;
+  const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
   const sessionKey = `agent:town-steward:soul-gen:${Date.now()}`;
   const message = `【系统指令】\n${system}\n\n【用户输入】\n${user}`;
 
@@ -1108,6 +1111,29 @@ async function handleCitizenWorkshopApi(
 
   if (route === "agents") {
     jsonRes(res, { agents: loadAgentList() });
+    return true;
+  }
+
+  if (route === "models") {
+    try {
+      const m = await import("./model-config.js");
+      const file = m.readModelsConfig();
+      const options: Array<{ value: string; label: string; providerId: string; modelId: string }> = [];
+      for (const [pid, prov] of Object.entries(file.providers ?? {})) {
+        const p = prov as any;
+        for (const model of p.models ?? []) {
+          options.push({
+            value: `${pid}/${model.id}`,
+            label: `${model.name ?? model.id} (${pid})`,
+            providerId: pid,
+            modelId: model.id,
+          });
+        }
+      }
+      jsonRes(res, { options });
+    } catch (err: any) {
+      jsonRes(res, { options: [], error: err?.message });
+    }
     return true;
   }
 
