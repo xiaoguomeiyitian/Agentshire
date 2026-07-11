@@ -7,6 +7,7 @@ import { AgentList } from './AgentList'
 import { ChatMessages } from './ChatMessages'
 import { ChatInputBar } from './ChatInputBar'
 import { GroupChatView } from './GroupChatView'
+import { TownDynamicPanel, type TownBubbleMessage, type TownStatusInfo } from './TownDynamicPanel'
 import { getHelpText, type ParsedCommand } from '@/utils/command-parser'
 
 interface ChatViewProps {
@@ -14,11 +15,53 @@ interface ChatViewProps {
   selectedAgent: AgentInfo | null
   onAgentChange?: (agent: AgentInfo | null) => void
   onConnectedChange?: (connected: boolean) => void
+  bubbleMessages?: TownBubbleMessage[]
+  townStatus?: TownStatusInfo | null
+  dynamicCollapsed?: boolean
+  onToggleDynamicCollapse?: () => void
 }
 
 let globalMsgId = 0
 const CHAT_AGENT_STORAGE_KEY = 'agentshire_chat_agent'
 const CHAT_VIEW_MODE_STORAGE_KEY = 'agentshire_chat_view_mode' // 'agent' | 'group'
+const CLEARED_AGENTS_STORAGE_KEY = 'agentshire_cleared_agents' // Map<routingKey, clearTimestamp>
+const GROUP_CLEARED_STORAGE_KEY = 'agentshire_group_cleared_at' // number | null
+
+/** Load persisted clear timestamps from localStorage (survives page refresh / server restart). */
+function loadClearedAgents(): Map<string, number> {
+  try {
+    const raw = localStorage.getItem(CLEARED_AGENTS_STORAGE_KEY)
+    if (!raw) return new Map()
+    const obj = JSON.parse(raw) as Record<string, number>
+    return new Map(Object.entries(obj))
+  } catch { return new Map() }
+}
+
+/** Persist clear timestamps to localStorage. */
+function saveClearedAgents(map: Map<string, number>): void {
+  try {
+    const obj: Record<string, number> = {}
+    for (const [k, v] of map) obj[k] = v
+    localStorage.setItem(CLEARED_AGENTS_STORAGE_KEY, JSON.stringify(obj))
+  } catch { /* ignore */ }
+}
+
+/** Load group chat clear timestamp from localStorage. */
+function loadGroupClearedAt(): number | null {
+  try {
+    const raw = localStorage.getItem(GROUP_CLEARED_STORAGE_KEY)
+    if (!raw || raw === 'null') return null
+    return Number(raw)
+  } catch { return null }
+}
+
+/** Persist group chat clear timestamp to localStorage. */
+function saveGroupClearedAt(ts: number | null): void {
+  try {
+    if (ts === null) localStorage.removeItem(GROUP_CLEARED_STORAGE_KEY)
+    else localStorage.setItem(GROUP_CLEARED_STORAGE_KEY, String(ts))
+  } catch { /* ignore */ }
+}
 
 function getAgentRoutingKey(agent: AgentInfo | null): string {
   if (!agent) return ''
@@ -26,7 +69,7 @@ function getAgentRoutingKey(agent: AgentInfo | null): string {
   return agent.agentId ?? agent.id
 }
 
-export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedChange }: ChatViewProps) {
+export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedChange, bubbleMessages, townStatus, dynamicCollapsed, onToggleDynamicCollapse }: ChatViewProps) {
   const { agents, loading } = useAgents()
   const [items, setItems] = useState<Map<string, ChatItem[]>>(new Map())
   const [historyLoadedSet, setHistoryLoadedSet] = useState<Set<string>>(new Set())
@@ -34,15 +77,19 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const [hasMoreMap, setHasMoreMap] = useState<Map<string, boolean>>(new Map())
   const [cursorMap, setCursorMap] = useState<Map<string, string>>(new Map())
   const [thinking, setThinking] = useState(false)
+  // Context window usage per agent: { used, limit, percent }
+  const [contextMap, setContextMap] = useState<Map<string, { used: number; limit: number; percent: number }>>(new Map())
   const selectedAgentRef = useRef(selectedAgent)
   selectedAgentRef.current = selectedAgent
   const historyLoadedRef = useRef<Set<string>>(new Set())
   const loadingMoreRef = useRef(false)
   const lastAgentSyncRef = useRef('')
   // Map<routingKey, clearTimestamp> — messages with timestamp <= clearTime are ignored
-  const clearedAgentsRef = useRef<Map<string, number>>(new Map())
+  // Persisted to localStorage so that page refresh / server restart doesn't reload stale messages
+  const clearedAgentsRef = useRef<Map<string, number>>(loadClearedAgents())
   // Group chat clear timestamp — messages with timestamp <= clearTime are ignored
-  const groupClearedAtRef = useRef<number | null>(null)
+  // Persisted to localStorage for the same reason
+  const groupClearedAtRef = useRef<number | null>(loadGroupClearedAt())
 
   // ── Group chat state ──
   const [groupChatActive, setGroupChatActive] = useState(() => {
@@ -172,6 +219,16 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     if (event.type === 'turn_end' || event.type === 'end') {
       setThinking(false)
     }
+    // Update context window usage info
+    if (event.type === 'context_update' && event.tokens) {
+      const agent = selectedAgentRef.current
+      const routingKey = agent ? getAgentRoutingKey(agent) : 'steward'
+      setContextMap(prev => new Map(prev).set(routingKey, {
+        used: event.tokens.used ?? 0,
+        limit: event.tokens.limit ?? 0,
+        percent: event.tokens.percent ?? 0,
+      }))
+    }
   }, [])
 
   // ── Group chat WS callbacks ──
@@ -229,9 +286,10 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     onGroupChatHistory: handleGroupChatHistory,
   })
 
-  // Request group chat init on connect
+  // Request group chat init on connect (also re-init on reconnect)
   useEffect(() => {
-    if (connected && visible && isLive && !groupInitSentRef.current) {
+    if (connected && visible && isLive) {
+      // Reset on each connect so reconnect re-fetches group chat state/history
       groupInitSentRef.current = true
       sendGroupChatInit()
     }
@@ -271,6 +329,10 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
 
   useEffect(() => {
     onConnectedChange?.(connected)
+    // Reset sync ref on reconnect so we re-bind chat agent and re-request history
+    if (connected) {
+      lastAgentSyncRef.current = ''
+    }
   }, [connected, onConnectedChange])
 
   useEffect(() => {
@@ -284,10 +346,9 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     if (lastAgentSyncRef.current === syncKey) return
     lastAgentSyncRef.current = syncKey
     bindChatAgent(agentKey)
-    // Skip backend history fetch if this agent was cleared locally
-    if (clearedAgentsRef.current.get(agentKey) === undefined) {
-      requestHistory(agentKey)
-    }
+    // Always request history; handleHistoryItems will filter out messages
+    // older than the clear timestamp (clearedAgentsRef)
+    requestHistory(agentKey)
   }, [selectedAgent, connected, visible, townSessionId, bindChatAgent, requestHistory])
 
   useEffect(() => {
@@ -438,6 +499,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       const groupId = groupInfo?.groupId ?? 'town-square'
       // Mark cleared timestamp — prevents stale history reload from backend
       groupClearedAtRef.current = Date.now()
+      saveGroupClearedAt(groupClearedAtRef.current)
       // Clear local messages
       setGroupMessages([])
       setGroupThinking(false)
@@ -467,6 +529,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
 
     // 0) Mark this agent as cleared with timestamp — prevents stale history/delta reload from backend
     clearedAgentsRef.current.set(routingKey, Date.now())
+    saveClearedAgents(clearedAgentsRef.current)
 
     // 1) Clear local message items for this agent
     setItems((prev) => {
@@ -588,6 +651,20 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         'flex-1 flex flex-col min-w-0 bg-bg-surface',
         (!selectedAgent && !groupChatActive) ? 'hidden md:flex' : 'flex',
       )}>
+        {/* ── Town Dynamic panel (bubble feed + town status) ── */}
+        {/* When expanded, it fills the full height and hides the chat content below. */}
+        {/* When collapsed, it shows only the header bar and the chat content is visible. */}
+        {bubbleMessages && townStatus !== undefined && onToggleDynamicCollapse && (
+          <TownDynamicPanel
+            messages={bubbleMessages}
+            status={townStatus ?? null}
+            agents={agents}
+            collapsed={dynamicCollapsed ?? true}
+            onToggleCollapse={onToggleDynamicCollapse}
+          />
+        )}
+        {/* Hide chat content when Town Dynamic panel is expanded (it takes full height) */}
+        <div className={cn('flex-1 flex flex-col min-h-0', (dynamicCollapsed ?? true) ? 'flex' : 'hidden')}>
         {groupChatActive ? (
           <GroupChatView
             visible={visible && groupChatActive}
@@ -635,6 +712,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
               loadingMore={historyLoading}
               hasMore={currentHasMore}
               onLoadMore={handleLoadMore}
+              contextInfo={contextMap.get(currentRoutingKey)}
             />
             <ChatInputBar
               onSend={handleSend}
@@ -655,6 +733,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
             选择一个 Agent 开始对话
           </div>
         )}
+        </div>
       </div>
 
       {/* ── Clear session confirmation dialog ── */}

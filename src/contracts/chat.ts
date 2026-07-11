@@ -23,6 +23,8 @@ export interface ChatTextItem extends ChatItemBase {
   role: "user" | "assistant";
   text: string;
   source?: "user_input" | "llm" | "system";
+  /** LLM token usage for this assistant message (if available from transcript). */
+  usage?: { input: number; output: number; totalTokens?: number };
 }
 
 export interface ChatMediaItem extends ChatItemBase {

@@ -14,6 +14,8 @@ export interface GroupMessage {
   speakerName: string;
   text: string;
   mentions: string[];
+  usage?: { input: number; output: number; totalTokens?: number };
+  contextBudget?: number;
 }
 
 export interface Participant {
@@ -24,11 +26,11 @@ export interface Participant {
   modelRef?: string;
 }
 
-const RECENT_WINDOW = 15;
-const SUMMARY_TRIGGER_INTERVAL = 10;
-const SUMMARY_TRIGGER_THRESHOLD = 20;
-const MAX_SUMMARY_TOKENS = 500;
-const MAX_CONTEXT_TOKENS = 4000;
+const RECENT_WINDOW = 240;
+const SUMMARY_TRIGGER_INTERVAL = 80;
+const SUMMARY_TRIGGER_THRESHOLD = 120;
+const MAX_SUMMARY_TOKENS = 6400;
+const MAX_CONTEXT_TOKENS = 96000;
 
 /** Rough token estimate: ~1.5 chars per CJK char, ~4 chars per Latin word. */
 function estimateTokens(text: string): number {

@@ -5,6 +5,19 @@ import type { AgentInfo } from '@/hooks/useAgents'
 import type { GroupChatMessageItem, GroupChatInfo } from '@/hooks/useWebSocket'
 import { stripTags } from '../ui/ui-utils'
 
+function formatClockTime(ts: number): string {
+  const d = new Date(ts)
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+/** Format token count: 1234 → 1.2K, 12345 → 12K */
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K`
+  return String(n)
+}
+
 interface GroupChatViewProps {
   visible: boolean
   agents: AgentInfo[]
@@ -238,24 +251,23 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
   return (
     <div className="flex flex-col h-full w-full bg-bg-surface">
       {/* ── Header ── */}
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-border-subtle shrink-0">
-        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[rgba(212,165,116,0.12)] shrink-0">
-          <Users size={16} strokeWidth={1.8} className="text-brand-secondary" />
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border-subtle shrink-0">
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-[rgba(212,165,116,0.12)] shrink-0">
+          <Users size={12} strokeWidth={1.8} className="text-brand-secondary" />
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-[14px] font-semibold text-text-primary truncate">
-            {groupInfo?.groupName || '小镇广场'}
-          </div>
-          <div className="text-[11px] text-text-quaternary truncate">
-            {groupInfo ? `${groupInfo.participants.length} 位居民` : '加载中...'}
-          </div>
-        </div>
+        <span className="text-[13px] font-semibold text-text-primary truncate" style={{ fontFamily: "'Trap', sans-serif" }}>
+          {groupInfo?.groupName || '小镇广场'}
+        </span>
+        <span className="text-[11px] text-text-quaternary shrink-0">
+          {groupInfo ? `${groupInfo.participants.length} 位居民` : '加载中...'}
+        </span>
+        <div className="flex-1" />
         {onClear && (
           <button
             onClick={onClear}
             disabled={thinking}
             className={cn(
-              'flex items-center justify-center w-7 h-7 rounded-lg cursor-pointer',
+              'flex items-center justify-center w-6 h-6 rounded-lg cursor-pointer',
               'transition-colors duration-150',
               'text-text-tertiary hover:text-status-error hover:bg-[rgba(248,113,113,0.08)]',
               thinking && 'opacity-40 cursor-default',
@@ -263,7 +275,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
             aria-label="清空群聊"
             title="清空群聊会话"
           >
-            <Trash2 size={14} strokeWidth={1.5} />
+            <Trash2 size={12} strokeWidth={1.5} />
           </button>
         )}
       </div>
@@ -310,9 +322,19 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
               {/* Content */}
               <div className={cn('flex flex-col gap-1 max-w-[75%]', isUser ? 'items-end' : 'items-start')}>
                 {!isUser && (
-                  <div className="text-[11px] text-text-quaternary px-1">
-                    {msg.speakerName}
-                    {participant?.specialty && <span className="text-text-quaternary/70">（{participant.specialty}）</span>}
+                  <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary px-1 flex-wrap">
+                    <span>{msg.speakerName}{participant?.specialty && <span className="text-text-quaternary/70">（{participant.specialty}）</span>}</span>
+                    {msg.timestamp > 0 && <span className="text-text-quaternary/60 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
+                    {msg.usage && (
+                      <span className="text-text-quaternary/50 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
+                        ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
+                      </span>
+                    )}
+                    {msg.usage && typeof msg.contextBudget === 'number' && msg.contextBudget > 0 && (
+                      <span className="text-text-quaternary/50 tabular-nums" title={`上下文 ${formatTokens(msg.usage.input)}/${formatTokens(msg.contextBudget)}`}>
+                        ctx {formatTokens(msg.usage.input)}/{formatTokens(msg.contextBudget)}
+                      </span>
+                    )}
                   </div>
                 )}
                 <div
@@ -324,6 +346,9 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                   )}
                   dangerouslySetInnerHTML={{ __html: formatMentions(msg.text, msg.mentions, groupInfo) }}
                 />
+                {isUser && msg.timestamp > 0 && (
+                  <div className="text-[10px] text-text-quaternary/60 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
+                )}
               </div>
             </div>
           )

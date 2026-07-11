@@ -239,6 +239,15 @@ const zhCN: Record<string, string> = {
   'editor.import_replace': '替换全部',
   'editor.import_json': '配置 JSON',
   'editor.import_apply': '导入',
+
+  // ── Town dynamic feed ──
+  'town_dynamic.title': '小镇动态',
+  'town_dynamic.subtitle': '居民实时动态',
+  'town_dynamic.empty': '暂无动态',
+  'town_dynamic.latest': '最新',
+  'town_dynamic.time': '时间',
+  'town_dynamic.weather': '天气',
+  'town_dynamic.residents': '居民',
 }
 
 export default zhCN

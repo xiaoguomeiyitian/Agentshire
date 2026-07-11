@@ -103,8 +103,36 @@ export function hookToAgentEvent(
     case "llm_output": {
       const texts = payload.assistantTexts as string[] | undefined;
       const text = texts?.[texts.length - 1] ?? String(payload.text ?? payload.content ?? "");
-      if (!text) return null;
-      return { type: "text", content: text };
+      const rawUsage = payload.usage as { input?: number; output?: number; totalTokens?: number } | undefined;
+      const contextTokenBudget = typeof payload.contextTokenBudget === "number" ? payload.contextTokenBudget as number : undefined;
+
+      const events: AgentEvent[] = [];
+
+      // Emit context_update with token usage + context window budget
+      if (rawUsage || contextTokenBudget) {
+        const inputTokens = rawUsage?.input ?? 0;
+        const outputTokens = rawUsage?.output ?? 0;
+        const limit = contextTokenBudget ?? 0;
+        const used = inputTokens;
+        const percent = limit > 0 ? Math.round((used / limit) * 100) : 0;
+        events.push({
+          type: "context_update",
+          tokens: { used, limit, percent },
+          usage: {
+            inputTokens,
+            outputTokens,
+          },
+          messagesCount: 0,
+          iteration: 0,
+          maxIterations: 0,
+        });
+      }
+
+      if (!text) {
+        return events.length > 0 ? events : null;
+      }
+      events.push({ type: "text", content: text });
+      return events;
     }
 
     case "before_tool_call":

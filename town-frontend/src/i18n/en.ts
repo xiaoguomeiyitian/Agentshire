@@ -239,6 +239,15 @@ const en: Record<string, string> = {
   'editor.import_replace': 'Replace all',
   'editor.import_json': 'Config JSON',
   'editor.import_apply': 'Import',
+
+  // ── Town dynamic feed ──
+  'town_dynamic.title': 'Town Feed',
+  'town_dynamic.subtitle': 'Resident activity',
+  'town_dynamic.empty': 'No activity yet',
+  'town_dynamic.latest': 'Latest',
+  'town_dynamic.time': 'Time',
+  'town_dynamic.weather': 'Weather',
+  'town_dynamic.residents': 'Residents',
 }
 
 export default en

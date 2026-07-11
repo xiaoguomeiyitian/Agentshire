@@ -88,11 +88,14 @@ function paginate(text: string): string[] {
   return pages.length ? pages : ['']
 }
 
+export type BubbleCallback = (npcId: string, text: string, isStreaming: boolean) => void
+
 export class ChatBubbleSystem {
   private container: HTMLElement
   private camera: THREE.Camera
   private renderer: THREE.WebGLRenderer
   private bubbles: ActiveBubble[] = []
+  private onBubbleCb: BubbleCallback | null = null
 
   constructor(container: HTMLElement, camera: THREE.Camera, renderer: THREE.WebGLRenderer) {
     this.container = container
@@ -107,10 +110,24 @@ export class ChatBubbleSystem {
     }
   }
 
+  /** Register a callback fired whenever a bubble is shown or streamed. */
+  onBubble(cb: BubbleCallback): void {
+    this.onBubbleCb = cb
+  }
+
+  private fireBubbleCallback(target: THREE.Object3D, text: string, isStreaming: boolean): void {
+    if (!this.onBubbleCb) return
+    const npcId = (target.userData?.npcId as string) ?? ''
+    const clean = cleanBubbleText(text)
+    if (!clean) return
+    this.onBubbleCb(npcId, clean, isStreaming)
+  }
+
   show(target: THREE.Object3D, text: string, duration?: number): void {
     this.removeBubblesFor(target)
     const b = this.createBubble(target, text, false)
     b.fadeDuration = duration ?? getBubbleDurationMs(text, 'npc')
+    this.fireBubbleCallback(target, text, false)
   }
 
   streamUpdate(target: THREE.Object3D, text: string): void {
@@ -132,10 +149,12 @@ export class ChatBubbleSystem {
       existing.streaming = true
       existing.el.style.opacity = '1'
       existing.fadeStart = 0
+      this.fireBubbleCallback(target, text, true)
       return
     }
 
     this.createBubble(target, text, true)
+    this.fireBubbleCallback(target, text, true)
   }
 
   endStream(target: THREE.Object3D): void {

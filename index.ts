@@ -51,7 +51,10 @@ const TOWN_AGENT_ID = "town-steward";
 
 const pendingSpawnTasks = new Map<string, string>();
 
-function notifyGroupDiscussion(hookName: string, agentId: string, payload: Record<string, unknown>): void {
+function notifyGroupDiscussion(hookName: string, agentId: string, payload: Record<string, unknown>, ctx?: unknown): void {
+  // Only route to group chat if this is a group chat session (sessionKey contains ":group:")
+  const sk = (ctx as any)?.sessionKey as string | undefined;
+  if (sk && !sk.includes(":group:")) return;
   import("./src/plugin/group-chat.js").then(({ hasActiveGroup, onCitizenResponse, onCitizenTurnEnd }) => {
     if (!hasActiveGroup()) return;
     if (hookName === "llm_output") {
@@ -59,9 +62,23 @@ function notifyGroupDiscussion(hookName: string, agentId: string, payload: Recor
       const text = texts.length > 0
         ? texts[texts.length - 1]
         : String((payload as any).lastAssistant ?? (payload as any).text ?? (payload as any).content ?? (payload as any).output ?? "");
-      if (text) onCitizenResponse(agentId, text);
+      const contextTokenBudget = typeof (payload as any).contextTokenBudget === "number" ? (payload as any).contextTokenBudget : undefined;
+      const rawUsage = (payload as any).usage as { inputTokens?: number; outputTokens?: number; input?: number; output?: number; totalTokens?: number } | undefined;
+      const usage = rawUsage ? {
+        input: rawUsage.inputTokens ?? rawUsage.input ?? 0,
+        output: rawUsage.outputTokens ?? rawUsage.output ?? 0,
+        totalTokens: rawUsage.totalTokens,
+      } : undefined;
+      if (text) onCitizenResponse(agentId, text, contextTokenBudget, usage);
     } else if (hookName === "agent_end") {
-      onCitizenTurnEnd(agentId);
+      // agent_end payload lacks usage in OpenClaw 2026.6.11; usage is extracted from llm_output above
+      const rawUsage = (payload as any).usage as { inputTokens?: number; outputTokens?: number; input?: number; output?: number; totalTokens?: number } | undefined;
+      const usage = rawUsage ? {
+        input: rawUsage.inputTokens ?? rawUsage.input ?? 0,
+        output: rawUsage.outputTokens ?? rawUsage.output ?? 0,
+        totalTokens: rawUsage.totalTokens,
+      } : undefined;
+      onCitizenTurnEnd(agentId, usage);
     }
   }).catch(() => {});
 }
@@ -113,7 +130,7 @@ function dispatchCitizen(hookName: string, payload: Record<string, unknown>, ctx
     broadcastAgentEvent(event, sid);
   }
 
-  notifyGroupDiscussion(hookName, agentId, payload);
+  notifyGroupDiscussion(hookName, agentId, payload, ctx);
 }
 
 function extractAgentIdForChatBinding(ctx: any): string | undefined {
@@ -158,7 +175,7 @@ function registerHooks(api: OpenClawPluginApi): void {
       }
       dispatchSteward(hookName, event as any, ctx);
       // Also notify group chat for steward responses (steward is a group participant)
-      notifyGroupDiscussion(hookName, TOWN_AGENT_ID, event as any);
+      notifyGroupDiscussion(hookName, TOWN_AGENT_ID, event as any, ctx);
       if (hookName === 'agent_end') {
         const sid = resolveSessionId(ctx, event as any);
         if (sid) {

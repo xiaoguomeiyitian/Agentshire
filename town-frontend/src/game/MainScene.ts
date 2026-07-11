@@ -40,6 +40,7 @@ import { SceneSwitcher } from './workflow/SceneSwitcher'
 import { DailyScheduler } from './DailyScheduler'
 import { SceneBootstrap } from './SceneBootstrap'
 import { WorkflowHandler } from './workflow/WorkflowHandler'
+import type { PlatformBridge } from '../platform/Bridge'
 import { Choreographer } from './workflow/Choreographer'
 import { CitizenChatManager } from '../npc/CitizenChatManager'
 import { installDebugBindings, removeDebugBindings } from './DebugBindings'
@@ -60,6 +61,8 @@ export class MainScene implements GameScene {
   private vfx!: VFXSystem
   private npcManager!: NPCManager
   private debugCharacterAssignments = new Map<string, string>()
+  private platformBridge: PlatformBridge | null = null
+  private townStatusTimer = 0
 
   private townScene!: THREE.Scene
   private officeScene!: THREE.Scene
@@ -75,6 +78,7 @@ export class MainScene implements GameScene {
   private weatherSystem!: WeatherSystem
   private ambientSound = new AmbientSoundManager()
   private bgm = new BGMManager()
+  private musicEnabled = true
   private timeHUD!: TimeHUD
   private modeManager = new ModeManager()
   private modeIndicator!: ModeIndicator
@@ -122,6 +126,11 @@ export class MainScene implements GameScene {
     this.dataSource = dataSource
     this.configStore = configStore
     this.ui = new UIManager()
+  }
+
+  /** Inject the PlatformBridge so bubble content and town status can be forwarded to the parent React App. */
+  setPlatformBridge(bridge: PlatformBridge): void {
+    this.platformBridge = bridge
   }
 
   async init(): Promise<void> {
@@ -236,6 +245,22 @@ export class MainScene implements GameScene {
 
     this.bubbles = new ChatBubbleSystem(this.ui.getGameContainer(), this.engine.camera, this.engine.renderer)
     this.npcManager = new NPCManager(this.townScene, this.ui.getGameContainer())
+
+    // Forward bubble content to parent React App via PlatformBridge
+    this.bubbles.onBubble((npcId, text, isStreaming) => {
+      if (!this.platformBridge) return
+      if (isStreaming) return // only forward final non-streaming text to avoid spam
+      const npc = this.npcManager.get(npcId)
+      const npcName = npc?.label ?? npcId
+      const clockState = this.gameClock?.getState()
+      this.platformBridge.sendBubble({
+        npcId, npcName, text, timestamp: Date.now(),
+        townHour: clockState?.hour,
+        townMinute: clockState?.minute,
+        townPeriod: clockState?.period,
+        townWeather: this.weatherSystem?.getDisplayWeather(),
+      })
+    })
 
     this.initSubModules()
     this.initEncounterManager()
@@ -940,6 +965,7 @@ __workflow 演出测试指令:
   }
 
   setMusicEnabled(enabled: boolean): void {
+    this.musicEnabled = enabled
     if (enabled) {
       this.bgm.setEnabled(true)
       this.ambientSound.setEnabled(true)
@@ -1677,7 +1703,7 @@ __workflow 演出测试指令:
 
     const clockState = this.gameClock?.getState()
     if (clockState && curScene === 'town') {
-      this.ambientSound.setEnabled(true)
+      this.ambientSound.setEnabled(this.musicEnabled)
       this.ambientSound.update(
         deltaTime,
         this.weatherSystem?.getDisplayWeather() ?? 'clear',
@@ -1722,6 +1748,26 @@ __workflow 演出测试指令:
       this.ui.updateWhiteboardMirror(this.officeBuilder.whiteboard.getCanvas())
     }
     this._minigameUpdateCb?.(deltaTime)
+
+    // ── Forward town status (time / weather / resident count) to parent React App every ~2s ──
+    this.townStatusTimer += deltaTime
+    if (this.platformBridge && this.townStatusTimer >= 2.0) {
+      this.townStatusTimer = 0
+      const clockState = this.gameClock?.getState()
+      const weather = this.weatherSystem?.getDisplayWeather() ?? 'clear'
+      const residentCount = this.npcManager?.getAll().filter(n => n.role !== 'user').length ?? 0
+      if (clockState) {
+        this.platformBridge.sendTownStatus({
+          hour: clockState.hour,
+          minute: clockState.minute,
+          period: clockState.period,
+          dayCount: clockState.dayCount,
+          weather,
+          residentCount,
+          timestamp: Date.now(),
+        })
+      }
+    }
   }
 
   setImplicitChatFn(fn: ((req: {

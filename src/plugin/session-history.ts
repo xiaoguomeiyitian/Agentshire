@@ -622,7 +622,17 @@ export function parseTranscriptEntry(
       } else if (b.type === "text" && typeof b.text === "string") {
         const text = stripReasoning(b.text.trim());
         if (text && !isSysText(text)) {
-          items.push({ id: `msg:${entryId}:text:${blockIdx}`, agentId, timestamp: ts, kind: "text", role: "assistant", text, source: "llm" });
+          // Extract token usage from assistant message (if present)
+          const rawUsage = msg.usage as { input?: number; output?: number; totalTokens?: number } | undefined;
+          items.push({
+            id: `msg:${entryId}:text:${blockIdx}`, agentId, timestamp: ts,
+            kind: "text", role: "assistant", text, source: "llm",
+            ...(rawUsage ? { usage: {
+              input: rawUsage.input ?? 0,
+              output: rawUsage.output ?? 0,
+              totalTokens: rawUsage.totalTokens,
+            } } : {}),
+          });
         }
       } else if (b.type === "image" && b.data) {
         items.push({

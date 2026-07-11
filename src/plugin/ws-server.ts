@@ -717,6 +717,8 @@ export function pushGroupChatMessage(townSessionId: string, payload: {
   speakerName: string;
   text: string;
   mentions: string[];
+  usage?: { input: number; output: number; totalTokens?: number };
+  contextBudget?: number;
 }): void {
   const msg = JSON.stringify({
     type: "group_chat_message",
@@ -744,6 +746,8 @@ export function pushGroupChatHistory(townSessionId: string, payload: {
     text: string;
     mentions: string[];
     groupId: string;
+    usage?: { input: number; output: number; totalTokens?: number };
+    contextBudget?: number;
   }>;
 }): void {
   const msg = JSON.stringify({

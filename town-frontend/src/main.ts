@@ -11,6 +11,7 @@ import { MockDataSource } from './data/MockDataSource'
 import { TownConfigStore } from './data/TownConfigStore'
 import type { IWorldDataSource } from './data/IWorldDataSource'
 import { InputBar, type TownMessage } from './ui/InputBar'
+import { loadSettings } from './ui/SettingsPanel'
 
 interface WsHistoryMessage {
   role?: 'user' | 'assistant'
@@ -310,7 +311,13 @@ const syncTownSessionUrl = (townSessionId: string) => {
     dataSource = new MockDataSource()
   }
 
+  // ── Platform Bridge (created early so MainScene can forward bubble / town status) ──
+  const bridge = new PlatformBridge()
+
   const scene = new MainScene(engine, dataSource, configStore)
+
+  // Inject PlatformBridge so bubble content and town status are forwarded to the parent React App
+  scene.setPlatformBridge(bridge)
 
   // Set scene reference for DirectorBridge (must be before loadScene which triggers init → startFlow → connect)
   if ((dataSource as any)._setScene) {
@@ -608,9 +615,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
   document.addEventListener('click', () => closeActionDropdown())
 
-  // ── Platform Bridge ──
+  // ── Platform Bridge message handlers (bridge instance created earlier, before MainScene) ──
 
-  const bridge = new PlatformBridge()
   bridge.onMessage((msg) => {
     switch (msg.type) {
       case 'play':
@@ -633,6 +639,10 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
   engine.start()
 
+  // Apply saved music setting on startup
+  const savedSettings = loadSettings()
+  if (!savedSettings.music) scene.setMusicEnabled(false)
+
   document.addEventListener('agentshire:music', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail
     scene.setMusicEnabled(enabled)
@@ -640,6 +650,17 @@ const syncTownSessionUrl = (townSessionId: string) => {
   document.addEventListener('agentshire:soulmode', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail
     scene.setSoulModeEnabled(enabled)
+  })
+
+  // Listen for cross-iframe messages from parent React App (settings changes)
+  window.addEventListener('message', (e: MessageEvent) => {
+    const data = e.data
+    if (!data || typeof data.type !== 'string') return
+    if (data.type === 'agentshire:music') {
+      scene.setMusicEnabled(!!data.enabled)
+    } else if (data.type === 'agentshire:soulmode') {
+      scene.setSoulModeEnabled(!!data.enabled)
+    }
   })
 
   ;(window as any).engine = engine

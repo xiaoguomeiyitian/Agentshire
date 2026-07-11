@@ -52,9 +52,14 @@ export function TopNav({ activeTab, onTabChange, chatAgent, chatConnected, onCha
         showSettingsPanel({
           onMusicChange: (enabled) => {
             document.dispatchEvent(new CustomEvent('agentshire:music', { detail: { enabled } }))
+            // Forward to town iframe via postMessage (cross-document)
+            const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
+            iframe?.contentWindow?.postMessage({ type: 'agentshire:music', enabled }, '*')
           },
           onSoulModeChange: (enabled) => {
             document.dispatchEvent(new CustomEvent('agentshire:soulmode', { detail: { enabled } }))
+            const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
+            iframe?.contentWindow?.postMessage({ type: 'agentshire:soulmode', enabled }, '*')
           },
           onReset: () => {
             localStorage.removeItem('agentshire_config')

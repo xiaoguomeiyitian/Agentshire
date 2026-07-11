@@ -23,6 +23,7 @@ export interface ChatItem {
   outputText?: string
   isError?: boolean
   status?: string
+  usage?: { input: number; output: number; totalTokens?: number }
 }
 
 export interface LegacyHistoryMessage {
@@ -46,6 +47,8 @@ export interface GroupChatMessageItem {
   mentions: string[]
   groupId: string
   groupName: string
+  usage?: { input: number; output: number; totalTokens?: number }
+  contextBudget?: number
 }
 
 export interface GroupChatInfo {
@@ -137,6 +140,8 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 mentions: data.mentions ?? [],
                 groupId: data.groupId,
                 groupName: data.groupName ?? '',
+                ...(data.usage ? { usage: data.usage } : {}),
+                ...(typeof data.contextBudget === 'number' ? { contextBudget: data.contextBudget } : {}),
               })
             } else if (data.type === 'group_chat_info' && data.groupId) {
               onGroupChatInfoRef.current?.({
@@ -157,6 +162,8 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 mentions: m.mentions ?? [],
                 groupId: data.groupId,
                 groupName: data.groupName ?? '',
+                ...(m.usage ? { usage: m.usage } : {}),
+                ...(typeof m.contextBudget === 'number' ? { contextBudget: m.contextBudget } : {}),
               }))
               onGroupChatHistoryRef.current?.(historyMessages)
             }

@@ -33,14 +33,32 @@ describe('hookToAgentEvent', () => {
   it('llm_output with text content → text event', () => {
     const result = hookToAgentEvent('llm_output', {
       assistantTexts: ['first chunk', 'full response'],
-    }) as AgentEvent
+    }) as AgentEvent[]
 
-    expect(result).toEqual({ type: 'text', content: 'full response' })
+    expect(Array.isArray(result)).toBe(true)
+    const textEvent = result.find((e: any) => e.type === 'text')
+    expect(textEvent).toEqual({ type: 'text', content: 'full response' })
   })
 
   it('llm_output with empty text → null', () => {
     const result = hookToAgentEvent('llm_output', { assistantTexts: [''] })
     expect(result).toBeNull()
+  })
+
+  it('llm_output with usage + contextTokenBudget → context_update event', () => {
+    const result = hookToAgentEvent('llm_output', {
+      assistantTexts: ['response'],
+      usage: { input: 5000, output: 200, totalTokens: 5200 },
+      contextTokenBudget: 200000,
+    }) as AgentEvent[]
+
+    expect(Array.isArray(result)).toBe(true)
+    const ctxEvent = result.find((e: any) => e.type === 'context_update')
+    expect(ctxEvent).toMatchObject({
+      type: 'context_update',
+      tokens: { used: 5000, limit: 200000, percent: 3 },
+      usage: { inputTokens: 5000, outputTokens: 200 },
+    })
   })
 
   it('before_tool_call → tool_use event', () => {

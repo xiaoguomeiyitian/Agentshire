@@ -51,7 +51,7 @@ interface ActiveGroupChat {
   isDefault: boolean;
   participants: Participant[];
   history: GroupMessage[];
-  pendingMentions: string[];
+  pendingMentions: Array<{ npcId: string; isDirectlyMentioned: boolean }>;
   activeSpeakers: Set<string>;
   turnTimers: Map<string, ReturnType<typeof setTimeout>>;
   speakerCooldowns: Map<string, number>;
@@ -64,6 +64,8 @@ interface ActiveGroupChat {
   cfg: Record<string, unknown>;
   idleTimer: ReturnType<typeof setTimeout> | null;
   responseBuffers: Map<string, string>;
+  contextBudgets: Map<string, number>;
+  usageMap: Map<string, { input: number; output: number; totalTokens?: number }>;
 }
 
 const activeGroups = new Map<string, ActiveGroupChat>();
@@ -160,7 +162,11 @@ export function getOrCreateDefaultGroup(ctx: {
   cfg: Record<string, unknown>;
 }): ActiveGroupChat {
   let group = activeGroups.get(DEFAULT_GROUP_ID);
-  if (group && !group.stopped) return group;
+  if (group && !group.stopped) {
+    // Update townSessionId for reconnected frontends (e.g. after gateway restart)
+    group.townSessionId = ctx.townSessionId;
+    return group;
+  }
 
   const participants = loadAllEnabledCitizens();
   group = {
@@ -182,6 +188,8 @@ export function getOrCreateDefaultGroup(ctx: {
     cfg: ctx.cfg,
     idleTimer: null,
     responseBuffers: new Map(),
+    contextBudgets: new Map(),
+    usageMap: new Map(),
   };
 
   // Load persisted history
@@ -194,6 +202,11 @@ export function getOrCreateDefaultGroup(ctx: {
     text: p.text,
     mentions: p.mentions,
   }));
+
+  // Advance globalSequence past history to prevent sequenceId collisions
+  for (const p of persisted) {
+    if (p.sequenceId > globalSequence) globalSequence = p.sequenceId;
+  }
 
   activeGroups.set(DEFAULT_GROUP_ID, group);
   console.log(`[group-chat] Default group "${DEFAULT_GROUP_NAME}" ready with ${participants.length} participants, ${group.history.length} history messages`);
@@ -237,6 +250,8 @@ export function startGroupChat(params: {
     cfg,
     idleTimer: null,
     responseBuffers: new Map(),
+    contextBudgets: new Map(),
+    usageMap: new Map(),
   };
 
   // Load persisted history for this group
@@ -249,6 +264,11 @@ export function startGroupChat(params: {
     text: p.text,
     mentions: p.mentions,
   }));
+
+  // Advance globalSequence past history to prevent sequenceId collisions
+  for (const p of persisted) {
+    if (p.sequenceId > globalSequence) globalSequence = p.sequenceId;
+  }
 
   activeGroups.set(groupId, group);
   console.log(`[group-chat] Started group "${group.name}" (${groupId}) with ${participants.length} participants, topic="${topic ?? "none"}"`);
@@ -396,8 +416,9 @@ export function onUserGroupMessage(params: {
   }
 
   // Dispatch to targets
+  const isAllMention = mentions.includes("all");
   for (const npcId of targets) {
-    dispatchToCitizen(npcId, group, mentions.includes(npcId) || mentions.includes("all"));
+    dispatchToCitizen(npcId, group, mentions.includes(npcId) || isAllMention);
   }
 
   // Maybe generate summary
@@ -405,7 +426,7 @@ export function onUserGroupMessage(params: {
 }
 
 /** Handle citizen LLM output (streaming text). */
-export function onCitizenResponse(agentId: string, text: string): void {
+export function onCitizenResponse(agentId: string, text: string, contextTokenBudget?: number, usage?: { input: number; output: number; totalTokens?: number }): void {
   const group = findGroupByAgentId(agentId);
   if (!group || group.stopped) return;
 
@@ -415,10 +436,19 @@ export function onCitizenResponse(agentId: string, text: string): void {
   // Buffer the response
   const existing = group.responseBuffers.get(participant.npcId) ?? "";
   group.responseBuffers.set(participant.npcId, existing + text);
+
+  // Store context token budget from llm_output for inclusion in group_chat_message
+  if (typeof contextTokenBudget === "number") {
+    group.contextBudgets.set(participant.npcId, contextTokenBudget);
+  }
+  // Store usage from llm_output (agent_end payload lacks usage in OpenClaw 2026.6.11)
+  if (usage) {
+    group.usageMap.set(participant.npcId, usage);
+  }
 }
 
 /** Handle citizen turn end (agent_end hook). */
-export function onCitizenTurnEnd(agentId: string): void {
+export function onCitizenTurnEnd(agentId: string, usage?: { input: number; output: number; totalTokens?: number }): void {
   const group = findGroupByAgentId(agentId);
   if (!group || group.stopped) return;
 
@@ -431,27 +461,31 @@ export function onCitizenTurnEnd(agentId: string): void {
     clearTimeout(timer);
     group.turnTimers.delete(participant.npcId);
   }
-  group.activeSpeakers.delete(participant.npcId);
-
-  // llm_output hook may fire AFTER agent_end in OpenClaw 2026.6.11.
-  // If buffer is empty, defer processing to allow llm_output to populate it.
+  // NOTE: llm_output may fire AFTER agent_end in OpenClaw 2026.6.11.
+  // Do NOT delete from activeSpeakers yet; delete only after tryFinalize completes.
+  // If buffer is empty, defer to allow llm_output to populate it.
   const tryFinalize = () => {
     const responseText = (group.responseBuffers.get(participant.npcId) ?? "").trim();
     group.responseBuffers.delete(participant.npcId);
+    const contextBudget = group.contextBudgets.get(participant.npcId);
+    group.contextBudgets.delete(participant.npcId);
+    const storedUsage = group.usageMap.get(participant.npcId);
+    group.usageMap.delete(participant.npcId);
 
+    // Now safe to release the speaker slot
+    group.activeSpeakers.delete(participant.npcId);
     if (!responseText || isSkipResponse(responseText)) {
       console.log(`[group-chat] ${participant.name} skipped response`);
       drainPendingMentions(group);
       return;
     }
-    finalizeCitizenResponse(group, participant, responseText);
+    finalizeCitizenResponse(group, participant, responseText, storedUsage, contextBudget);
   };
 
   if ((group.responseBuffers.get(participant.npcId) ?? "").trim()) {
     tryFinalize();
   } else {
-    // Wait for llm_output hook to fire (it may fire AFTER agent_end in OpenClaw 2026.6.11)
-    // Retry with increasing delay to handle slow LLM outputs
+    // Wait for llm_output to fire (may arrive AFTER agent_end)
     let attempts = 0;
     const maxAttempts = 3;
     const retryFinalize = () => {
@@ -471,7 +505,7 @@ export function onCitizenTurnEnd(agentId: string): void {
 }
 
 /** Finalize a citizen response: parse mentions, persist, broadcast, chain. */
-function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participant, responseText: string): void {
+function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participant, responseText: string, usage?: { input: number; output: number; totalTokens?: number }, contextBudget?: number): void {
   // Parse mentions from citizen output
   const mentions = parseMentionsFromText(responseText, group.participants);
 
@@ -483,6 +517,8 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
     speakerName: participant.name,
     text: responseText,
     mentions,
+    ...(usage ? { usage } : {}),
+    ...(typeof contextBudget === "number" ? { contextBudget } : {}),
   };
   group.history.push(msg);
   persistMessage(group, msg);
@@ -500,6 +536,8 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
     speakerName: participant.name,
     text: responseText,
     mentions,
+    ...(usage ? { usage } : {}),
+    ...(typeof contextBudget === "number" ? { contextBudget } : {}),
   });
 
   // Check mention chain limit (includes @all to prevent infinite broadcast loops)
@@ -539,9 +577,9 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
   }
   // If no mentions, citizen chose not to pass the baton — no auto-dispatch
 
-  // Dispatch to next targets
+  // Dispatch to next targets (not directly mentioned — these are citizen-chosen passes)
   for (const npcId of nextTargets) {
-    dispatchToCitizen(npcId, group);
+    dispatchToCitizen(npcId, group, false);
   }
 
   // Drain pending mentions (citizens queued due to max concurrent speakers limit)
@@ -572,7 +610,7 @@ async function dispatchToCitizen(npcId: string, group: ActiveGroupChat, isDirect
   // Check max concurrent speakers
   if (group.activeSpeakers.size >= MAX_CONCURRENT_SPEAKERS) {
     console.log(`[group-chat] Max concurrent speakers reached, queuing ${participant.name}`);
-    group.pendingMentions.push(npcId);
+    group.pendingMentions.push({ npcId, isDirectlyMentioned });
     return;
   }
 
@@ -587,7 +625,7 @@ async function dispatchToCitizen(npcId: string, group: ActiveGroupChat, isDirect
       if (group.activeSpeakers.size < MAX_CONCURRENT_SPEAKERS && !group.activeSpeakers.has(npcId)) {
         dispatchToCitizen(npcId, group, isDirectlyMentioned).catch(() => {});
       } else {
-        group.pendingMentions.push(npcId);
+        group.pendingMentions.push({ npcId, isDirectlyMentioned });
       }
     }, SPEAKER_COOLDOWN_MS - (now - lastSpoke));
     return;
@@ -645,12 +683,12 @@ function drainPendingMentions(group: ActiveGroupChat): void {
   let guard = 0;
   while (group.pendingMentions.length > 0 && group.activeSpeakers.size < MAX_CONCURRENT_SPEAKERS && guard < 50) {
     guard++;
-    const npcId = group.pendingMentions.shift()!;
+    const { npcId, isDirectlyMentioned } = group.pendingMentions.shift()!;
     if (group.activeSpeakers.has(npcId)) continue;
     // dispatchToCitizen is async but its concurrency/cooldown checks are synchronous.
     // If it re-queues (cooldown), we skip to avoid infinite loop.
     const sizeBefore = group.activeSpeakers.size;
-    dispatchToCitizen(npcId, group).catch(() => {});
+    dispatchToCitizen(npcId, group, isDirectlyMentioned).catch(() => {});
     // If activeSpeakers didn't grow, dispatchToCitizen returned early (cooldown/re-queue);
     // break to avoid spinning. The cooldown setTimeout will re-dispatch later.
     if (group.activeSpeakers.size === sizeBefore) break;
@@ -690,6 +728,8 @@ function persistMessage(group: ActiveGroupChat, msg: GroupMessage): void {
     text: msg.text,
     mentions: msg.mentions,
     groupId: group.groupId,
+    ...(msg.usage ? { usage: msg.usage } : {}),
+    ...(typeof msg.contextBudget === "number" ? { contextBudget: msg.contextBudget } : {}),
   };
   appendGroupMessage(group.groupId, persisted);
 }

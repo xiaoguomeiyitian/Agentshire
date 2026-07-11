@@ -1,6 +1,19 @@
 import { useRef, useEffect, useCallback, useState, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { Bot, User, Loader2, X } from 'lucide-react'
+
+function formatClockTime(ts: number): string {
+  const d = new Date(ts)
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+/** Format token count: 1234 → 1.2K, 12345 → 12K */
+function formatTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}K`
+  return String(n)
+}
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatItem } from '@/hooks/useWebSocket'
@@ -20,6 +33,7 @@ interface ChatMessagesProps {
   hasMore?: boolean
   onLoadMore?: () => void
   className?: string
+  contextInfo?: { used: number; limit: number; percent: number }
 }
 
 interface DerivedAttachment {
@@ -208,7 +222,7 @@ function LoadingSpinner({ text }: { text: string }) {
 
 export function ChatMessages({
   items, agentName, agentSpecialty, agentAvatarUrl, agentThinking, connected, visible,
-  historyLoading, loadingMore, hasMore, onLoadMore, className,
+  historyLoading, loadingMore, hasMore, onLoadMore, className, contextInfo,
 }: ChatMessagesProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -320,9 +334,19 @@ export function ChatMessages({
                 ) : (
                   <>
                     {msg.role === 'assistant' && (
-                      <div className="text-[11px] text-text-quaternary mb-1 px-0.5">
-                        {agentName}
-                        {agentSpecialty && <span className="text-text-quaternary/70">（{agentSpecialty}）</span>}
+                      <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary mb-1 px-0.5 flex-wrap">
+                        <span>{agentName}{agentSpecialty && <span className="text-text-quaternary/70">（{agentSpecialty}）</span>}</span>
+                        {msg.timestamp > 0 && <span className="text-text-quaternary/60 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
+                        {msg.usage && (
+                          <span className="text-text-quaternary/50 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
+                            ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
+                          </span>
+                        )}
+                        {msg.usage && contextInfo && contextInfo.limit > 0 && (
+                          <span className="text-text-quaternary/50 tabular-nums" title={`上下文 ${formatTokens(contextInfo.used)}/${formatTokens(contextInfo.limit)}`}>
+                            ctx {formatTokens(contextInfo.used)}/{formatTokens(contextInfo.limit)}
+                          </span>
+                        )}
                       </div>
                     )}
                     <div className={cn(
@@ -339,6 +363,9 @@ export function ChatMessages({
                         </div>
                       )}
                     </div>
+                    {msg.role === 'user' && msg.timestamp > 0 && (
+                      <div className="text-[10px] text-text-quaternary/60 mt-0.5 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
+                    )}
                     {msg.kind === 'text' && msg.role === 'assistant' && (
                       (() => {
                         const attachments = extractAttachmentsFromText(msg.text ?? '', existingMediaUrls)

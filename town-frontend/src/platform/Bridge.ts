@@ -15,6 +15,29 @@ export interface PlatformMessage {
   speed?: number
 }
 
+/** Bubble content forwarded from Town iframe to parent React App. */
+export interface TownBubbleData {
+  npcId: string
+  npcName: string
+  text: string
+  timestamp: number
+  townHour?: number
+  townMinute?: number
+  townPeriod?: string
+  townWeather?: string
+}
+
+/** Town status info forwarded from Town iframe to parent React App. */
+export interface TownStatusData {
+  hour: number
+  minute: number
+  period: string
+  dayCount: number
+  weather: string
+  residentCount: number
+  timestamp: number
+}
+
 type MessageHandler = (msg: PlatformMessage) => void
 
 export class PlatformBridge {
@@ -38,6 +61,16 @@ export class PlatformBridge {
 
   sendLog(level: 'info' | 'warn' | 'error', message: string): void {
     this.sendToParent({ type: 'log', level, message })
+  }
+
+  /** Forward a resident bubble to the parent React App (for "Town Feed" panel). */
+  sendBubble(data: TownBubbleData): void {
+    this.sendToParent({ type: 'town_bubble', ...data })
+  }
+
+  /** Forward town status (time / weather / resident count) to the parent React App. */
+  sendTownStatus(data: TownStatusData): void {
+    this.sendToParent({ type: 'town_status', ...data })
   }
 
   onMessage(handler: MessageHandler): void { this.handlers.push(handler) }

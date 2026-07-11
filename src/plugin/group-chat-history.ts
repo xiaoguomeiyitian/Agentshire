@@ -15,6 +15,8 @@ export interface PersistedGroupMessage {
   text: string;
   mentions: string[];
   groupId: string;
+  usage?: { input: number; output: number; totalTokens?: number };
+  contextBudget?: number;
 }
 
 function groupChatDir(groupId: string): string {
