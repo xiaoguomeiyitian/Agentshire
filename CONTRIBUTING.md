@@ -29,9 +29,9 @@ cd town-frontend && npm install && npm run build
 # Frontend hot-reload dev server
 cd town-frontend && npm run dev
 
-# Visit http://localhost:55210?ws=ws://localhost:55211
-# Visit http://localhost:55210/editor.html
-# Visit http://localhost:55210/citizen-editor.html
+# Visit http://localhost:20009?ws=ws://localhost:20008
+# Visit http://localhost:20009/editor.html
+# Visit http://localhost:20009/citizen-editor.html
 ```
 
 ### Running Tests

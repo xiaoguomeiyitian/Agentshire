@@ -16,8 +16,10 @@ Agentshire is not a slide deck. It's a working system with:
 - **3D Town + IM Chat** dual-mode interface, real-time dialog bubbles, multimodal support, **bilingual UI (Chinese + English)**
 - **Agent = NPC** real-time mapping, cinematic workflow choreography (summon → assign → code → celebrate → return)
 - **Day/night cycle + 12 weather types + procedural ambient sound (zero audio files) + 4-track dynamic BGM**
-- **Citizen Workshop**: three-source character models (12 built-in + 300+ library + custom upload), AI soul generation, 8-slot animation mapping, publish as independent Agents
+- **Citizen Workshop**: three-source character models (12 built-in + 300+ library + custom upload), AI soul generation, 8-slot animation mapping, **per-agent LLM model assignment**, publish as independent Agents
 - **Town Editor**: drag-and-drop buildings/roads/lights, grouping/alignment/undo, JSON export + game-level preview
+- **LLM Model Manager**: standalone page for `openclaw.json` providers/models CRUD with undo/redo history
+- **Group Chat**: multi-citizen group conversations with @mention picker, JSONL history persistence, context token budget tracking
 - **Soul Mode (basic)**: AgentBrain 3-tier AI decisions + LLM deep conversations + relationship graph
 - **Zero-LLM daily social interactions** + Banwei Buster mini-game
 - **Topic Discussions**: multi-citizen group discussions with structured turn-taking
@@ -33,7 +35,7 @@ The focus of this roadmap is not "0 to 1" — it's **stabilizing the foundation 
 
 | # | Direction | Status | Needs |
 |---|-----------|--------|-------|
-| 1 | **Platform Compatibility** | ✅ QClaw done, CLI 4.x pending | Architect · Systems Engineer |
+| 1 | **Platform Compatibility** | ✅ QClaw + CLI 2026.6.11+ done | Architect · Systems Engineer |
 | 2 | **npm One-Click Install** | Blocked | Systems Engineer |
 | 3 | **Plugin Stability** | In Progress | Full-Stack Engineer |
 | 4 | Soul Mode Improvements | In Progress | AI Engineer · Frontend |
@@ -44,7 +46,7 @@ The focus of this roadmap is not "0 to 1" — it's **stabilizing the foundation 
 
 No matter how many features we add, if users can't install it or upgrading breaks everything, none of it matters.
 
-**Current state**: OpenClaw CLI 2026.3.13 and QClaw 0.2.x are fully supported. CLI 4.x is broken.
+**Current state**: OpenClaw CLI 2026.3.13, 2026.6.11+, and QClaw 0.2.x are fully supported. CLI 4.x–6.10 is broken (Channel init regression).
 
 - [x] ~~**QClaw compatibility**: Auto-detect state directory (`~/.qclaw/` vs `~/.openclaw/`), centralized path resolution~~
 - [x] ~~**Agent routing fix**: SessionKey format updated to ensure correct routing to `town-steward` regardless of `agents.list` order~~
@@ -77,6 +79,8 @@ Make existing features truly reliable.
 - [ ] Full state recovery after WebSocket reconnect (workflow phase + NPC positions + dialog context)
 - [ ] Better error messages: clear diagnostics for install failure / connection failure / missing LLM config
 - [ ] Diagnostic command: help users self-check their environment
+- [x] ~~Group chat clear-session: stale message reload after switching citizens~~ — Fixed: timestamp filtering (`clearedAgentsRef` / `groupClearedAtRef`)
+- [x] ~~Brand color unification across all UI~~ — Done: `#D4A574` brand color applied to 13+ style files
 
 ### 4. Soul Mode Improvements
 

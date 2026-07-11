@@ -63,8 +63,8 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 ### 双模式界面
 
 - **Town 模式** — 3D 低多边形小镇，实时观看 NPC 生活、工作、协作、庆祝
-- **Chat 模式** — IM 风格聊天界面，左侧 Agent 列表（管家 + 居民，在线状态），右侧消息流，支持文本/图片多模态、聊天历史（游标分页）、命令系统（`/new` `/help` `/stop`）
-- **顶部导航栏** — Town / Chat 一键切换，右上角快捷菜单（居民管理 / 小镇改造 / 技能商店 / 设置）
+- **Chat 模式** — IM 风格聊天界面，左侧 Agent 列表（管家 + 居民，在线状态），右侧消息流，支持文本/图片多模态、聊天历史（游标分页）、命令系统（`/new` `/help` `/stop` `/clear`）、群聊 @提及、清空会话确认
+- **顶部导航栏** — Town / Chat 一键切换，右上角快捷菜单（居民管理 / 小镇改造 / 模型管理 / 技能商店 / 设置）
 - **双语界面** — 完整中英文界面，自动检测或手动切换
 
 ### 核心
@@ -83,14 +83,16 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **4 轨 BGM** — day / dusk / night / work 四首背景音乐，按天气、时段、场景自动切换，3.5 秒交叉淡化
 - **NPC 日常行为（双模式）** — 默认算法驱动：DailyBehavior 状态机 + 5 种行为模板（按专业匹配） + 400+ 条预设台词社交，零 LLM 开销；开启灵魂模式后切换为 AI 驱动：AgentBrain 三层决策（L1 日计划 / L2 战术 / L3 对话）+ LLM 深度多轮对话 + 关系图谱 + 每日叙事摘要
 - **居民独立聊天** — 点击居民 NPC 直接发起对话，消息路由到居民自己的独立 Agent 会话
+- **群聊** — 多居民群聊对话，支持 @提及选择器、居民职位显示、JSONL 历史持久化、上下文 token 预算跟踪
 - **话题讨论** — 发起多居民参与的群组话题讨论，支持结构化轮流发言和 AI 主持
 - **班味消除小游戏** — NPC 工作时头顶生成"班味团子"，点击消除！含 combo 连击、Boss 战、NPC 压力系统，可扩展更多玩法
 
 ### UGC 工具
 
-- **居民工坊** — 创建和配置居民角色：选择/上传 3D 模型、编辑灵魂人设（支持 AI 一键生成）、配置动画映射（8 槽位）、发布为独立 Agent
+- **居民工坊** — 创建和配置居民角色：选择/上传 3D 模型、编辑灵魂人设（支持 AI 一键生成）、配置动画映射（8 槽位）、分配独立 LLM 模型（留空则继承全局默认）、发布为独立 Agent
 - **小镇编辑器** — 可视化拖拽编辑地图：放置建筑/道路/道具/灯光，支持组合、对齐、撤销、导入导出（已支持导出 JSON，与小镇接入开发中）
 - **编辑器预览** — 一键打开游戏级预览窗口（WASD 控制 + 完整昼夜天气 + 车辆动画 + 音频）
+- **LLM 模型管理** — 独立页面管理 `openclaw.json` 中的提供商/模型：增删改查、导入导出、撤销重做
 - **灵魂系统** — 每个 NPC 有一份 Markdown 人设文件，定义性格、说话风格、专长和工作方式
 
 ### 交互与视觉
@@ -133,7 +135,7 @@ git clone https://github.com/Agentshire/Agentshire.git agentshire
 cd agentshire && npm install
 ```
 
-重启 QClaw 后，小镇会自动在 `http://localhost:55210` 打开。
+重启 QClaw 后，小镇会自动在 `http://localhost:20009` 打开。
 
 > 前端已**预编译**（`town-frontend/dist/`），无需 build。
 
@@ -179,16 +181,20 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
 4. 在浏览器中对话——所有 Agent 活动会自动映射到小镇中
 
 > **提示**：如果浏览器没有自动打开，手动访问：
-> `http://localhost:55210?ws=ws://localhost:55211`
+> `http://localhost:20009?ws=ws://localhost:20008`
 
 
 ### 居民工坊
 
-访问 `http://localhost:55210/citizen-editor.html` 打开居民工坊，创建和配置你的 NPC 团队。
+访问 `http://localhost:20009/citizen-editor.html` 打开居民工坊，创建和配置你的 NPC 团队。
 
 ### 小镇编辑器
 
-访问 `http://localhost:55210/editor.html` 打开小镇编辑器，可视化编辑地图布局。
+访问 `http://localhost:20009/editor.html` 打开小镇编辑器，可视化编辑地图布局。
+
+### LLM 模型管理
+
+访问 `http://localhost:20009/model-manager.html` 管理 `openclaw.json` 中的 LLM 提供商和模型。
 
 ### 配置（可选）
 
@@ -201,8 +207,8 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
       "agentshire": {
         "enabled": true,
         "config": {
-          "wsPort": 55211,
-          "townPort": 55210,
+          "wsPort": 20008,
+          "townPort": 20009,
           "autoLaunch": true
         }
       }
@@ -213,8 +219,8 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `wsPort` | 55211 | WebSocket 端口（插件与前端实时通信） |
-| `townPort` | 55210 | HTTP 端口（前端静态资源 + 编辑器 API） |
+| `wsPort` | 20008 | WebSocket 端口（插件与前端实时通信） |
+| `townPort` | 20009 | HTTP 端口（前端静态资源 + 编辑器 API） |
 | `autoLaunch` | true | 启动时自动在浏览器中打开小镇 |
 
 ### AI 可用工具
@@ -273,14 +279,14 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
 │                                                          │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │ channel  │  │  hook-   │  │ws-server │  │  tools   │  │
-│  │ dispatch │  │translator│  │ WS:55211 │  │ 11 tools │  │
+│  │ dispatch │  │translator│  │ WS:20008 │  │ 11 tools │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │  plan-   │  │ editor-  │  │ citizen- │  │llm-proxy │  │
 │  │ manager  │  │  serve   │  │  router  │  │ 2 concur │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
 └──────┬───────────────┬───────────────────────────────────┘
-       │ WS :55211     │ HTTP :55210
+       │ WS :20008     │ HTTP :20009
        │ AgentEvent    │ Editor API
        ▼               ▼
 ┌──────────────────────────────────────────────────────────┐
@@ -334,13 +340,14 @@ npm test                              # 插件 + 桥接层
 cd town-frontend && npx vitest run    # 前端
 ```
 
-前端有 4 个入口页面：
+前端有 5 个入口页面：
 
 | 页面 | URL | 说明 |
 |------|-----|------|
 | 小镇主页 | `index.html` | 3D 小镇 + 聊天 |
 | 小镇编辑器 | `editor.html` | 地图可视化编辑 |
 | 居民工坊 | `citizen-editor.html` | 角色创建和配置 |
+| LLM 模型管理 | `model-manager.html` | LLM 提供商/模型增删改查 |
 | 编辑器预览 | `preview.html` | 游戏级预览窗口 |
 
 > 开发者架构指南见 [AGENTS.md](AGENTS.md)。

@@ -63,8 +63,8 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 ### Dual-Mode Interface
 
 - **Town Mode** — Low-poly 3D town where you watch NPCs live, work, collaborate, and celebrate in real time
-- **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), and commands (`/new` `/help` `/stop`)
-- **Top Navigation** — One-click switch between Town and Chat, with a quick menu (Citizen Workshop / Town Editor / Skill Store / Settings)
+- **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), commands (`/new` `/help` `/stop` `/clear`), group chat with @mention, and clear-session with confirmation
+- **Top Navigation** — One-click switch between Town and Chat, with a quick menu (Citizen Workshop / Town Editor / Model Manager / Skill Store / Settings)
 - **Bilingual UI** — Full Chinese and English interface, auto-detected or manually switchable
 
 ### Core
@@ -83,14 +83,16 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **4-Track BGM** — Day / dusk / night / work tracks, auto-switching by weather, time period, and scene with 3.5s crossfade
 - **NPC Daily Behavior (Dual Mode)** — Algorithm-driven by default: state machine + 5 behavior templates + 400+ preset dialog lines, zero LLM cost. Enable Soul Mode to switch to AI-driven: AgentBrain 3-tier decisions (L1 daily plan / L2 tactical / L3 dialogue) + deep multi-turn LLM conversations + relationship graph + daily narrative summaries
 - **Citizen Chat** — Click any citizen NPC to start a conversation, routed to that citizen's independent Agent session
+- **Group Chat** — Multi-citizen group conversations with @mention picker, per-citizen role display, JSONL history persistence, and context token budget tracking
 - **Topic Discussion** — Start a group discussion with multiple citizens on a topic, with structured turn-taking and AI-moderated dialogue
 - **Banwei Buster Mini-Game** — NPCs generate "banwei orbs" while working; click to pop them! Includes combo system, boss battles, and NPC stress mechanics
 
 ### UGC Tools
 
-- **Citizen Workshop** — Create and configure citizen characters: select/upload 3D models, edit soul personality (AI generation supported), configure animation mapping (8 slots), publish as independent Agents
+- **Citizen Workshop** — Create and configure citizen characters: select/upload 3D models, edit soul personality (AI generation supported), configure animation mapping (8 slots), assign per-agent LLM model (empty = inherit global default), publish as independent Agents
 - **Town Editor** — Visual drag-and-drop map editing: place buildings/roads/props/lights, with grouping, alignment, undo, and JSON export (runtime integration in progress)
 - **Editor Preview** — One-click game-level preview window (WASD controls + full day/night + weather + vehicle animations + audio)
+- **LLM Model Manager** — Standalone page for `openclaw.json` providers/models CRUD: add/update/delete providers and models, import/export, with undo/redo history
 - **Soul System** — Each NPC has a Markdown personality file defining character traits, speaking style, expertise, and work approach
 
 ### Interaction & Visuals
@@ -133,7 +135,7 @@ git clone https://github.com/Agentshire/Agentshire.git agentshire
 cd agentshire && npm install
 ```
 
-The town opens automatically at `http://localhost:55210` after restarting QClaw.
+The town opens automatically at `http://localhost:20009` after restarting QClaw.
 
 > The frontend comes **pre-built** (`town-frontend/dist/`). No build step needed.
 
@@ -179,17 +181,22 @@ Then restart the Gateway (or restart QClaw).
 4. Chat in the browser — all Agent activity is automatically mapped to the town
 
 > **Tip**: If the browser didn't open automatically, visit:
-> `http://localhost:55210?ws=ws://localhost:55211`
+> `http://localhost:20009?ws=ws://localhost:20008`
 
 
 ### Citizen Workshop
 
-Visit `http://localhost:55210/citizen-editor.html` to create and configure your NPC team.
+Visit `http://localhost:20009/citizen-editor.html` to create and configure your NPC team.
 
 
 ### Town Editor
 
-Visit `http://localhost:55210/editor.html` to open the visual map editor.
+Visit `http://localhost:20009/editor.html` to open the visual map editor.
+
+
+### LLM Model Manager
+
+Visit `http://localhost:20009/model-manager.html` to manage LLM providers and models in `openclaw.json`.
 
 
 ### Configuration (Optional)
@@ -203,8 +210,8 @@ Customize ports and behavior in your `openclaw.json` (`~/.openclaw/openclaw.json
       "agentshire": {
         "enabled": true,
         "config": {
-          "wsPort": 55211,
-          "townPort": 55210,
+          "wsPort": 20008,
+          "townPort": 20009,
           "autoLaunch": true
         }
       }
@@ -215,8 +222,8 @@ Customize ports and behavior in your `openclaw.json` (`~/.openclaw/openclaw.json
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `wsPort` | 55211 | WebSocket port (real-time plugin ↔ frontend communication) |
-| `townPort` | 55210 | HTTP port (frontend static files + editor API) |
+| `wsPort` | 20008 | WebSocket port (real-time plugin ↔ frontend communication) |
+| `townPort` | 20009 | HTTP port (frontend static files + editor API) |
 | `autoLaunch` | true | Auto-open town in browser on startup |
 
 ### AI Tools
@@ -274,14 +281,14 @@ You can:
 │                                                          │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │ channel  │  │  hook-   │  │ws-server │  │  tools   │  │
-│  │ dispatch │  │translator│  │ WS:55211 │  │ 11 tools │  │
+│  │ dispatch │  │translator│  │ WS:20008 │  │ 11 tools │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │  plan-   │  │ editor-  │  │ citizen- │  │llm-proxy │  │
 │  │ manager  │  │  serve   │  │  router  │  │ 2 concur │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
 └──────┬───────────────┬───────────────────────────────────┘
-       │ WS :55211     │ HTTP :55210
+       │ WS :20008     │ HTTP :20009
        │ AgentEvent    │ Editor API
        ▼               ▼
 ┌──────────────────────────────────────────────────────────┐
@@ -336,13 +343,14 @@ npm test                              # Plugin + bridge layer
 cd town-frontend && npx vitest run    # Frontend
 ```
 
-The frontend has 4 entry pages:
+The frontend has 5 entry pages:
 
 | Page | URL | Description |
 |------|-----|-------------|
 | Town | `index.html` | 3D town + chat |
 | Town Editor | `editor.html` | Visual map editing |
 | Citizen Workshop | `citizen-editor.html` | Character creation and configuration |
+| LLM Model Manager | `model-manager.html` | LLM providers/models CRUD |
 | Editor Preview | `preview.html` | Game-level preview window |
 
 > Developer architecture guide: [AGENTS.md](AGENTS.md)

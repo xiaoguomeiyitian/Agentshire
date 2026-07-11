@@ -36,7 +36,7 @@ index.ts register(api)
  ├─ api.registerTool(createTownTools())     → tools.ts
  ├─ ensureTownAgentConfig()                 → auto-config.ts
  ├─ subagent_spawning hook                  → town-souls.ts 注入灵魂
- └─ api.registerService("agentshire-frontend") → HTTP服务器(:55210)
+ └─ api.registerService("agentshire-frontend") → HTTP服务器(:20009)
      └─ handleEditorRequest()               → editor-serve.ts
 
 Hook事件流：

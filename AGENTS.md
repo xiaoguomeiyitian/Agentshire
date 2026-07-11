@@ -28,23 +28,28 @@
 │                                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │   channel    │  │     hook-    │  │   ws-server  │  │    tools     │  │
-│  │   inbound    │  │  translator  │  │   WS:55211   │  │  11 AI tools │  │
+│  │   inbound    │  │  translator  │  │   WS:20008   │  │  11 AI tools │  │
 │  │   dispatch   │  │  Hook→Event  │  │   broadcast  │  │  plan / step │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │     plan-    │  │    editor-   │  │   citizen-   │  │   llm-proxy  │  │
 │  │    manager   │  │     serve    │  │  chat-router │  │  2 parallel  │  │
-│  │    plan SM   │  │  HTTP:55210  │  │   msg route  │  │  LLM direct  │  │
+│  │    plan SM   │  │  HTTP:20009  │  │   msg route  │  │  LLM direct  │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │   subagent-  │  │   outbound-  │  │    session-  │  │  group-chat  │  │
+│  │    tracker   │  │    adapter   │  │    history   │  │  +ctx+hist   │  │
+│  │  JSONL watch │  │  media→card  │  │  chat reload │  │  per-agent   │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                    │
-│  │   subagent-  │  │   outbound-  │  │    session-  │                    │
-│  │    tracker   │  │    adapter   │  │    history   │                    │
-│  │  JSONL watch │  │  media→card  │  │  chat reload │                    │
+│  │  model-config│  │ llm-agent-   │  │  llm-proxy   │                    │
+│  │  providers/  │  │    proxy     │  │  2 parallel  │                    │
+│  │  models CRUD │  │  modelRef    │  │  LLM direct  │                    │
 │  └──────────────┘  └──────────────┘  └──────────────┘                    │
 │                                                                          │
 └───────┬───────────────────┬──────────────────────────────────────────────┘
         │                   │
-        │  WS :55211        │  HTTP :55210
+        │  WS :20008        │  HTTP :20009
         │  AgentEvent(26+)  │  Editor API / Static Assets
         ▼                   ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -67,6 +72,10 @@
 │  │   Tracker    │  │    Queue     │  │    Stream    │  │    Mapper    │  │
 │  │  id↔npc map  │  │  bubble prot │  │  500ms flush │  │  tool→anim   │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
+│  ┌──────────────┐                                                        │
+│  │  Reconnect-  │                                                        │
+│  │   Manager    │                                                        │
+│  └──────────────┘                                                        │
 │                                                                          │
 └───────┬───────────────────────────────────────────────────────┬──────────┘
         │                                                       │
@@ -91,11 +100,16 @@
 │  │   Museum     │  │   Workshop   │  │  World/Input │  │  TownConfig  │  │
 │  │ VehicleMgr   │  │   Preview    │  │    Screen    │  │  CharModels  │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                        │
+│  │     app/     │  │  platform/   │  │  narrative/  │                        │
+│  │ React ChatUI │  │  Bridge      │  │  8 acts      │                        │
+│  │ GroupChatView│  │  iframe comm │  │              │                        │
+│  └──────────────┘  └──────────────┘  └──────────────┘                        │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
 
   Shared Contracts (src/contracts/):
-    AgentEvent (26+ variants) · AgentPhase · MediaContent · AG-UI Protocol
+    AgentEvent (26+ variants) · AgentPhase · MediaContent · GroupMessage · AG-UI Protocol
 ```
 
 ## Directory Structure
@@ -107,7 +121,7 @@ agentshire/
 ├── package.json
 │
 ├── src/
-│   ├── plugin/                    # Node.js plugin layer (19 files, see plugin/AGENTS.md)
+│   ├── plugin/                    # Node.js plugin layer (24 files, see plugin/AGENTS.md)
 │   │   ├── channel.ts             # ChannelPlugin implementation
 │   │   ├── hook-translator.ts     # Hook → AgentEvent translation
 │   │   ├── ws-server.ts           # WebSocket server + session management
@@ -117,8 +131,13 @@ agentshire/
 │   │   ├── citizen-agent-manager.ts # Independent citizen Agent create/disable/update
 │   │   ├── citizen-chat-router.ts # User ↔ citizen Agent message routing
 │   │   ├── citizen-workshop-manager.ts # Citizen workshop config persistence
-│   │   ├── editor-serve.ts        # Editor HTTP API (asset CRUD / GLB optimize / publish)
+│   │   ├── editor-serve.ts        # Editor HTTP API (asset CRUD / GLB optimize / publish / models API)
 │   │   ├── llm-proxy.ts           # Lightweight LLM proxy (2 concurrent, anthropic/openai)
+│   │   ├── llm-agent-proxy.ts     # Per-agent LLM model routing (modelRef resolution)
+│   │   ├── model-config.ts        # openclaw.json providers/models CRUD (pure functions)
+│   │   ├── group-chat.ts          # Group chat system (multi-citizen conversations)
+│   │   ├── group-chat-history.ts  # Group chat JSONL history persistence
+│   │   ├── group-chat-context.ts  # Group chat context compression + token budget
 │   │   ├── session-history.ts     # Cross-session chat history loading
 │   │   ├── soul-prompt-template.ts # Soul file AI generation template
 │   │   ├── outbound-adapter.ts    # Outbound message adapter (text+media → deliverable_card)
@@ -146,6 +165,7 @@ agentshire/
 │   │   ├── events.ts              # AgentEvent discriminated union (22+ variants)
 │   │   ├── agent-state.ts         # AgentPhase / AgentStateSnapshot
 │   │   ├── media.ts               # Multimodal content types
+│   │   ├── chat.ts                # Group chat types (GroupMessage / usage / contextBudget)
 │   │   ├── agui.ts                # AG-UI protocol events
 │   │   └── registry.ts            # Project registry
 │   │
@@ -159,6 +179,7 @@ agentshire/
         ├── main.ts                # Game entry (WS connection / implicit chat proxy)
         ├── main.tsx               # React entry (standalone)
         ├── types.ts               # Shared types (weather / time period / buildings / NPC roles / modes)
+        ├── app/                   # ★ React Chat UI (App / ChatView / GroupChatView / AgentList / TopNav / TownDynamicPanel)
         ├── game/                  # Scene management (see game/AGENTS.md)
         │   ├── MainScene.ts       # Main scene (1622 lines, update loop + subsystem orchestration)
         │   ├── EventDispatcher.ts # 65 GameEvent type routing
@@ -189,7 +210,7 @@ agentshire/
         │   ├── StatusIndicator.ts # Overhead 3D status indicator
         │   └── FollowBehavior.ts  # Follow behavior
         │
-        ├── ui/                    # UI panels (17 files)
+        ├── ui/                    # UI panels (18 files, incl. ★ MentionPicker @-selector)
         ├── data/                  # Data layer
         │   ├── GameProtocol.ts    # GameEvent (65 types) / GameAction (14 types)
         │   ├── TownConfig.ts      # Town config (v4)
@@ -197,18 +218,20 @@ agentshire/
         │   ├── CharacterModelRegistry.ts # ★ Three-source character model registry
         │   └── ...                # TownConfigStore / CharacterRoster / DataSource
         │
-        ├── editor/                # Town editor (26+ files, 3 entry pages)
+        ├── editor/                # Town editor (30+ files, 5 entry pages)
         │   ├── main.ts            # Map editor entry
         │   ├── TownEditor.ts      # Editor core (select / drag / group / align / undo)
         │   ├── EditorScene.ts     # Editor 3D scene (1816 lines)
         │   ├── preview-main.ts    # ★ Game-level preview entry
         │   ├── citizen-main.ts    # ★ Citizen workshop entry
-        │   └── citizen/           # ★ Citizen workshop subsystem (Workshop/Stage/ModelPicker/SoulEditor/AnimMapping)
+        │   ├── model-main.ts      # ★ LLM model manager entry
+        │   ├── citizen/           # ★ Citizen workshop subsystem (Workshop/Stage/ModelPicker/SoulEditor/AnimMapping)
+        │   └── model/             # ★ LLM model manager (ModelManager/ModelManagerView/types)
         │
         ├── audio/                 # BGMManager + AmbientSoundManager + AudioSystem
         ├── engine/                # Engine / World / Input / Screen / Performance
         ├── narrative/             # NarrativeEngine + demo sequences (8 acts)
-        ├── platform/              # PlatformBridge (iframe communication)
+        ├── platform/              # ★ PlatformBridge (iframe communication + Bridge.ts)
         ├── hooks/                 # useAgents / useWebSocket
         └── utils/                 # Filters / Math / RingBuffer / command-parser
 ```
@@ -280,6 +303,17 @@ agentshire/
       └──────────────────────────────┘◀─────────────────────┘
 ```
 
+### Group Chat
+
+```
+┌──────┐  @mention   ┌──────────────┐  WS    ┌────────────┐  route  ┌───────────┐
+│ User │── message ─▶│ GroupChatView│───────▶│ ws-server  │───────▶│group-chat │
+└──────┘             └──────────────┘        └────────────┘         │+history   │
+   ▲                                                                   │+context   │
+   │  pushGroupMessages                            per-citizen reply  └─────┬─────┘
+   └───────────────────────────────────────────────────────────────────┘
+```
+
 ## Type Contracts
 
 | Type | Definition | Variants | Consumers |
@@ -287,6 +321,7 @@ agentshire/
 | `AgentEvent` | `src/contracts/events.ts` | 22+ | DirectorBridge, hook-translator, ws-server |
 | `GameEvent` | `town-frontend/src/data/GameProtocol.ts` | 65 | Bridge emit, EventDispatcher, MainScene |
 | `GameAction` | same as above | 14 | MainScene → DataSource → Bridge |
+| `GroupMessage` | `src/contracts/chat.ts` | — | group-chat, group-chat-history, GroupChatView |
 | `PublishedCitizenConfig` | `town-frontend/src/data/CitizenWorkshopConfig.ts` | — | SceneBootstrap, editor-serve, CitizenWorkshop |
 
 ## Sub-Module AGENTS.md
@@ -318,9 +353,13 @@ cd town-frontend && npx vitest run
 
 Test distribution:
 - `src/bridge/__tests__/` — EventTranslator, RouteManager, ActivityStream, CitizenManager, NpcEventQueue
-- `src/plugin/__tests__/` — hook-translator
+- `src/plugin/__tests__/` — hook-translator, auth, channel, model-config
 - `town-frontend/src/game/__tests__/` — EventDispatcher, DialogManager, SceneSwitcher, GameClock, ModeManager, SceneBootstrap
-- `town-frontend/src/data/__tests__/` — publishedToTownView
+- `town-frontend/src/data/__tests__/` — publishedToTownView, i18n, CharacterRoster
+- `town-frontend/src/audio/__tests__/` — AmbientSoundManager, BGMManager
+- `town-frontend/src/app/__tests__/` — TownDynamicPanel
+- `town-frontend/src/platform/__tests__/` — Bridge
+- `town-frontend/src/ui/__tests__/` — SettingsPanel
 
 ## Common Change Guide
 
@@ -335,6 +374,9 @@ Test distribution:
 | Modify Phase state machine | `src/bridge/DirectorBridge.ts` |
 | Modify citizen spawn animation | `src/bridge/CitizenManager.ts` |
 | Modify NPC implicit behavior scenes | `src/bridge/implicit-chat.ts` |
+| Modify group chat system | `src/plugin/group-chat.ts` + `group-chat-history.ts` + `group-chat-context.ts` |
+| Modify LLM model management | `src/plugin/model-config.ts` + `town-frontend/src/editor/model/` |
+| Modify per-agent LLM model routing | `src/plugin/llm-agent-proxy.ts` |
 | Modify workflow choreography | `town-frontend/src/game/workflow/Choreographer.ts` → corresponding Orchestrator |
 | Modify NPC post-completion departure | `town-frontend/src/game/workflow/WorkflowHandler.ts` `handleNpcWorkDone()` |
 | Add frontend GameEvent handler | `town-frontend/src/game/EventDispatcher.ts` |
