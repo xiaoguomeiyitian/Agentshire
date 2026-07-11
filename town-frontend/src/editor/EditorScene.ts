@@ -1692,7 +1692,7 @@ export class EditorScene {
     this.container.style.cursor = 'crosshair'
 
     const statusEl = document.createElement('div')
-    statusEl.style.cssText = 'position:absolute;bottom:110px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#00d4ff;padding:8px 20px;border-radius:8px;font-size:13px;z-index:50;pointer-events:none;white-space:nowrap;border:1px solid rgba(0,212,255,0.2);backdrop-filter:blur(8px);'
+    statusEl.style.cssText = 'position:absolute;bottom:110px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:#D4A574;padding:8px 20px;border-radius:8px;font-size:13px;z-index:50;pointer-events:none;white-space:nowrap;border:1px solid rgba(212,165,116,0.2);backdrop-filter:blur(8px);'
     statusEl.textContent = getLocale() === 'en' ? `Route edit · Click to add (${waypoints.length}) · Right/Enter done · ESC cancel` : `路线编辑 · 点击地面添加航点 (${waypoints.length} 个) · 右键/Enter 确认 · ESC 取消`
     this.container.appendChild(statusEl)
 

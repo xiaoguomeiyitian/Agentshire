@@ -52,11 +52,13 @@ const TOWN_AGENT_ID = "town-steward";
 const pendingSpawnTasks = new Map<string, string>();
 
 function notifyGroupDiscussion(hookName: string, agentId: string, payload: Record<string, unknown>): void {
-  import("./src/plugin/group-discussion.js").then(({ hasActiveDiscussion, onCitizenResponse, onCitizenTurnEnd }) => {
-    if (!hasActiveDiscussion()) return;
+  import("./src/plugin/group-chat.js").then(({ hasActiveGroup, onCitizenResponse, onCitizenTurnEnd }) => {
+    if (!hasActiveGroup()) return;
     if (hookName === "llm_output") {
       const texts: string[] = (payload as any).assistantTexts ?? [];
-      const text = texts.length > 0 ? texts[texts.length - 1] : String((payload as any).output ?? "");
+      const text = texts.length > 0
+        ? texts[texts.length - 1]
+        : String((payload as any).lastAssistant ?? (payload as any).text ?? (payload as any).content ?? (payload as any).output ?? "");
       if (text) onCitizenResponse(agentId, text);
     } else if (hookName === "agent_end") {
       onCitizenTurnEnd(agentId);
@@ -155,6 +157,8 @@ function registerHooks(api: OpenClawPluginApi): void {
         }
       }
       dispatchSteward(hookName, event as any, ctx);
+      // Also notify group chat for steward responses (steward is a group participant)
+      notifyGroupDiscussion(hookName, TOWN_AGENT_ID, event as any);
       if (hookName === 'agent_end') {
         const sid = resolveSessionId(ctx, event as any);
         if (sid) {

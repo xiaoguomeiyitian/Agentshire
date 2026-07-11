@@ -8,8 +8,8 @@
   --town-border: #1a1a2e;
   --town-text: #e8e8f0;
   --town-dim: #6a6a8a;
-  --town-accent: #45E796;
-  --town-cyan: #00d4ff;
+  --town-accent: #D4A574;
+  --town-cyan: #D4A574;
   --town-red: #f87171;
 }
 
@@ -503,7 +503,7 @@
 #town-skill-btn:hover {
   color: var(--town-accent);
   background: rgba(20, 20, 40, 0.7);
-  border-color: rgba(69, 231, 150, 0.3);
+  border-color: rgba(212, 165, 116, 0.3);
 }
 
 /* ═══════════════════════════════════════════
@@ -545,7 +545,7 @@
   user-select: none; font-weight: 500;
 }
 .nav-link:hover { color: var(--town-text); background: rgba(255, 255, 255, 0.06); }
-.nav-link.nav-active { color: var(--town-accent); background: rgba(69, 231, 150, 0.1); }
+.nav-link.nav-active { color: var(--town-accent); background: rgba(212, 165, 116, 0.1); }
 
 .sp-search-row { padding: 10px 16px 0; }
 .sp-search {

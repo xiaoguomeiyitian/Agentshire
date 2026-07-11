@@ -20,7 +20,7 @@ const POLL_INTERVAL_MS = 3000
 const CELEBRATION_DURATION = 8.0
 const CELEBRATION_TEXT = '[ Mission COMPLETED ! ]'
 const TYPE_SPEED = 0.08
-const FIREWORK_COLORS = ['#D4A574', '#00d4ff', '#10b981', '#cda77b', '#f59e0b', '#ec4899']
+const FIREWORK_COLORS = ['#D4A574', '#E7DDCC', '#10b981', '#cda77b', '#f59e0b', '#ec4899']
 const FONT_FAM = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
 
 interface FireworkParticle {

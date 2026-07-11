@@ -458,6 +458,8 @@ export function loadCitizenHistory(
       const index = JSON.parse(readFileSync(indexPath, "utf-8"));
       for (const [key, value] of Object.entries(index)) {
         if (!key.startsWith(prefix)) continue;
+        // Skip group chat sessions to keep single-chat context isolated
+        if (key.includes(":group:")) continue;
         const entry = value as any;
         if (!entry?.sessionId) continue;
         const filePath = join(sessDir, `${entry.sessionId}.jsonl`);
@@ -783,6 +785,8 @@ export function loadCitizenItemHistory(
       const index = JSON.parse(readFileSync(indexPath, "utf-8"));
       for (const [key, value] of Object.entries(index)) {
         if (!key.startsWith(prefix)) continue;
+        // Skip group chat sessions to keep single-chat context isolated
+        if (key.includes(":group:")) continue;
         const entry = value as any;
         if (!entry?.sessionId) continue;
         const fp = join(sessDir, `${entry.sessionId}.jsonl`);
@@ -822,6 +826,8 @@ export function loadCitizenNewMessages(agentId: string): ChatHistoryMessage[] {
     let latest: any = null;
     for (const [key, value] of Object.entries(index)) {
       if (!key.startsWith(prefix)) continue;
+      // Skip group chat sessions to keep single-chat context isolated
+      if (key.includes(":group:")) continue;
       const entry = value as any;
       if (!entry?.sessionId) continue;
       if (!latest || (entry.updatedAt ?? 0) > (latest.updatedAt ?? 0)) {

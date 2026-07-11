@@ -186,6 +186,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
       hideWsError()
       console.log('[main] DirectorBridge WS connected')
       bindTownSession(configStore.getSessionId() || initialTownSessionId)
+      // Initialize default group chat (deferred to avoid TDZ)
+      setTimeout(() => wsSend({ type: 'group_chat_init' }), 100)
     }
 
     ws.onmessage = (msg: MessageEvent) => {
@@ -202,6 +204,42 @@ const syncTownSessionUrl = (townSessionId: string) => {
           }
         } else if (data.type === 'chat_new_messages' && data.npcId) {
           forwardCitizenMessagesToScene(sceneRef, data)
+        } else if (data.type === 'group_chat_message' && data.groupId) {
+          // Group chat message from backend
+          const chatPanel = sceneRef?.getUIManager().getChatPanel()
+          if (chatPanel) {
+            chatPanel.addGroupMessage({
+              sequenceId: data.sequenceId,
+              timestamp: data.timestamp,
+              speakerNpcId: data.speakerNpcId,
+              speakerName: data.speakerName,
+              text: data.text,
+              mentions: data.mentions ?? [],
+              groupId: data.groupId,
+              groupName: data.groupName,
+            })
+          }
+        } else if (data.type === 'group_chat_info' && data.groupId) {
+          // Group chat info (participants, etc.)
+          if (!groupChatState) {
+            groupChatState = {
+              active: false,
+              groupId: data.groupId,
+              groupName: data.groupName,
+              participants: (data.participants ?? []).map((p: any) => ({
+                npcId: p.npcId,
+                name: p.name,
+                specialty: p.specialty,
+              })),
+            }
+          } else {
+            groupChatState.participants = (data.participants ?? []).map((p: any) => ({
+              npcId: p.npcId,
+              name: p.name,
+              specialty: p.specialty,
+            }))
+          }
+          console.log(`[main] Group chat info: ${data.groupName} (${data.participants?.length ?? 0} participants)`)
         } else if (data.type === 'work_snapshot' && data.snapshot?.agents) {
           director.restoreWorkState(data.snapshot)
         } else if (data.type === 'town_session_bound' && data.townSessionId) {
@@ -366,9 +404,61 @@ const syncTownSessionUrl = (townSessionId: string) => {
   }
   let topicState: TopicState | null = null
 
+  // ── Group chat state ──
+  interface GroupChatState {
+    active: boolean
+    groupId: string
+    groupName: string
+    participants: Array<{ npcId: string; name: string; specialty?: string; color?: number; avatarUrl?: string }>
+  }
+  let groupChatState: GroupChatState | null = null
+
+  const getMentionableCitizens = () => {
+    if (!groupChatState) return []
+    return groupChatState.participants.map(p => ({
+      npcId: p.npcId,
+      name: p.name,
+      specialty: p.specialty,
+      color: p.color,
+      avatarUrl: p.avatarUrl,
+    }))
+  }
+
+  const switchToGroupChat = () => {
+    if (!groupChatState) return
+    scene.getUIManager().getChatPanel().switchView('group')
+    inputBar.setGroupMode(true, getMentionableCitizens())
+    // Register participants for avatar rendering
+    for (const p of groupChatState.participants) {
+      scene.getUIManager().getChatPanel().registerGroupParticipant(p)
+    }
+    const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+    if (textarea) textarea.placeholder = t('input.group')
+  }
+
+  const switchToSingleChat = () => {
+    scene.getUIManager().getChatPanel().switchView('single')
+    inputBar.setGroupMode(false)
+    const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+    if (textarea) textarea.placeholder = t('input.idle')
+  }
+
+  const initDefaultGroupChat = () => {
+    // Request default group init from backend
+    wsSend({ type: 'group_chat_init' })
+  }
+
   const inputBar = new InputBar({
     send: (msg) => {
-      if (topicState?.phase === 'active' && msg.type === 'chat') {
+      if (groupChatState?.active && msg.type === 'chat') {
+        // Group chat message
+        wsSend({
+          type: 'group_chat_message',
+          groupId: groupChatState.groupId,
+          message: msg.message,
+          mentions: msg.mentions ?? [],
+        })
+      } else if (topicState?.phase === 'active' && msg.type === 'chat') {
         wsSend({ type: 'topic_message', npcIds: topicState.npcIds, message: msg.message })
       } else {
         sendToBackend(msg)
@@ -473,6 +563,38 @@ const syncTownSessionUrl = (townSessionId: string) => {
       showEndTopicBtn()
     })
     actionDropdown.appendChild(topicItem)
+
+    // ── Group chat (小镇广场) ──
+    const isGroupActive = groupChatState?.active ?? false
+    const groupItem = document.createElement('div')
+    groupItem.className = 'town-action-item' + (isTopic ? ' disabled' : '')
+    groupItem.textContent = isGroupActive ? t('menu.exit_group') : t('menu.enter_group')
+    groupItem.addEventListener('click', () => {
+      closeActionDropdown()
+      if (isTopic) return
+      if (isGroupActive) {
+        // Exit group chat → back to single chat
+        if (groupChatState) groupChatState.active = false
+        switchToSingleChat()
+      } else {
+        // Enter group chat (default town-square)
+        if (groupChatState) {
+          groupChatState.active = true
+          switchToGroupChat()
+        } else {
+          // Request group init first
+          wsSend({ type: 'group_chat_init' })
+          // Will switch after info arrives
+          setTimeout(() => {
+            if (groupChatState) {
+              groupChatState.active = true
+              switchToGroupChat()
+            }
+          }, 1000)
+        }
+      }
+    })
+    actionDropdown.appendChild(groupItem)
 
     actionDropdown.style.display = 'block'
     dropdownOpen = true

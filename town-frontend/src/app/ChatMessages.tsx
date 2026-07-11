@@ -10,6 +10,7 @@ import { RichAttachmentCard } from './RichAttachmentCard'
 interface ChatMessagesProps {
   items: ChatItem[]
   agentName: string
+  agentSpecialty?: string
   agentAvatarUrl?: string
   agentThinking?: boolean
   connected?: boolean
@@ -206,7 +207,7 @@ function LoadingSpinner({ text }: { text: string }) {
 }
 
 export function ChatMessages({
-  items, agentName, agentAvatarUrl, agentThinking, connected, visible,
+  items, agentName, agentSpecialty, agentAvatarUrl, agentThinking, connected, visible,
   historyLoading, loadingMore, hasMore, onLoadMore, className,
 }: ChatMessagesProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -318,6 +319,12 @@ export function ChatMessages({
                   )
                 ) : (
                   <>
+                    {msg.role === 'assistant' && (
+                      <div className="text-[11px] text-text-quaternary mb-1 px-0.5">
+                        {agentName}
+                        {agentSpecialty && <span className="text-text-quaternary/70">（{agentSpecialty}）</span>}
+                      </div>
+                    )}
                     <div className={cn(
                       'rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed min-w-0 w-fit',
                       msg.role === 'user'

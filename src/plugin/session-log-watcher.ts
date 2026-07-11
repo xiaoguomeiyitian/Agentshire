@@ -15,14 +15,14 @@ interface ContentBlock {
   arguments?: Record<string, unknown>;
 }
 
-function detectMediaKind(ext: string): string {
+export function detectMediaKind(ext: string): string {
   if (["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"].includes(ext)) return "image";
   if (["mp4", "webm", "mov", "avi", "mkv"].includes(ext)) return "video";
   if (["mp3", "wav", "ogg", "m4a", "flac"].includes(ext)) return "audio";
   return "file";
 }
 
-function tryReadBase64(filePath: string): string | undefined {
+export function tryReadBase64(filePath: string): string | undefined {
   try {
     if (!filePath || !existsSync(filePath)) return undefined;
     if (statSync(filePath).size > MAX_BASE64_SIZE) return undefined;
@@ -30,7 +30,7 @@ function tryReadBase64(filePath: string): string | undefined {
   } catch { return undefined; }
 }
 
-function extractMediaFromResult(toolName: string, args: Record<string, unknown>, result: string): string | null {
+export function extractMediaFromResult(toolName: string, args: Record<string, unknown>, result: string): string | null {
   if (toolName === "image" || toolName === "screencapture") {
     const m = result.match(/\/[^\s"']+\.(?:png|jpg|jpeg|gif|webp)/i);
     return m ? m[0] : (args.path ?? args.output_path) as string | null;

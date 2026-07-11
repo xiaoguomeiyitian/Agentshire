@@ -218,15 +218,15 @@ function coverPuzzle(name: string, font: string): string {
 }
 
 function coverAdventure(name: string, font: string): string {
-  return `<div class="relative w-full h-full overflow-hidden flex flex-col items-center justify-center p-3" style="font-family:${font};background:linear-gradient(to bottom,#38bdf8,#bae6fd)">
+  return `<div class="relative w-full h-full overflow-hidden flex flex-col items-center justify-center p-3" style="font-family:${font};background:linear-gradient(to bottom,#C4915E,#D4A574)">
     <div class="absolute top-0 left-1/2 -translate-x-1/2 w-[200%] h-[200%] opacity-20" style="background:repeating-conic-gradient(from 0deg, transparent 0 15deg, #fff 15deg 30deg)"></div>
-    <div class="absolute -bottom-16 -left-12 w-40 h-40 bg-emerald-400 rounded-full"></div>
-    <div class="absolute -bottom-24 -right-12 w-52 h-52 bg-emerald-500 rounded-full"></div>
-    <div class="absolute -bottom-32 left-1/4 w-56 h-56 bg-emerald-600 rounded-full"></div>
+    <div class="absolute -bottom-16 -left-12 w-40 h-40 bg-amber-400 rounded-full"></div>
+    <div class="absolute -bottom-24 -right-12 w-52 h-52 bg-amber-500 rounded-full"></div>
+    <div class="absolute -bottom-32 left-1/4 w-56 h-56 bg-amber-600 rounded-full"></div>
     <div class="absolute top-6 left-6 w-14 h-4 bg-white/80 rounded-full" style="filter:blur(2px)"></div>
     <div class="absolute top-12 right-8 w-16 h-5 bg-white/60 rounded-full" style="filter:blur(2px)"></div>
     <div class="z-10 flex flex-col items-center w-full px-2 mb-8">
-      <h1 class="text-4xl text-white font-black text-center uppercase leading-tight break-words w-full" style="text-shadow:0 4px 0 #0369a1,0 8px 16px rgba(0,0,0,0.3)">${name}</h1>
+      <h1 class="text-4xl text-white font-black text-center uppercase leading-tight break-words w-full" style="text-shadow:0 4px 0 #8B6332,0 8px 16px rgba(0,0,0,0.3)">${name}</h1>
     </div>
     <div class="absolute bottom-6 text-emerald-50 font-bold tracking-[0.2em] uppercase text-xs" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3))">OpenClaw</div>
   </div>`

@@ -37,6 +37,26 @@ export interface LegacyHistoryMessage {
   fileSize?: number
 }
 
+export interface GroupChatMessageItem {
+  sequenceId: number
+  timestamp: number
+  speakerNpcId: string
+  speakerName: string
+  text: string
+  mentions: string[]
+  groupId: string
+  groupName: string
+}
+
+export interface GroupChatInfo {
+  groupId: string
+  groupName: string
+  isDefault: boolean
+  participants: Array<{ npcId: string; name: string; specialty?: string }>
+  topic?: string
+  messageCount: number
+}
+
 interface UseWebSocketOptions {
   url: string
   townSessionId: string
@@ -45,22 +65,31 @@ interface UseWebSocketOptions {
   onDeltaItems?: (agentId: string, items: ChatItem[]) => void
   onNewMessages?: (agentId: string, messages: LegacyHistoryMessage[]) => void
   onAgentEvent?: (event: any) => void
+  onGroupChatMessage?: (msg: GroupChatMessageItem) => void
+  onGroupChatInfo?: (info: GroupChatInfo) => void
+  onGroupChatHistory?: (messages: GroupChatMessageItem[]) => void
 }
 
 const RECONNECT_DELAY = 3000
 const MAX_RECONNECTS = 10
 
-export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDeltaItems, onNewMessages, onAgentEvent }: UseWebSocketOptions) {
+export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDeltaItems, onNewMessages, onAgentEvent, onGroupChatMessage, onGroupChatInfo, onGroupChatHistory }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
   const onHistoryItemsRef = useRef(onHistoryItems)
   const onDeltaItemsRef = useRef(onDeltaItems)
   const onNewMessagesRef = useRef(onNewMessages)
   const onAgentEventRef = useRef(onAgentEvent)
+  const onGroupChatMessageRef = useRef(onGroupChatMessage)
+  const onGroupChatInfoRef = useRef(onGroupChatInfo)
+  const onGroupChatHistoryRef = useRef(onGroupChatHistory)
   onHistoryItemsRef.current = onHistoryItems
   onDeltaItemsRef.current = onDeltaItems
   onNewMessagesRef.current = onNewMessages
   onAgentEventRef.current = onAgentEvent
+  onGroupChatMessageRef.current = onGroupChatMessage
+  onGroupChatInfoRef.current = onGroupChatInfo
+  onGroupChatHistoryRef.current = onGroupChatHistory
   const reconnectCount = useRef(0)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cleanedUp = useRef(false)
@@ -98,6 +127,38 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
               onNewMessagesRef.current?.(data.agentId ?? 'steward', data.messages ?? [])
             } else if (data.type === 'agent_event' && data.event) {
               onAgentEventRef.current?.(data.event)
+            } else if (data.type === 'group_chat_message' && data.groupId) {
+              onGroupChatMessageRef.current?.({
+                sequenceId: data.sequenceId ?? 0,
+                timestamp: data.timestamp ?? Date.now(),
+                speakerNpcId: data.speakerNpcId ?? '',
+                speakerName: data.speakerName ?? '',
+                text: data.text ?? '',
+                mentions: data.mentions ?? [],
+                groupId: data.groupId,
+                groupName: data.groupName ?? '',
+              })
+            } else if (data.type === 'group_chat_info' && data.groupId) {
+              onGroupChatInfoRef.current?.({
+                groupId: data.groupId,
+                groupName: data.groupName ?? '',
+                isDefault: data.isDefault ?? false,
+                participants: data.participants ?? [],
+                topic: data.topic,
+                messageCount: data.messageCount ?? 0,
+              })
+            } else if (data.type === 'group_chat_history' && data.groupId && Array.isArray(data.messages)) {
+              const historyMessages: GroupChatMessageItem[] = (data.messages as any[]).map(m => ({
+                sequenceId: m.sequenceId ?? 0,
+                timestamp: m.timestamp ?? 0,
+                speakerNpcId: m.speakerNpcId ?? '',
+                speakerName: m.speakerName ?? '',
+                text: m.text ?? '',
+                mentions: m.mentions ?? [],
+                groupId: data.groupId,
+                groupName: data.groupName ?? '',
+              }))
+              onGroupChatHistoryRef.current?.(historyMessages)
             }
           } catch { /* ignore malformed */ }
         }
@@ -191,5 +252,29 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
     ws.send(JSON.stringify({ type: 'command', command, args }))
   }, [])
 
-  return { connected, sendChat, sendCitizenChat, sendMultimodal, sendAbort, sendCommand, requestHistory, bindChatAgent }
+  const sendGroupChatInit = useCallback(() => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'group_chat_init' }))
+  }, [])
+
+  const sendGroupChatMessage = useCallback((groupId: string, message: string, mentions: string[] = []) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'group_chat_message', groupId, message, mentions }))
+  }, [])
+
+  const sendGroupChatEnd = useCallback((groupId: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'group_chat_end', groupId }))
+  }, [])
+
+  const sendGroupChatClear = useCallback((groupId: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    ws.send(JSON.stringify({ type: 'group_chat_clear', groupId }))
+  }, [])
+
+  return { connected, sendChat, sendCitizenChat, sendMultimodal, sendAbort, sendCommand, requestHistory, bindChatAgent, sendGroupChatInit, sendGroupChatMessage, sendGroupChatEnd, sendGroupChatClear }
 }

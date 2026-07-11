@@ -30,6 +30,7 @@ export function App() {
     setChatAgent(null)
     try {
       localStorage.removeItem(CHAT_AGENT_STORAGE_KEY)
+      localStorage.removeItem('agentshire_chat_view_mode')
     } catch {
       // ignore storage failures
     }

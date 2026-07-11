@@ -5,8 +5,8 @@
   z-index: 101; display: none;
 }
 #progress-bar .fill {
-  height: 100%; background: linear-gradient(90deg, #64ffda, #38bdf8); transition: width 0.5s ease;
-  box-shadow: 0 0 8px rgba(100, 255, 218, 0.5);
+  height: 100%; background: linear-gradient(90deg, #C4915E, #D4A574); transition: width 0.5s ease;
+  box-shadow: 0 0 8px rgba(212, 165, 116, 0.5);
 }
 #progress-label {
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 101;

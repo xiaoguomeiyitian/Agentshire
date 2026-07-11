@@ -7,7 +7,7 @@ export interface ParsedCommand {
   raw: string
 }
 
-const FRONTEND_COMMANDS = new Set(['new', 'help'])
+const FRONTEND_COMMANDS = new Set(['new', 'clear', 'help'])
 
 /**
  * Parse a chat input into a structured command (if it starts with `/`).
@@ -40,6 +40,7 @@ export const HELP_TEXT = [
   '可用指令：',
   '',
   '  /new [model]     创建新会话（可选模型参数）',
+  '  /clear           清理当前会话消息',
   '  /stop            中止当前运行',
   '  /status          查看当前状态',
   '  /model [name]    查看/切换模型',

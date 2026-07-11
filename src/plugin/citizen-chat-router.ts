@@ -10,6 +10,7 @@ import { sanitizeTownSessionId } from "./town-session.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stateDir } from "./paths.js";
 
 const CHANNEL_ID = "agentshire";
 
@@ -24,9 +25,40 @@ function findCitizenAgentId(npcId: string): string | null {
     if (!existsSync(configPath)) return null;
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
     const characters: any[] = config.characters ?? [];
+
+    // Check steward first (role === "steward", agentId is always "town-steward")
+    const steward = characters.find((c: any) => c.id === npcId && c.role === "steward");
+    if (steward) {
+      // Verify town-steward is registered in openclaw.json
+      const openclawConfigPath = join(stateDir(), "openclaw.json");
+      if (existsSync(openclawConfigPath)) {
+        try {
+          const ocConfig = JSON.parse(readFileSync(openclawConfigPath, "utf-8"));
+          const agents: any[] = ocConfig.agents?.list ?? [];
+          if (agents.some((a: any) => a.id === "town-steward")) {
+            return "town-steward";
+          }
+        } catch {}
+      }
+    }
+
+    // Check citizen
     const citizen = characters.find((c: any) => c.id === npcId && c.role === "citizen");
-    if (!citizen?.agentEnabled || !citizen?.agentId) return null;
-    return citizen.agentId;
+    if (citizen?.agentEnabled && citizen?.agentId) return citizen.agentId;
+
+    // Fallback: check openclaw.json agents.list for matching citizen agent
+    const expectedAgentId = `citizen-${npcId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    const openclawConfigPath = join(stateDir(), "openclaw.json");
+    if (existsSync(openclawConfigPath)) {
+      try {
+        const ocConfig = JSON.parse(readFileSync(openclawConfigPath, "utf-8"));
+        const agents: any[] = ocConfig.agents?.list ?? [];
+        const found = agents.find((a: any) => a.id === expectedAgentId);
+        if (found) return found.id;
+      } catch {}
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -40,8 +72,10 @@ export async function routeCitizenMessage(params: {
   accountId: string;
   cfg: Record<string, unknown>;
   mediaPaths?: string[];
+  /** Optional session key prefix for group chat isolation (e.g. "group:town-square") */
+  sessionKeyPrefix?: string;
 }): Promise<void> {
-  const { npcId, label, message, townSessionId, accountId, cfg, mediaPaths } = params;
+  const { npcId, label, message, townSessionId, accountId, cfg, mediaPaths, sessionKeyPrefix } = params;
 
   const agentId = findCitizenAgentId(npcId);
   if (!agentId) {
@@ -51,7 +85,9 @@ export async function routeCitizenMessage(params: {
 
   const rt = getTownRuntime();
   const sanitizedSession = sanitizeTownSessionId(townSessionId);
-  const sessionKey = `agent:${agentId}:${sanitizedSession}`;
+  const sessionKey = sessionKeyPrefix
+    ? `agent:${agentId}:${sessionKeyPrefix}:${sanitizedSession}`
+    : `agent:${agentId}:${sanitizedSession}`;
 
   console.log(`[citizen-chat] Routing to ${agentId} (${label}), sessionKey=${sessionKey}`);
 
@@ -76,7 +112,11 @@ export async function routeCitizenMessage(params: {
     cfg,
     dispatcherOptions: {
       deliver: async (_payload: any) => {
-        setTimeout(() => pushCitizenMessages(agentId, townSessionId), 500);
+        // Only push to single-chat view for direct (non-group) conversations.
+        // Group chat messages are broadcast separately via pushGroupChatMessage.
+        if (!sessionKeyPrefix) {
+          setTimeout(() => pushCitizenMessages(agentId, townSessionId), 500);
+        }
       },
     },
   });

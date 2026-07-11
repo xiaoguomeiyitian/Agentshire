@@ -35,9 +35,12 @@ export interface TownWsServerOptions {
     agentId?: string;
   }) => Promise<{ text: string; usage?: { input: number; output: number } }>;
   onCitizenChat?: (payload: { npcId: string; message: string; townSessionId: string }) => void;
-  onTopicStart?: (payload: { npcIds: string[]; townSessionId: string }) => void;
-  onTopicMessage?: (payload: { npcIds: string[]; message: string; townSessionId: string }) => void;
+  onTopicStart?: (payload: { npcIds: string[]; topic?: string; townSessionId: string }) => void;
+  onTopicMessage?: (payload: { npcIds: string[]; message: string; mentions?: string[]; townSessionId: string }) => void;
   onTopicEnd?: (payload: { townSessionId: string }) => void;
+  onGroupChatInit?: (payload: { townSessionId: string }) => void;
+  onGroupChatMessage?: (payload: { groupId: string; message: string; mentions: string[]; townSessionId: string }) => void;
+  onGroupChatClear?: (payload: { groupId: string; townSessionId: string }) => void;
 }
 
 let wss: WebSocketServer | null = null;
@@ -62,13 +65,30 @@ export function findCitizenNpcId(agentId: string): string | null {
 function findCitizenNpcIdByAgentId(agentId: string): string | null {
   try {
     const configPath = getPublishedConfigPath();
-    if (!existsSync(configPath)) return null;
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const characters: any[] = config.characters ?? [];
-    const citizen = characters.find(
-      (entry: any) => entry?.role === "citizen" && entry?.agentEnabled && entry?.agentId === agentId,
-    );
-    return typeof citizen?.id === "string" && citizen.id ? citizen.id : null;
+    if (existsSync(configPath)) {
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+      const characters: any[] = config.characters ?? [];
+      const citizen = characters.find(
+        (entry: any) => entry?.role === "citizen" && entry?.agentEnabled && entry?.agentId === agentId,
+      );
+      if (citizen?.id) return citizen.id;
+    }
+
+    // Fallback: derive npcId from agentId pattern "citizen-{npcId}"
+    if (agentId.startsWith("citizen-")) {
+      const npcId = agentId.slice("citizen-".length).replace(/-/g, "_");
+      // Verify the agent exists in openclaw.json
+      const openclawConfigPath = join(stateDir(), "openclaw.json");
+      if (existsSync(openclawConfigPath)) {
+        try {
+          const ocConfig = JSON.parse(readFileSync(openclawConfigPath, "utf-8"));
+          const agents: any[] = ocConfig.agents?.list ?? [];
+          if (agents.some((a: any) => a.id === agentId)) return npcId;
+        } catch {}
+      }
+    }
+
+    return null;
   } catch {
     return null;
   }
@@ -451,16 +471,37 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           opts.onCitizenChat?.({ npcId: msg.npcId, message: msg.message, townSessionId });
         } else if (msg.type === "topic_start" && Array.isArray(msg.npcIds)) {
           const townSessionId = getClientSessionId(ws);
-          console.log(`${sessionLogPrefix(townSessionId)} WS ← topic_start npcIds=[${msg.npcIds.join(",")}]`);
-          opts.onTopicStart?.({ npcIds: msg.npcIds, townSessionId });
+          const topic = typeof msg.topic === "string" ? msg.topic : undefined;
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← topic_start npcIds=[${msg.npcIds.join(",")}] topic=${topic ?? "none"}`);
+          opts.onTopicStart?.({ npcIds: msg.npcIds, topic, townSessionId });
         } else if (msg.type === "topic_message" && Array.isArray(msg.npcIds) && typeof msg.message === "string") {
           const townSessionId = getClientSessionId(ws);
-          console.log(`${sessionLogPrefix(townSessionId)} WS ← topic_message npcIds=[${msg.npcIds.join(",")}] len=${msg.message.length}`);
-          opts.onTopicMessage?.({ npcIds: msg.npcIds, message: msg.message, townSessionId });
+          const mentions = Array.isArray(msg.mentions) ? msg.mentions.map(String) : [];
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← topic_message npcIds=[${msg.npcIds.join(",")}] len=${msg.message.length} mentions=[${mentions.join(",")}]`);
+          opts.onTopicMessage?.({ npcIds: msg.npcIds, message: msg.message, mentions, townSessionId });
         } else if (msg.type === "topic_end") {
           const townSessionId = getClientSessionId(ws);
           console.log(`${sessionLogPrefix(townSessionId)} WS ← topic_end`);
           opts.onTopicEnd?.({ townSessionId });
+        } else if (msg.type === "group_chat_init") {
+          const townSessionId = getClientSessionId(ws);
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← group_chat_init`);
+          opts.onGroupChatInit?.({ townSessionId });
+        } else if (msg.type === "group_chat_message" && typeof msg.message === "string") {
+          const townSessionId = getClientSessionId(ws);
+          const groupId = typeof msg.groupId === "string" ? msg.groupId : "town-square";
+          const mentions = Array.isArray(msg.mentions) ? msg.mentions.map(String) : [];
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← group_chat_message groupId=${groupId} len=${msg.message.length} mentions=[${mentions.join(",")}]`);
+          opts.onGroupChatMessage?.({ groupId, message: msg.message, mentions, townSessionId });
+        } else if (msg.type === "group_chat_end" && typeof msg.groupId === "string") {
+          const townSessionId = getClientSessionId(ws);
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← group_chat_end groupId=${msg.groupId}`);
+          opts.onTopicEnd?.({ townSessionId });
+        } else if (msg.type === "group_chat_clear") {
+          const townSessionId = getClientSessionId(ws);
+          const groupId = typeof msg.groupId === "string" ? msg.groupId : "town-square";
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← group_chat_clear groupId=${groupId}`);
+          opts.onGroupChatClear?.({ groupId, townSessionId });
         } else if (msg.type === "implicit_chat_request" && typeof msg.id === "string" && opts.onImplicitChat) {
           const townSessionId = getClientSessionId(ws);
           opts.onImplicitChat({
@@ -521,7 +562,17 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           const townSessionId = getClientSessionId(ws);
           const slashText = `/${msg.command}${msg.args ? " " + msg.args : ""}`;
           console.log(`${sessionLogPrefix(townSessionId)} WS ← command "${slashText}"`);
-          opts.onChat?.({ message: slashText, townSessionId });
+          // Route to the currently bound agent: if a citizen is selected, route via onCitizenChat
+          // so /clear and other slash commands target the citizen's session, not steward's.
+          const binding = clientChatBindings.get(ws);
+          const boundAgentId = binding?.agentId;
+          if (boundAgentId && boundAgentId !== "steward" && opts.onCitizenChat) {
+            const npcId = findCitizenNpcId(boundAgentId) ?? boundAgentId;
+            console.log(`${sessionLogPrefix(townSessionId)} command routed to citizen npc=${npcId}`);
+            opts.onCitizenChat?.({ npcId, message: slashText, townSessionId });
+          } else {
+            opts.onChat?.({ message: slashText, townSessionId });
+          }
         } else if (msg.type === "abort") {
           const townSessionId = getClientSessionId(ws);
           console.log(`${sessionLogPrefix(townSessionId)} WS ← abort`);
@@ -652,6 +703,79 @@ export function pushCitizenMessages(agentId: string, townSessionId: string): voi
   for (const ws of clients) {
     if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {
       ws.send(payload);
+    }
+  }
+}
+
+/** Broadcast a group chat message to all connected frontends. */
+export function pushGroupChatMessage(townSessionId: string, payload: {
+  groupId: string;
+  groupName: string;
+  sequenceId: number;
+  timestamp: number;
+  speakerNpcId: string;
+  speakerName: string;
+  text: string;
+  mentions: string[];
+}): void {
+  const msg = JSON.stringify({
+    type: "group_chat_message",
+    ...payload,
+  });
+  console.log(
+    `${sessionLogPrefix(townSessionId)} WS → group_chat_message groupId=${payload.groupId} speaker=${payload.speakerName} len=${payload.text.length}`,
+  );
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {
+      ws.send(msg);
+    }
+  }
+}
+
+/** Broadcast group chat history to a frontend (on init / reconnect). */
+export function pushGroupChatHistory(townSessionId: string, payload: {
+  groupId: string;
+  groupName: string;
+  messages: Array<{
+    sequenceId: number;
+    timestamp: number;
+    speakerNpcId: string;
+    speakerName: string;
+    text: string;
+    mentions: string[];
+    groupId: string;
+  }>;
+}): void {
+  const msg = JSON.stringify({
+    type: "group_chat_history",
+    ...payload,
+  });
+  console.log(
+    `${sessionLogPrefix(townSessionId)} WS → group_chat_history groupId=${payload.groupId} count=${payload.messages.length}`,
+  );
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {
+      ws.send(msg);
+    }
+  }
+}
+
+/** Broadcast group chat info (participants, etc.) to frontends. */
+export function pushGroupChatInfo(townSessionId: string, info: {
+  groupId: string;
+  groupName: string;
+  isDefault: boolean;
+  participants: Array<{ npcId: string; name: string; specialty?: string }>;
+  topic?: string;
+  messageCount: number;
+}): void {
+  const msg = JSON.stringify({
+    type: "group_chat_info",
+    ...info,
+  });
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {
+      ws.send(msg);
     }
   }
 }

@@ -134,6 +134,11 @@ export class UIManager {
     this.emit({ type: 'tab_change', tab })
   }
 
+  /** Get the ChatPanel instance (for group chat view switching). */
+  getChatPanel(): ChatPanel {
+    return this.chatPanel
+  }
+
   // ── Loading / progress / scene transitions ──
 
   hideLoading(): void { this.loadingScreen?.classList.add('hidden') }

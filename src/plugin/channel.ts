@@ -294,31 +294,40 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
             console.error("[agentshire] onCitizenChat dispatch error:", err);
           }
         },
-        onTopicStart: async ({ npcIds, townSessionId }) => {
+        onTopicStart: async ({ npcIds, topic, townSessionId }) => {
           try {
-            const { startDiscussion } = await import("./group-discussion.js");
+            const { startGroupChat } = await import("./group-chat.js");
             const { readFileSync, existsSync } = await import("node:fs");
             const { join } = await import("node:path");
             const { fileURLToPath } = await import("node:url");
             const pluginDir = join(fileURLToPath(import.meta.url), "..", "..", "..");
             const configPath = join(pluginDir, "town-data", "citizen-config.json");
-            let participants: Array<{ npcId: string; name: string }> = [];
+            let participants: Array<{ npcId: string; name: string; agentId: string; specialty?: string; modelRef?: string }> = [];
             if (existsSync(configPath)) {
               const config = JSON.parse(readFileSync(configPath, "utf-8"));
               const chars: any[] = config.characters ?? [];
               participants = npcIds
                 .map(id => {
-                  const c = chars.find((ch: any) => ch.id === id && ch.agentEnabled);
-                  return c ? { npcId: id, name: c.name ?? id } : null;
+                  const c = chars.find((ch: any) => ch.id === id && ch.agentEnabled && ch.agentId);
+                  return c ? {
+                    npcId: id,
+                    name: c.name ?? id,
+                    agentId: c.agentId,
+                    specialty: c.specialty,
+                    modelRef: c.modelRef || undefined,
+                  } : null;
                 })
-                .filter(Boolean) as Array<{ npcId: string; name: string }>;
+                .filter(Boolean) as Array<{ npcId: string; name: string; agentId: string; specialty?: string; modelRef?: string }>;
             }
             if (participants.length < 2) {
               console.warn(`[agentshire] topic_start: not enough valid participants (${participants.length})`);
               return;
             }
-            startDiscussion({
+            const groupId = `topic-${Date.now()}`;
+            startGroupChat({
+              groupId,
               participants,
+              topic,
               townSessionId: sanitizeTownSessionId(townSessionId),
               accountId: account.accountId,
               cfg: ctx.cfg,
@@ -327,24 +336,116 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
             console.error("[agentshire] onTopicStart error:", err);
           }
         },
-        onTopicMessage: async ({ npcIds: _npcIds, message, townSessionId: _townSessionId }) => {
+        onTopicMessage: async ({ npcIds: _npcIds, message, mentions, townSessionId: _townSessionId }) => {
           try {
-            const { onUserMessage, hasActiveDiscussion } = await import("./group-discussion.js");
-            if (!hasActiveDiscussion()) {
-              console.warn("[agentshire] topic_message received but no active discussion");
-              return;
+            const { hasActiveGroup, onUserGroupMessage, getOrCreateDefaultGroup } = await import("./group-chat.js");
+            // Find the active non-default group; if none, use default
+            let groupId: string | null = null;
+            // Check for any active group (the most recently started topic group)
+            if (hasActiveGroup()) {
+              // Use the first active non-default group
+              const { getGroupInfo } = await import("./group-chat.js");
+              // Try common topic group IDs — but we don't track which is "current topic"
+              // For backward compat: if topic_message arrives, route to the active topic group
+              // The frontend should use group_chat_message for the default group
+              // Fall through to default group if no specific group found
             }
-            onUserMessage(message);
+            // Default: route to default group (town-square)
+            const group = getOrCreateDefaultGroup({
+              townSessionId: sanitizeTownSessionId(_townSessionId),
+              accountId: account.accountId,
+              cfg: ctx.cfg,
+            });
+            groupId = group.groupId;
+            onUserGroupMessage({
+              groupId,
+              message,
+              mentions: mentions ?? [],
+              townSessionId: sanitizeTownSessionId(_townSessionId),
+            });
           } catch (err) {
             console.error("[agentshire] onTopicMessage error:", err);
           }
         },
         onTopicEnd: async () => {
           try {
-            const { endDiscussion } = await import("./group-discussion.js");
-            endDiscussion();
+            const { endGroupChat, pauseGroup } = await import("./group-chat.js");
+            // End all non-default groups, pause default
+            // The frontend will specify which group; for now just pause default
+            pauseGroup("town-square");
           } catch (err) {
             console.error("[agentshire] onTopicEnd error:", err);
+          }
+        },
+        onGroupChatInit: async ({ townSessionId }) => {
+          try {
+            const { getOrCreateDefaultGroup, getGroupInfo } = await import("./group-chat.js");
+            const { loadGroupHistory } = await import("./group-chat-history.js");
+            const { pushGroupChatInfo, pushGroupChatHistory } = await import("./ws-server.js");
+            const sanitized = sanitizeTownSessionId(townSessionId);
+            const group = getOrCreateDefaultGroup({
+              townSessionId: sanitized,
+              accountId: account.accountId,
+              cfg: ctx.cfg,
+            });
+            const info = getGroupInfo(group.groupId);
+            if (info) {
+              pushGroupChatInfo(sanitized, { ...info, groupName: info.name });
+            }
+            // Send persisted history (latest 100 messages) so frontend can restore on refresh
+            const history = loadGroupHistory(group.groupId, 100);
+            if (history.length > 0) {
+              pushGroupChatHistory(sanitized, {
+                groupId: group.groupId,
+                groupName: group.name,
+                messages: history,
+              });
+            }
+          } catch (err) {
+            console.error("[agentshire] onGroupChatInit error:", err);
+          }
+        },
+        onGroupChatMessage: async ({ groupId, message, mentions, townSessionId }) => {
+          try {
+            const { getOrCreateDefaultGroup, onUserGroupMessage, getGroupInfo } = await import("./group-chat.js");
+            const { pushGroupChatInfo } = await import("./ws-server.js");
+            const group = getOrCreateDefaultGroup({
+              townSessionId: sanitizeTownSessionId(townSessionId),
+              accountId: account.accountId,
+              cfg: ctx.cfg,
+            });
+            onUserGroupMessage({
+              groupId: group.groupId,
+              message,
+              mentions,
+              townSessionId: sanitizeTownSessionId(townSessionId),
+            });
+            // Push updated info
+            const info = getGroupInfo(group.groupId);
+            if (info) {
+              pushGroupChatInfo(sanitizeTownSessionId(townSessionId), { ...info, groupName: info.name });
+            }
+          } catch (err) {
+            console.error("[agentshire] onGroupChatMessage error:", err);
+          }
+        },
+        onGroupChatClear: async ({ groupId, townSessionId }) => {
+          try {
+            const { getOrCreateDefaultGroup } = await import("./group-chat.js");
+            const { clearGroupHistory } = await import("./group-chat-history.js");
+            const group = getOrCreateDefaultGroup({
+              townSessionId: sanitizeTownSessionId(townSessionId),
+              accountId: account.accountId,
+              cfg: ctx.cfg,
+            });
+            // Clear persisted history file
+            clearGroupHistory(group.groupId);
+            // Clear in-memory history
+            group.history = [];
+            group.totalTurns = 0;
+            console.log(`[agentshire] Group chat cleared: ${group.groupId}`);
+          } catch (err) {
+            console.error("[agentshire] onGroupChatClear error:", err);
           }
         },
       });

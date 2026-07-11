@@ -3,14 +3,32 @@
   "user": {
     "name": "镇长",
     "avatarId": "char-male-c",
-    "modelSource": "builtin"
+    "modelSource": "builtin",
+    "modelTransform": {
+      "scale": 2.8,
+      "rotationX": 0,
+      "rotationY": 0,
+      "rotationZ": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "offsetZ": 0
+    }
   },
   "steward": {
     "name": "shire",
     "avatarId": "char-female-b",
     "modelSource": "builtin",
     "bio": "干练御姐，做事利落，职业经理型，善于引导对话，不亲自写代码，通过调度居民完成任务",
-    "persona": "SOUL"
+    "persona": "SOUL",
+    "modelTransform": {
+      "scale": 2.8,
+      "rotationX": 0,
+      "rotationY": 0,
+      "rotationZ": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "offsetZ": 0
+    }
   },
   "citizens": [
     {
@@ -22,7 +40,17 @@
       "industry": "互联网",
       "specialty": "架构设计",
       "persona": "YAN",
-      "homeId": "house_a"
+      "homeId": "house_a",
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
+      "agentEnabled": true
     },
     {
       "id": "citizen_2",
@@ -33,7 +61,18 @@
       "industry": "产品设计",
       "specialty": "产品经理",
       "persona": "CHENGZI",
-      "homeId": "house_b"
+      "homeId": "house_b",
+      "useCustomPersona": false,
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      }
     },
     {
       "id": "citizen_3",
@@ -44,7 +83,17 @@
       "industry": "产品设计",
       "specialty": "UI设计",
       "persona": "HAITANG",
-      "homeId": "house_c"
+      "homeId": "house_c",
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
+      "agentEnabled": true
     },
     {
       "id": "citizen_4",
@@ -55,7 +104,17 @@
       "industry": "互联网",
       "specialty": "前端开发",
       "persona": "DIANDIAN",
-      "homeId": "house_a"
+      "homeId": "house_a",
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
+      "agentEnabled": true
     },
     {
       "id": "citizen_5",
@@ -66,7 +125,17 @@
       "industry": "互联网",
       "specialty": "后端开发",
       "persona": "XIAOLIE",
-      "homeId": "house_b"
+      "homeId": "house_b",
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
+      "agentEnabled": true
     },
     {
       "id": "citizen_6",
@@ -77,7 +146,17 @@
       "industry": "自媒体",
       "specialty": "内容运营",
       "persona": "QIQI",
-      "homeId": "house_c"
+      "homeId": "house_c",
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
+      "agentEnabled": true
     },
     {
       "id": "citizen_7",
@@ -88,7 +167,8 @@
       "industry": "数据",
       "specialty": "数据分析",
       "persona": "CHEN",
-      "homeId": "house_a"
+      "homeId": "house_a",
+      "agentEnabled": true
     }
   ]
 }

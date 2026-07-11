@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { Bot } from 'lucide-react'
+import { Bot, Users } from 'lucide-react'
 import type { AgentInfo } from '@/hooks/useAgents'
 
 interface AgentListProps {
@@ -7,6 +7,8 @@ interface AgentListProps {
   selectedId: string | null
   onSelect: (agent: AgentInfo) => void
   className?: string
+  groupChatActive?: boolean
+  onGroupChatClick?: () => void
 }
 
 function AgentAvatar({ agent, size = 36, isSelected = false }: { agent: AgentInfo; size?: number; isSelected?: boolean }) {
@@ -54,13 +56,40 @@ function AgentAvatar({ agent, size = 36, isSelected = false }: { agent: AgentInf
   )
 }
 
-export function AgentList({ agents, selectedId, onSelect, className }: AgentListProps) {
+export function AgentList({ agents, selectedId, onSelect, className, groupChatActive, onGroupChatClick }: AgentListProps) {
   return (
-    <div className={cn('flex flex-col', className)}>
+    <div className={cn('flex flex-col min-h-0', className)}>
       <div className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-text-quaternary">
         Agents
       </div>
-      <div className="flex-1 overflow-y-auto">
+      {/* ── Group chat entry ── */}
+      {onGroupChatClick && (
+        <button
+          onClick={onGroupChatClick}
+          className={cn(
+            'flex items-center gap-3 w-full px-4 py-3.5 cursor-pointer',
+            'transition-colors duration-150 text-left',
+            groupChatActive
+              ? 'bg-[rgba(212,165,116,0.08)] text-text-primary'
+              : 'text-text-secondary hover:bg-bg-surface hover:text-text-primary',
+          )}
+        >
+          <div className={cn(
+            'relative shrink-0 rounded-full flex items-center justify-center w-10 h-10',
+            groupChatActive ? 'bg-[rgba(212,165,116,0.15)] ring-1 ring-brand-primary/30' : 'bg-bg-elevated',
+          )}>
+            <Users size={18} strokeWidth={1.5} className={cn(groupChatActive ? 'text-brand-primary' : 'text-text-quaternary')} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className={cn(
+              'text-[16px] md:text-[13px] font-medium truncate',
+              groupChatActive ? 'text-brand-secondary' : '',
+            )}>小镇广场</div>
+            <div className="text-[13px] md:text-[11px] text-text-tertiary truncate mt-0.5">群聊 · 全体居民</div>
+          </div>
+        </button>
+      )}
+      <div className="flex-1 overflow-y-auto styled-scrollbar">
         {agents.map((agent) => {
           const isSelected = selectedId === agent.id
           return (

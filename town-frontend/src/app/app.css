@@ -42,9 +42,9 @@
   --color-brand-primary: #D4A574;
   --color-brand-secondary: #E7DDCC;
 
-  /* Accents */
-  --color-accent-green: #45E796;
-  --color-accent-cyan: #00d4ff;
+  /* Accents — aligned with brand gold */
+  --color-accent-green: #D4A574;
+  --color-accent-cyan: #D4A574;
 
   /* Status */
   --color-status-success: #34D399;

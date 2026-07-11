@@ -33,7 +33,7 @@
 }
 .gp-card::before {
   content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%;
-  background: conic-gradient(from 0deg, transparent, rgba(255,215,0,0.06), transparent, rgba(0,212,255,0.04), transparent);
+  background: conic-gradient(from 0deg, transparent, rgba(255,215,0,0.06), transparent, rgba(212,165,116,0.04), transparent);
   animation: gp-shimmer 6s linear infinite;
 }
 

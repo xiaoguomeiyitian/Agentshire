@@ -26,6 +26,7 @@ const en: Record<string, string> = {
   'input.idle': 'Message...',
   'input.gathering': 'Gathering...',
   'input.topic': 'Topic...',
+  'input.group': 'Group message, @someone or @all...',
 
   // ── Bottom panel ──
   'steward': 'Steward',
@@ -41,6 +42,8 @@ const en: Record<string, string> = {
   // ── More menu ──
   'menu.new_task': 'New Task',
   'menu.start_topic': 'Start Topic',
+  'menu.enter_group': 'Town Square (Group)',
+  'menu.exit_group': 'Exit Group',
   'menu.settings': 'Settings',
 
   // ── Buttons / Popups ──
@@ -79,6 +82,16 @@ const en: Record<string, string> = {
   'topic.end_title': 'End topic?',
   'topic.end_desc': 'Citizens will return to daily life',
   'topic.not_in_town': 'Citizen is not in town yet',
+
+  // ── Group chat ──
+  'group.title': 'Town Square',
+  'group.subtitle': 'All citizens are here',
+  'group.mention_all': 'Everyone',
+  'group.mention_hint': '@select citizen, @all to call everyone',
+  'group.idle_hint': 'Chat is quiet, @someone to continue',
+  'group.empty': 'No messages yet, send one to start',
+  'group.participant_joined': '{name} joined the group',
+  'group.participant_left': '{name} left the group',
 
   // ── Reset confirm ──
   'reset.confirm': 'Reset town? This will clear all settings and restart.',

@@ -26,6 +26,7 @@ const zhCN: Record<string, string> = {
   'input.idle': '输入消息...',
   'input.gathering': '居民赶来中...',
   'input.topic': '输入话题...',
+  'input.group': '群聊消息，@某人或@所有人...',
 
   // ── Bottom panel ──
   'steward': '管家',
@@ -41,6 +42,8 @@ const zhCN: Record<string, string> = {
   // ── More menu ──
   'menu.new_task': '新任务',
   'menu.start_topic': '发起话题',
+  'menu.enter_group': '小镇广场（群聊）',
+  'menu.exit_group': '退出群聊',
   'menu.settings': '设置',
 
   // ── Buttons / Popups ──
@@ -79,6 +82,16 @@ const zhCN: Record<string, string> = {
   'topic.end_title': '结束话题？',
   'topic.end_desc': '居民将回归日常生活',
   'topic.not_in_town': '当前居民还不在小镇',
+
+  // ── Group chat ──
+  'group.title': '小镇广场',
+  'group.subtitle': '所有居民都在这里',
+  'group.mention_all': '所有人',
+  'group.mention_hint': '@选择居民，@所有人呼叫全体',
+  'group.idle_hint': '群聊已安静，@某人继续吧',
+  'group.empty': '暂无群聊消息，发条消息开始吧',
+  'group.participant_joined': '{name} 加入了群聊',
+  'group.participant_left': '{name} 离开了群聊',
 
   // ── Reset confirm ──
   'reset.confirm': '重置小镇？将清除所有设定并重新开始创镇流程。',

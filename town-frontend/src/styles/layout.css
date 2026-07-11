@@ -7,11 +7,11 @@
   --sal: env(safe-area-inset-left);
   --tab-height: 44px;
   --input-height: 56px;
-  --accent-green: #64ffda;
-  --accent-blue: #38bdf8;
-  --accent-cyan: #38bdf8;
+  --accent-green: #D4A574;
+  --accent-blue: #D4A574;
+  --accent-cyan: #D4A574;
   --gradient-primary: linear-gradient(135deg, #C4915E, #D4A574);
-  --accent-gold: #ffd700;
+  --accent-gold: #D4A574;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }

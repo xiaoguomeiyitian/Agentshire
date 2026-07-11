@@ -173,11 +173,31 @@ export async function applyAgentChanges(
           createAgentWorkspace(change.agentId, change.soulContent, change.citizenName, change.specialty);
           addAgentToConfig(change.agentId, change.citizenName, change.specialty, change.modelRef);
           results.push({ citizenId: change.citizenId, action: "create", success: true, agentId: change.agentId });
+          // Auto-join default group chat
+          try {
+            const { addParticipantToDefaultGroup } = await import("./group-chat.js");
+            addParticipantToDefaultGroup({
+              npcId: change.citizenId,
+              name: change.citizenName,
+              agentId: change.agentId,
+              specialty: change.specialty,
+              modelRef: change.modelRef,
+            });
+          } catch (err) {
+            console.warn(`[citizen-agent-manager] Failed to add ${change.citizenName} to default group:`, (err as Error).message);
+          }
           break;
         }
         case "disable": {
           removeAgentFromConfig(change.agentId);
           results.push({ citizenId: change.citizenId, action: "disable", success: true, agentId: change.agentId });
+          // Auto-remove from default group chat
+          try {
+            const { removeParticipantFromDefaultGroup } = await import("./group-chat.js");
+            removeParticipantFromDefaultGroup(change.citizenId);
+          } catch (err) {
+            console.warn(`[citizen-agent-manager] Failed to remove ${change.citizenId} from default group:`, (err as Error).message);
+          }
           break;
         }
         case "update_soul": {

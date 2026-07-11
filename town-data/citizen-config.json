@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "publishedAt": "",
+  "publishedAt": "2026-07-10T23:25:26.252Z",
   "characters": [
     {
       "id": "user",
@@ -10,16 +10,25 @@
       "modelUrl": "/assets/models/characters/character-male-c.glb",
       "avatarId": "char-male-c",
       "modelSource": "builtin",
-      "bio": "小镇的主人，负责决策方向",
-      "specialty": "镇长",
+      "bio": "",
+      "specialty": "",
       "persona": "",
       "personaFile": "",
       "homeId": "",
       "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": ""
     },
     {
       "id": "steward",
@@ -30,15 +39,24 @@
       "avatarId": "char-female-b",
       "modelSource": "builtin",
       "bio": "干练御姐，做事利落，职业经理型，善于引导对话，不亲自写代码，通过调度居民完成任务",
-      "specialty": "管家",
-      "persona": "SOUL",
-      "personaFile": "town-souls/SOUL.md",
+      "specialty": "",
+      "persona": "soul",
+      "personaFile": "town-data/souls/soul.md",
       "homeId": "",
       "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": ""
     },
     {
       "id": "citizen_1",
@@ -53,11 +71,22 @@
       "persona": "YAN",
       "personaFile": "town-souls/YAN.md",
       "homeId": "house_a",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_1",
+      "agentStatus": "active"
     },
     {
       "id": "citizen_2",
@@ -72,11 +101,22 @@
       "persona": "CHENGZI",
       "personaFile": "town-souls/CHENGZI.md",
       "homeId": "house_b",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_2",
+      "agentStatus": "active"
     },
     {
       "id": "citizen_3",
@@ -91,11 +131,22 @@
       "persona": "HAITANG",
       "personaFile": "town-souls/HAITANG.md",
       "homeId": "house_c",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_3",
+      "agentStatus": "active"
     },
     {
       "id": "citizen_4",
@@ -110,11 +161,22 @@
       "persona": "DIANDIAN",
       "personaFile": "town-souls/DIANDIAN.md",
       "homeId": "house_a",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_4",
+      "agentStatus": "active"
     },
     {
       "id": "citizen_5",
@@ -129,11 +191,22 @@
       "persona": "XIAOLIE",
       "personaFile": "town-souls/XIAOLIE.md",
       "homeId": "house_b",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_5",
+      "agentStatus": "active"
     },
     {
       "id": "citizen_6",
@@ -148,11 +221,22 @@
       "persona": "QIQI",
       "personaFile": "town-souls/QIQI.md",
       "homeId": "house_c",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_6",
+      "agentStatus": "active"
     },
     {
       "id": "citizen_7",
@@ -167,11 +251,22 @@
       "persona": "CHEN",
       "personaFile": "town-souls/CHEN.md",
       "homeId": "house_a",
-      "agentEnabled": false,
-      "modelTransform": { "scale": 2.8, "rotationX": 0, "rotationY": 0, "rotationZ": 0, "offsetX": 0, "offsetY": 0, "offsetZ": 0 },
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": []
+      "detectedClips": [],
+      "modelRef": "",
+      "agentId": "citizen-citizen_7",
+      "agentStatus": "active"
     }
   ]
 }

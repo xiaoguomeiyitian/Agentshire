@@ -6,9 +6,10 @@
 import { isSttSupported, startStt, stopStt, isSttActive } from './speech'
 import { parseCommand } from '../utils/command-parser'
 import { t } from '../i18n'
+import { showMentionPicker, parseMentionsFromInput, type MentionableCitizen } from './MentionPicker'
 
 export type TownMessage =
-  | { type: 'chat'; message: string }
+  | { type: 'chat'; message: string; mentions?: string[] }
   | { type: 'multimodal'; parts: Array<{ kind: 'text'; text: string } | { kind: 'image'; data: string; mimeType: string }> }
 
 export type SendFn = (msg: TownMessage) => void
@@ -30,6 +31,7 @@ export class InputBar {
   private sendBtn: HTMLButtonElement
   private voiceBtn: HTMLButtonElement | null
   private attachBtn: HTMLButtonElement | null
+  private mentionBtn: HTMLButtonElement | null
   private fileInput: HTMLInputElement | null
   private previewBar: HTMLElement | null
   private sttInterim: HTMLElement | null
@@ -37,6 +39,8 @@ export class InputBar {
   private recording = false
   private pendingImages: PendingImage[] = []
   private opts: InputBarOptions
+  private groupMode = false
+  private mentionableCitizens: MentionableCitizen[] = []
 
   constructor(opts: InputBarOptions) {
     this.opts = opts
@@ -44,6 +48,7 @@ export class InputBar {
     this.sendBtn = document.getElementById('town-send-btn') as HTMLButtonElement
     this.voiceBtn = document.getElementById('town-voice-btn') as HTMLButtonElement | null
     this.attachBtn = document.getElementById('town-attach-btn') as HTMLButtonElement | null
+    this.mentionBtn = document.getElementById('town-mention-btn') as HTMLButtonElement | null
     this.fileInput = document.getElementById('town-file-input') as HTMLInputElement | null
     this.previewBar = document.getElementById('town-image-preview') as HTMLElement | null
     this.sttInterim = document.getElementById('town-stt-interim') as HTMLElement | null
@@ -79,7 +84,98 @@ export class InputBar {
       this.fileInput.addEventListener('change', () => this.handleFileSelect())
     }
 
+    // @mention button (only visible in group mode)
+    if (this.mentionBtn) {
+      this.mentionBtn.style.display = 'none'
+      this.mentionBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (!this.groupMode || this.mentionableCitizens.length === 0) return
+        showMentionPicker(
+          { citizens: this.mentionableCitizens, onSelect: (c) => this.insertMention(c) },
+          this.textarea,
+        )
+      })
+    }
+
+    // @ trigger on typing
+    this.textarea.addEventListener('input', () => {
+      this.textarea.style.height = 'auto'
+      this.textarea.style.height = Math.min(this.textarea.scrollHeight, 120) + 'px'
+      // Detect @ trigger
+      if (this.groupMode) {
+        this.checkAtTrigger()
+      }
+    })
+
     this.textarea.addEventListener('paste', (e) => this.handlePaste(e))
+  }
+
+  /** Set group chat mode with available citizens for @mention. */
+  setGroupMode(enabled: boolean, citizens: MentionableCitizen[] = []): void {
+    this.groupMode = enabled
+    this.mentionableCitizens = citizens
+    if (this.mentionBtn) {
+      this.mentionBtn.style.display = enabled ? '' : 'none'
+    }
+  }
+
+  /** Insert an @mention at cursor position. */
+  private insertMention(c: { npcId: string; name: string }): void {
+    const mentionText = `@${c.name} `
+    const start = this.textarea.selectionStart
+    const end = this.textarea.selectionEnd
+    const before = this.textarea.value.slice(0, start)
+    const after = this.textarea.value.slice(end)
+
+    // Check if we're already after an @
+    const textBefore = this.textarea.value.slice(0, start)
+    if (textBefore.endsWith('@')) {
+      // Replace the trailing @ with the mention
+      this.textarea.value = textBefore.slice(0, -1) + mentionText + after
+    } else {
+      this.textarea.value = before + mentionText + after
+    }
+    const newPos = start + mentionText.length
+    this.textarea.setSelectionRange(newPos, newPos)
+    this.textarea.focus()
+  }
+
+  /** Check if user typed @ and show picker. */
+  private checkAtTrigger(): void {
+    const cursor = this.textarea.selectionStart
+    const text = this.textarea.value.slice(0, cursor)
+    // Find last @ that's not followed by a space (incomplete mention)
+    const atIdx = text.lastIndexOf('@')
+    if (atIdx < 0) return
+    const afterAt = text.slice(atIdx + 1)
+    // If there's a space after @, it's a completed mention — don't trigger
+    if (afterAt.includes(' ')) return
+    // Only trigger if @ is at start or preceded by space
+    if (atIdx > 0 && !/\s/.test(text[atIdx - 1])) return
+
+    // Show picker filtered by what's typed after @
+    const filter = afterAt.toLowerCase()
+    const filtered = this.mentionableCitizens.filter(c =>
+      c.name.toLowerCase().includes(filter) || (c.specialty?.toLowerCase().includes(filter) ?? false),
+    )
+    if (filtered.length === 0 && filter.length > 0) return
+
+    showMentionPicker(
+      {
+        citizens: filtered.length > 0 ? filtered : this.mentionableCitizens,
+        onSelect: (c) => {
+          // Replace the partial @text with the full mention
+          const fullText = this.textarea.value
+          const before = fullText.slice(0, atIdx)
+          const after = fullText.slice(cursor)
+          this.textarea.value = before + `@${c.name} ` + after
+          const newPos = before.length + c.name.length + 2
+          this.textarea.setSelectionRange(newPos, newPos)
+          this.textarea.focus()
+        },
+      },
+      this.textarea,
+    )
   }
 
   private toggleVoice(): void {
@@ -216,7 +312,11 @@ export class InputBar {
       this.opts.onUserMessage?.(text, images)
     } else {
       const wrapped = this.opts.wrapMessage ? this.opts.wrapMessage(text) : text
-      this.opts.send({ type: 'chat', message: wrapped })
+      // Parse @mentions in group mode
+      const mentions = this.groupMode
+        ? parseMentionsFromInput(text, this.mentionableCitizens)
+        : undefined
+      this.opts.send({ type: 'chat', message: wrapped, mentions })
       this.opts.onUserMessage?.(text)
     }
 

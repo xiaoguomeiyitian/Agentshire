@@ -108,7 +108,7 @@ export function createSkillIcon(slug: string, size = 48): HTMLElement {
 
   if (skill) {
     const cat = ensureCache().categories[skill.category]
-    const [c1, c2] = cat?.gradient ?? ['#667eea', '#764ba2']
+    const [c1, c2] = cat?.gradient ?? ['#C4915E', '#D4A574']
     container.style.background = `linear-gradient(135deg, ${c1}, ${c2})`
     const svg = buildSvgElement(skill.icon, iconSize)
     if (svg) {
@@ -120,7 +120,7 @@ export function createSkillIcon(slug: string, size = 48): HTMLElement {
       container.appendChild(fallback)
     }
   } else {
-    container.style.background = 'linear-gradient(135deg, #667eea, #764ba2)'
+    container.style.background = 'linear-gradient(135deg, #C4915E, #D4A574)'
     const fallback = document.createElement('span')
     fallback.textContent = '?'
     fallback.style.cssText = `color: #fff; font-weight: 700; font-size: ${iconSize}px; line-height: 1;`
