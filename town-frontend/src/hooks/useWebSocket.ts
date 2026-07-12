@@ -23,7 +23,11 @@ export interface ChatItem {
   outputText?: string
   isError?: boolean
   status?: string
-  usage?: { input: number; output: number; totalTokens?: number }
+  usage?: { input: number; output: number; totalTokens?: number; reasoningTokens?: number; cacheRead?: number; cacheWrite?: number }
+  /** Model id used for this assistant response (e.g. "deepseek-v4-flash") */
+  model?: string
+  /** Reasoning/thinking text extracted from the assistant message (if present). */
+  reasoning?: string
 }
 
 export interface LegacyHistoryMessage {
@@ -47,8 +51,10 @@ export interface GroupChatMessageItem {
   mentions: string[]
   groupId: string
   groupName: string
-  usage?: { input: number; output: number; totalTokens?: number }
+  usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number }
   contextBudget?: number
+  /** Model id used for this citizen response */
+  model?: string
 }
 
 export interface GroupChatInfo {
@@ -58,25 +64,33 @@ export interface GroupChatInfo {
   participants: Array<{ npcId: string; name: string; specialty?: string }>
   topic?: string
   messageCount: number
+  compactionCount?: number
+}
+
+export interface GroupChatTypingCitizen {
+  npcId: string
+  speakerName: string
 }
 
 interface UseWebSocketOptions {
   url: string
   townSessionId: string
   enabled: boolean
-  onHistoryItems?: (agentId: string, items: ChatItem[], hasMore: boolean, cursor: string) => void
+  onHistoryItems?: (agentId: string, items: ChatItem[], hasMore: boolean, cursor: string, agentActive?: boolean) => void
   onDeltaItems?: (agentId: string, items: ChatItem[]) => void
   onNewMessages?: (agentId: string, messages: LegacyHistoryMessage[]) => void
   onAgentEvent?: (event: any) => void
   onGroupChatMessage?: (msg: GroupChatMessageItem) => void
   onGroupChatInfo?: (info: GroupChatInfo) => void
   onGroupChatHistory?: (messages: GroupChatMessageItem[]) => void
+  onGroupChatTyping?: (citizen: GroupChatTypingCitizen) => void
+  onGroupChatTypingDone?: (npcId: string) => void
 }
 
 const RECONNECT_DELAY = 3000
 const MAX_RECONNECTS = 10
 
-export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDeltaItems, onNewMessages, onAgentEvent, onGroupChatMessage, onGroupChatInfo, onGroupChatHistory }: UseWebSocketOptions) {
+export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDeltaItems, onNewMessages, onAgentEvent, onGroupChatMessage, onGroupChatInfo, onGroupChatHistory, onGroupChatTyping, onGroupChatTypingDone }: UseWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
   const onHistoryItemsRef = useRef(onHistoryItems)
@@ -86,6 +100,8 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
   const onGroupChatMessageRef = useRef(onGroupChatMessage)
   const onGroupChatInfoRef = useRef(onGroupChatInfo)
   const onGroupChatHistoryRef = useRef(onGroupChatHistory)
+  const onGroupChatTypingRef = useRef(onGroupChatTyping)
+  const onGroupChatTypingDoneRef = useRef(onGroupChatTypingDone)
   onHistoryItemsRef.current = onHistoryItems
   onDeltaItemsRef.current = onDeltaItems
   onNewMessagesRef.current = onNewMessages
@@ -93,6 +109,8 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
   onGroupChatMessageRef.current = onGroupChatMessage
   onGroupChatInfoRef.current = onGroupChatInfo
   onGroupChatHistoryRef.current = onGroupChatHistory
+  onGroupChatTypingRef.current = onGroupChatTyping
+  onGroupChatTypingDoneRef.current = onGroupChatTypingDone
   const reconnectCount = useRef(0)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const cleanedUp = useRef(false)
@@ -122,7 +140,7 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
             const data = JSON.parse(msg.data)
             if (data.type === 'chat_history') {
               if (data.format === 'items' && Array.isArray(data.items)) {
-                onHistoryItemsRef.current?.(data.agentId ?? 'steward', data.items, data.hasMore ?? false, data.cursor ?? '')
+                onHistoryItemsRef.current?.(data.agentId ?? 'steward', data.items, data.hasMore ?? false, data.cursor ?? '', data.agentActive ?? false)
               }
             } else if (data.type === 'chat_delta' && Array.isArray(data.items)) {
               onDeltaItemsRef.current?.(data.agentId ?? 'steward', data.items)
@@ -142,6 +160,7 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 groupName: data.groupName ?? '',
                 ...(data.usage ? { usage: data.usage } : {}),
                 ...(typeof data.contextBudget === 'number' ? { contextBudget: data.contextBudget } : {}),
+                ...(typeof data.model === 'string' ? { model: data.model } : {}),
               })
             } else if (data.type === 'group_chat_info' && data.groupId) {
               onGroupChatInfoRef.current?.({
@@ -151,6 +170,7 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 participants: data.participants ?? [],
                 topic: data.topic,
                 messageCount: data.messageCount ?? 0,
+                ...(typeof data.compactionCount === 'number' ? { compactionCount: data.compactionCount } : {}),
               })
             } else if (data.type === 'group_chat_history' && data.groupId && Array.isArray(data.messages)) {
               const historyMessages: GroupChatMessageItem[] = (data.messages as any[]).map(m => ({
@@ -166,6 +186,13 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 ...(typeof m.contextBudget === 'number' ? { contextBudget: m.contextBudget } : {}),
               }))
               onGroupChatHistoryRef.current?.(historyMessages)
+            } else if (data.type === 'group_chat_typing' && data.npcId) {
+              onGroupChatTypingRef.current?.({
+                npcId: data.npcId,
+                speakerName: data.speakerName ?? '',
+              })
+            } else if (data.type === 'group_chat_typing_done' && data.npcId) {
+              onGroupChatTypingDoneRef.current?.(data.npcId)
             }
           } catch { /* ignore malformed */ }
         }
@@ -247,10 +274,14 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
     ws.send(JSON.stringify({ type: 'chat_agent_bind', agentId }))
   }, [])
 
-  const sendAbort = useCallback(() => {
+  const sendAbort = useCallback((target?: { agentId?: string; npcId?: string }) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) return
-    ws.send(JSON.stringify({ type: 'abort' }))
+    ws.send(JSON.stringify({
+      type: 'abort',
+      ...(target?.agentId ? { agentId: target.agentId } : {}),
+      ...(target?.npcId ? { npcId: target.npcId } : {}),
+    }))
   }, [])
 
   const sendCommand = useCallback((command: string, args: string) => {

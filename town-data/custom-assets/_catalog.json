@@ -1,4 +1,671 @@
 {
   "version": 1,
-  "assets": []
+  "assets": [
+    {
+      "id": "character-pet-tiger",
+      "kind": "model",
+      "name": "character-pet-tiger",
+      "fileName": "pets/character-pet-tiger.glb",
+      "fileSize": 141148,
+      "createdAt": "2026-07-12T07:53:45.340Z",
+      "updatedAt": "2026-07-12T07:53:45.340Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-polar",
+      "kind": "model",
+      "name": "character-pet-polar",
+      "fileName": "pets/character-pet-polar.glb",
+      "fileSize": 89460,
+      "createdAt": "2026-07-12T07:53:45.340Z",
+      "updatedAt": "2026-07-12T07:53:45.340Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-pig",
+      "kind": "model",
+      "name": "character-pet-pig",
+      "fileName": "pets/character-pet-pig.glb",
+      "fileSize": 109224,
+      "createdAt": "2026-07-12T07:53:45.340Z",
+      "updatedAt": "2026-07-12T07:53:45.340Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-penguin",
+      "kind": "model",
+      "name": "character-pet-penguin",
+      "fileName": "pets/character-pet-penguin.glb",
+      "fileSize": 109904,
+      "createdAt": "2026-07-12T07:53:45.340Z",
+      "updatedAt": "2026-07-12T07:53:45.340Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-parrot",
+      "kind": "model",
+      "name": "character-pet-parrot",
+      "fileName": "pets/character-pet-parrot.glb",
+      "fileSize": 128996,
+      "createdAt": "2026-07-12T07:53:45.339Z",
+      "updatedAt": "2026-07-12T07:53:45.339Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-panda",
+      "kind": "model",
+      "name": "character-pet-panda",
+      "fileName": "pets/character-pet-panda.glb",
+      "fileSize": 112924,
+      "createdAt": "2026-07-12T07:53:45.339Z",
+      "updatedAt": "2026-07-12T07:53:45.339Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-monkey",
+      "kind": "model",
+      "name": "character-pet-monkey",
+      "fileName": "pets/character-pet-monkey.glb",
+      "fileSize": 142556,
+      "createdAt": "2026-07-12T07:53:45.339Z",
+      "updatedAt": "2026-07-12T07:53:45.339Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-lion",
+      "kind": "model",
+      "name": "character-pet-lion",
+      "fileName": "pets/character-pet-lion.glb",
+      "fileSize": 141428,
+      "createdAt": "2026-07-12T07:53:45.338Z",
+      "updatedAt": "2026-07-12T07:53:45.338Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-koala",
+      "kind": "model",
+      "name": "character-pet-koala",
+      "fileName": "pets/character-pet-koala.glb",
+      "fileSize": 110948,
+      "createdAt": "2026-07-12T07:53:45.338Z",
+      "updatedAt": "2026-07-12T07:53:45.338Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-hog",
+      "kind": "model",
+      "name": "character-pet-hog",
+      "fileName": "pets/character-pet-hog.glb",
+      "fileSize": 118140,
+      "createdAt": "2026-07-12T07:53:45.338Z",
+      "updatedAt": "2026-07-12T07:53:45.338Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-giraffe",
+      "kind": "model",
+      "name": "character-pet-giraffe",
+      "fileName": "pets/character-pet-giraffe.glb",
+      "fileSize": 111996,
+      "createdAt": "2026-07-12T07:53:45.337Z",
+      "updatedAt": "2026-07-12T07:53:45.337Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-fox",
+      "kind": "model",
+      "name": "character-pet-fox",
+      "fileName": "pets/character-pet-fox.glb",
+      "fileSize": 119872,
+      "createdAt": "2026-07-12T07:53:45.337Z",
+      "updatedAt": "2026-07-12T07:53:45.337Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-fish",
+      "kind": "model",
+      "name": "character-pet-fish",
+      "fileName": "pets/character-pet-fish.glb",
+      "fileSize": 80752,
+      "createdAt": "2026-07-12T07:53:45.337Z",
+      "updatedAt": "2026-07-12T07:53:45.337Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-elephant",
+      "kind": "model",
+      "name": "character-pet-elephant",
+      "fileName": "pets/character-pet-elephant.glb",
+      "fileSize": 124960,
+      "createdAt": "2026-07-12T07:53:45.337Z",
+      "updatedAt": "2026-07-12T07:53:45.337Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-dog",
+      "kind": "model",
+      "name": "character-pet-dog",
+      "fileName": "pets/character-pet-dog.glb",
+      "fileSize": 103008,
+      "createdAt": "2026-07-12T07:53:45.336Z",
+      "updatedAt": "2026-07-12T07:53:45.336Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-deer",
+      "kind": "model",
+      "name": "character-pet-deer",
+      "fileName": "pets/character-pet-deer.glb",
+      "fileSize": 124080,
+      "createdAt": "2026-07-12T07:53:45.336Z",
+      "updatedAt": "2026-07-12T07:53:45.336Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-crab",
+      "kind": "model",
+      "name": "character-pet-crab",
+      "fileName": "pets/character-pet-crab.glb",
+      "fileSize": 126024,
+      "createdAt": "2026-07-12T07:53:45.336Z",
+      "updatedAt": "2026-07-12T07:53:45.336Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-cow",
+      "kind": "model",
+      "name": "character-pet-cow",
+      "fileName": "pets/character-pet-cow.glb",
+      "fileSize": 109804,
+      "createdAt": "2026-07-12T07:53:45.335Z",
+      "updatedAt": "2026-07-12T07:53:45.335Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-chick",
+      "kind": "model",
+      "name": "character-pet-chick",
+      "fileName": "pets/character-pet-chick.glb",
+      "fileSize": 106476,
+      "createdAt": "2026-07-12T07:53:45.335Z",
+      "updatedAt": "2026-07-12T07:53:45.335Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-caterpillar",
+      "kind": "model",
+      "name": "character-pet-caterpillar",
+      "fileName": "pets/character-pet-caterpillar.glb",
+      "fileSize": 110852,
+      "createdAt": "2026-07-12T07:53:45.334Z",
+      "updatedAt": "2026-07-12T07:53:45.334Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-cat",
+      "kind": "model",
+      "name": "character-pet-cat",
+      "fileName": "pets/character-pet-cat.glb",
+      "fileSize": 137408,
+      "createdAt": "2026-07-12T07:53:45.328Z",
+      "updatedAt": "2026-07-12T07:53:45.328Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-bunny",
+      "kind": "model",
+      "name": "character-pet-bunny",
+      "fileName": "pets/character-pet-bunny.glb",
+      "fileSize": 111224,
+      "createdAt": "2026-07-12T07:53:45.328Z",
+      "updatedAt": "2026-07-12T07:53:45.328Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-bee",
+      "kind": "model",
+      "name": "character-pet-bee",
+      "fileName": "pets/character-pet-bee.glb",
+      "fileSize": 136924,
+      "createdAt": "2026-07-12T07:53:45.328Z",
+      "updatedAt": "2026-07-12T07:53:45.328Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-pet-beaver",
+      "kind": "model",
+      "name": "character-pet-beaver",
+      "fileName": "pets/character-pet-beaver.glb",
+      "fileSize": 125304,
+      "createdAt": "2026-07-12T07:53:45.327Z",
+      "updatedAt": "2026-07-12T07:53:45.327Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "pets"
+    },
+    {
+      "id": "character-male-f",
+      "kind": "model",
+      "name": "character-male-f",
+      "fileName": "characters/character-male-f.glb",
+      "fileSize": 249388,
+      "createdAt": "2026-07-12T07:53:45.327Z",
+      "updatedAt": "2026-07-12T07:53:45.327Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-male-e",
+      "kind": "model",
+      "name": "character-male-e",
+      "fileName": "characters/character-male-e.glb",
+      "fileSize": 242704,
+      "createdAt": "2026-07-12T07:53:45.326Z",
+      "updatedAt": "2026-07-12T07:53:45.326Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-male-d",
+      "kind": "model",
+      "name": "character-male-d",
+      "fileName": "characters/character-male-d.glb",
+      "fileSize": 245184,
+      "createdAt": "2026-07-12T07:53:45.326Z",
+      "updatedAt": "2026-07-12T07:53:45.326Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-male-c",
+      "kind": "model",
+      "name": "character-male-c",
+      "fileName": "characters/character-male-c.glb",
+      "fileSize": 263104,
+      "createdAt": "2026-07-12T07:53:45.326Z",
+      "updatedAt": "2026-07-12T07:53:45.326Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-male-b",
+      "kind": "model",
+      "name": "character-male-b",
+      "fileName": "characters/character-male-b.glb",
+      "fileSize": 247332,
+      "createdAt": "2026-07-12T07:53:45.325Z",
+      "updatedAt": "2026-07-12T07:53:45.325Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-male-a",
+      "kind": "model",
+      "name": "character-male-a",
+      "fileName": "characters/character-male-a.glb",
+      "fileSize": 246916,
+      "createdAt": "2026-07-12T07:53:45.325Z",
+      "updatedAt": "2026-07-12T07:53:45.325Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-female-f",
+      "kind": "model",
+      "name": "character-female-f",
+      "fileName": "characters/character-female-f.glb",
+      "fileSize": 259488,
+      "createdAt": "2026-07-12T07:53:45.325Z",
+      "updatedAt": "2026-07-12T07:53:45.325Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-female-e",
+      "kind": "model",
+      "name": "character-female-e",
+      "fileName": "characters/character-female-e.glb",
+      "fileSize": 248012,
+      "createdAt": "2026-07-12T07:53:45.324Z",
+      "updatedAt": "2026-07-12T07:53:45.324Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-female-d",
+      "kind": "model",
+      "name": "character-female-d",
+      "fileName": "characters/character-female-d.glb",
+      "fileSize": 258760,
+      "createdAt": "2026-07-12T07:53:45.323Z",
+      "updatedAt": "2026-07-12T07:53:45.323Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-female-c",
+      "kind": "model",
+      "name": "character-female-c",
+      "fileName": "characters/character-female-c.glb",
+      "fileSize": 252040,
+      "createdAt": "2026-07-12T07:53:45.323Z",
+      "updatedAt": "2026-07-12T07:53:45.323Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-female-b",
+      "kind": "model",
+      "name": "character-female-b",
+      "fileName": "characters/character-female-b.glb",
+      "fileSize": 252140,
+      "createdAt": "2026-07-12T07:53:45.322Z",
+      "updatedAt": "2026-07-12T07:53:45.322Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "character-female-a",
+      "kind": "model",
+      "name": "character-female-a",
+      "fileName": "characters/character-female-a.glb",
+      "fileSize": 273448,
+      "createdAt": "2026-07-12T07:53:45.321Z",
+      "updatedAt": "2026-07-12T07:53:45.321Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 2.8,
+      "assetType": "character",
+      "category": "characters"
+    },
+    {
+      "id": "Pebles_1_A_2",
+      "kind": "model",
+      "name": "Pebles_1_A_2",
+      "fileName": "Pebles_1_A_2.glb",
+      "fileSize": 560028,
+      "createdAt": "2026-07-12T07:07:04.680Z",
+      "updatedAt": "2026-07-12T07:07:04.680Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 80,
+      "assetType": "prop"
+    },
+    {
+      "id": "Park_GrassHill_A",
+      "kind": "model",
+      "name": "Park_GrassHill_A",
+      "fileName": "Park_GrassHill_A.glb",
+      "fileSize": 561888,
+      "createdAt": "2026-07-12T07:07:04.679Z",
+      "updatedAt": "2026-07-12T07:07:04.679Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 80,
+      "assetType": "prop"
+    },
+    {
+      "id": "Grass_A_1",
+      "kind": "model",
+      "name": "Grass_A_1",
+      "fileName": "Grass_A_1.glb",
+      "fileSize": 560888,
+      "createdAt": "2026-07-12T07:07:04.679Z",
+      "updatedAt": "2026-07-12T07:07:04.679Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 80,
+      "assetType": "prop"
+    },
+    {
+      "id": "Flowers_2_B",
+      "kind": "model",
+      "name": "Flowers_2_B",
+      "fileName": "Flowers_2_B.glb",
+      "fileSize": 570216,
+      "createdAt": "2026-07-12T07:07:04.678Z",
+      "updatedAt": "2026-07-12T07:07:04.678Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 80,
+      "assetType": "prop"
+    },
+    {
+      "id": "Flowers_1_D",
+      "kind": "model",
+      "name": "Flowers_1_D",
+      "fileName": "Flowers_1_D.glb",
+      "fileSize": 590704,
+      "createdAt": "2026-07-12T07:07:04.329Z",
+      "updatedAt": "2026-07-12T07:07:04.329Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 80,
+      "assetType": "prop"
+    },
+    {
+      "id": "capybara",
+      "kind": "model",
+      "name": "水豚雕塑",
+      "fileName": "capybara.glb",
+      "fileSize": 2264104,
+      "createdAt": "2026-07-12T06:43:36.542Z",
+      "updatedAt": "2026-07-12T06:43:36.542Z",
+      "cells": [
+        1,
+        1
+      ],
+      "scale": 80,
+      "assetType": "prop"
+    }
+  ]
 }

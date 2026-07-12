@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { AnimMapping, ModelTransform, ModelSource } from '../../data/CitizenWorkshopConfig'
-import { computeDefaultTransform, createDefaultModelTransform } from '../../data/CitizenWorkshopConfig'
+import { computeDefaultTransform } from '../../data/CitizenWorkshopConfig'
 
 const PLATFORM_Y = 0.55
 const EXT_BASE = '/ext-assets'
@@ -391,23 +391,6 @@ export class CharacterStage {
     this.animMap.clear()
     this.currentAction = null
     this.animQueue = []
-  }
-
-  private fadeOutCurrent(): Promise<void> {
-    return new Promise(resolve => {
-      if (!this.currentModel) { resolve(); return }
-      const model = this.currentModel
-      const s = model.scale.x
-      const dur = 120
-      const t0 = performance.now()
-      const tick = () => {
-        const p = Math.min((performance.now() - t0) / dur, 1)
-        model.scale.setScalar(s * (0.85 + 0.15 * (1 - p)))
-        if (p < 1) requestAnimationFrame(tick)
-        else { this.clearCharacter(); resolve() }
-      }
-      requestAnimationFrame(tick)
-    })
   }
 
   private fadeInCurrent(): void {

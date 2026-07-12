@@ -91,7 +91,6 @@ export class TimeHUD {
   private lastMinute = -1
   private lastWeather: WeatherType | null = null
   private visible = true
-  private compact = false
 
   constructor() {
     this.injectStyles()
@@ -219,7 +218,6 @@ export class TimeHUD {
   }
 
   setCompact(compact: boolean): void {
-    this.compact = compact
     this.periodEl.style.display = compact ? 'none' : 'inline'
     this.container.style.padding = compact ? '7px 12px' : '7px 14px'
     this.container.style.gap = compact ? '6px' : '7px'

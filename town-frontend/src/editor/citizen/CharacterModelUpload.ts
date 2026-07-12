@@ -6,10 +6,6 @@ import { getLocale } from '../../i18n'
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['.glb', '.gltf']
 
-const SLOT_LABELS_ZH: Record<string, string> = { idle: '待机', walk: '行走', typing: '工作', wave: '打招呼', cheer: '庆祝', reading: '阅读', frustrated: '沮丧', dancing: '跳舞' }
-const SLOT_LABELS_EN_UPLOAD: Record<string, string> = { idle: 'Idle', walk: 'Walk', typing: 'Work', wave: 'Wave', cheer: 'Cheer', reading: 'Read', frustrated: 'Frustrated', dancing: 'Dance' }
-function getSlotLabels(): Record<string, string> { return getLocale() === 'en' ? SLOT_LABELS_EN_UPLOAD : SLOT_LABELS_ZH }
-
 export type CharacterUploadResult = {
   assetId: string
   meshUrl: string

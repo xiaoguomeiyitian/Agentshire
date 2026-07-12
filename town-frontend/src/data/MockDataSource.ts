@@ -2,14 +2,14 @@ import type { IWorldDataSource, WorldSnapshot, ConnectResult } from './IWorldDat
 import type { GameEvent, GameAction } from './GameProtocol'
 import type { TownConfig } from './TownConfig'
 import { getSpecialtyLabel } from './TownConfig'
-import { NarrativeEngine, type NarrativeStep } from '../narrative/NarrativeEngine'
+import { NarrativeEngine } from '../narrative/NarrativeEngine'
 import { MockDialog } from '../narrative/MockDialog'
 import {
-  ACT_1_ENTER, ACT_2_GREETING, ACT_3_REQUEST,
+  ACT_3_REQUEST,
   ACT_4_SUMMON, ACT_5_ASSIGN, ACT_6_TO_OFFICE,
   ACT_7_WORK, ACT_8_PUBLISH,
 } from '../narrative/sequences'
-import type { SceneType, Vec3 } from '../types'
+import type { SceneType } from '../types'
 
 type GameEventHandler = (event: GameEvent) => void
 
@@ -21,7 +21,6 @@ export class MockDataSource implements IWorldDataSource {
   private townConfig: TownConfig | null = null
 
   private phase: 'setup' | 'ceremony' | 'daily' | 'working' = 'setup'
-  private isFirstVisit = true
 
   get connected(): boolean { return this._connected }
 
@@ -66,11 +65,9 @@ export class MockDataSource implements IWorldDataSource {
   // ── Public flow starters ──
 
   startFirstVisit(): void {
-    this.isFirstVisit = true
     this.phase = 'daily'
     const cfg = this.townConfig!
-    const stewardName = cfg?.steward?.name || '管家'
-    this.emit({ type: 'npc_spawn', npcId: 'steward', name: stewardName, role: 'steward', category: 'steward', avatarId: cfg?.steward?.avatarId })
+    this.emit({ type: 'npc_spawn', npcId: 'steward', name: cfg?.steward?.name || '管家', role: 'steward', category: 'steward', avatarId: cfg?.steward?.avatarId })
     this.emit({ type: 'npc_spawn', npcId: 'user', name: cfg?.user?.name ?? '镇长', role: 'general', category: 'citizen', avatarId: cfg?.user?.avatarId })
 
     for (const c of cfg.citizens) {
@@ -87,7 +84,6 @@ export class MockDataSource implements IWorldDataSource {
   }
 
   startReturn(): void {
-    this.isFirstVisit = false
     this.phase = 'daily'
     const cfg = this.townConfig!
 
@@ -117,7 +113,6 @@ export class MockDataSource implements IWorldDataSource {
 
   private async runEntranceCeremony(): Promise<void> {
     const cfg = this.townConfig!
-    const stewardName = cfg.steward.name
 
     this.emit({ type: 'dialog_message', npcId: 'steward', text: `太好了！我这就去迎接居民们！`, isStreaming: false })
     await this.delay(2000)
@@ -172,7 +167,6 @@ export class MockDataSource implements IWorldDataSource {
   }
 
   private async runReturnSequence(): Promise<void> {
-    const cfg = this.townConfig!
     this.emit({ type: 'npc_move_to', npcId: 'user', target: { x: 20, y: 0, z: 18 }, speed: 2.5 })
     this.emit({ type: 'camera_move', follow: 'user', durationMs: 1000 })
     await this.delay(2000)

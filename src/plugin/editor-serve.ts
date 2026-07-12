@@ -13,13 +13,14 @@ import {
   unlinkSync,
   mkdirSync,
   statSync,
+  readdirSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { stateDir, initStateDir } from "./paths.js";
+import { getTownRuntime } from "./runtime.js";
 
 function getStewardWorkspaceDir(): string {
   try {
-    const { getTownRuntime } = require("./runtime.js") as typeof import("./runtime.js");
     const rt = getTownRuntime();
     const cfg = rt.config as any;
     const entry = (cfg?.agents?.list ?? []).find((a: any) => a.id === "town-steward");
@@ -47,6 +48,149 @@ const MIME_TYPES: Record<string, string> = {
 function guessMime(filePath: string): string {
   const ext = filePath.substring(filePath.lastIndexOf("."));
   return MIME_TYPES[ext] ?? "application/octet-stream";
+}
+
+/**
+ * Build the full asset catalog (builtin + custom) for AI scene editing tools.
+ * Builtin assets are read from town-frontend/src/data/asset-catalog.json.
+ * Custom assets are read from the CustomAssetManager catalog.
+ */
+async function buildAssetCatalog(
+  pluginDir: string,
+  d: ReturnType<typeof resolveDirs>,
+): Promise<{ builtin: any[]; custom: any[] }> {
+  const builtin: any[] = [];
+
+  // ── 1. Preloaded game assets (always available, in public/assets/models/) ──
+  // These are the models the game runtime can actually load via AssetLoader cache.
+  const preloadedBuildingsDir = join(pluginDir, "town-frontend", "public", "assets", "models", "buildings");
+  const preloadedPropsDir = join(pluginDir, "town-frontend", "public", "assets", "models", "props");
+  const preloadedFurnitureDir = join(pluginDir, "town-frontend", "public", "assets", "models", "furniture");
+
+  /** Scan a directory for .gltf files and return asset entries */
+  function scanPreloaded(dir: string, category: string, assetType: string): any[] {
+    if (!existsSync(dir)) return [];
+    const entries: any[] = [];
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith(".gltf")) continue;
+      const key = file.replace(/\.gltf$/, "");
+      // Skip _withoutBase variants (they're alternatives of the same building)
+      if (key.endsWith("_withoutBase")) continue;
+      entries.push({
+        key,
+        name: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        category,
+        assetType,
+        cells: [1, 1],
+        defaultScale: 1,
+        url: `/assets/models/${category}/${file}`,
+      });
+    }
+    return entries;
+  }
+
+  // Buildings (building_A..H, base, road_*, watertower, etc.)
+  for (const entry of scanPreloaded(preloadedBuildingsDir, "buildings", "building")) {
+    // Classify: road_* → road, car_* → vehicle, others → building
+    if (entry.key.startsWith("road_")) {
+      entry.category = "roads";
+      entry.assetType = "road";
+    } else if (entry.key.startsWith("car_")) {
+      entry.category = "vehicles";
+      entry.assetType = "vehicle";
+    } else if (["bench", "bush", "dumpster", "firehydrant", "streetlight", "trafficlight_A", "trafficlight_B", "trafficlight_C", "trash_A", "trash_B", "watertower"].includes(entry.key)) {
+      entry.category = "streetProps";
+      entry.assetType = "prop";
+    } else if (["box_A", "box_B"].includes(entry.key)) {
+      entry.category = "other";
+      entry.assetType = "prop";
+    } else {
+      entry.category = "buildings";
+      entry.assetType = "building";
+      // Known building sizes
+      entry.cells = [6, 6];
+      entry.defaultScale = 1.8;
+    }
+    builtin.push(entry);
+  }
+
+  // Props
+  for (const entry of scanPreloaded(preloadedPropsDir, "props", "prop")) {
+    builtin.push(entry);
+  }
+
+  // Furniture
+  for (const entry of scanPreloaded(preloadedFurnitureDir, "furniture", "furniture")) {
+    builtin.push(entry);
+  }
+
+  // ── 2. Megapack assets (only if the files actually exist on disk) ──
+  const megapackBase = join(d.extAssetsDir, "Map_1");
+  const megapackExists = existsSync(megapackBase);
+  if (megapackExists) {
+    const catalogPath = join(pluginDir, "town-frontend", "src", "data", "asset-catalog.json");
+    if (existsSync(catalogPath)) {
+      try {
+        const catalog = JSON.parse(readFileSync(catalogPath, "utf-8"));
+        for (const [category, groups] of Object.entries(catalog)) {
+          for (const group of groups as any[]) {
+            const type = (group.type ?? "").toLowerCase();
+            const colors = group.colors ?? [""];
+            for (const color of colors) {
+              const file = (group.filePattern ?? "").replace("{color}", color);
+              const url = (group.urlPattern ?? "") + file;
+              // Verify the file exists on disk before offering it
+              const filePath = join(megapackBase, decodeURIComponent(url.replace("assets/models/megapack/gltf/", "")));
+              if (!existsSync(filePath)) continue;
+              const key = `${group.type}_${group.style}_${color}`.toLowerCase().replace(/\s+/g, "_");
+              builtin.push({
+                key,
+                name: `${group.name}${color && color !== "A" ? ` (${color})` : ""}`,
+                category,
+                assetType: type,
+                cells: group.cells ?? [1, 1],
+                defaultScale: group.defaultScale ?? 1,
+                url,
+                fixRotationX: group.fixRotationX,
+                fixRotationY: group.fixRotationY,
+                fixRotationZ: group.fixRotationZ,
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // Read custom assets catalog
+  const custom: any[] = [];
+  if (existsSync(d.catalogPath)) {
+    try {
+      const cat = JSON.parse(readFileSync(d.catalogPath, "utf-8"));
+      for (const asset of cat.assets ?? []) {
+        if (asset.kind !== "model") continue;
+        // Build URL: kind 'character' → /custom-assets/characters/<fileName>,
+        // kind 'model' → /custom-assets/models/<fileName>.
+        // fileName may already include a subdirectory (e.g. "pets/foo.glb").
+        const subDir = asset.kind === "character" ? "characters" : "models";
+        custom.push({
+          id: asset.id,
+          key: asset.id,
+          name: asset.name,
+          category: asset.category ?? "custom",
+          assetType: (asset.assetType ?? "prop").toLowerCase(),
+          cells: asset.cells ?? [1, 1],
+          defaultScale: asset.scale ?? 1,
+          url: `/custom-assets/${subDir}/${asset.fileName}`,
+          fixRotationX: asset.fixRotationX,
+          fixRotationY: asset.fixRotationY,
+          fixRotationZ: asset.fixRotationZ,
+        });
+      }
+    } catch {}
+  }
+
+  return { builtin, custom };
 }
 
 function jsonRes(res: any, data: any, status = 200): void {
@@ -172,14 +316,14 @@ function migrateCatalogThumbnails(customAssetsDir: string, catalogPath: string):
   }
 }
 
-function loadAgentList(): { id: string; name: string }[] {
+function loadAgentList(): { id: string; name: string; model?: string }[] {
   try {
-    const { getTownRuntime } = require("./runtime.js") as typeof import("./runtime.js");
     const rt = getTownRuntime();
     const cfg = rt.config as any;
     return (cfg?.agents?.list ?? []).map((a: any) => ({
       id: a.id,
       name: a.identity?.name || a.name || a.id,
+      model: a.model as string | undefined,
     }));
   } catch {
     return [];
@@ -776,6 +920,7 @@ function computeChangeset(
   agentToDisable: string[];
   agentToUpdateSoul: string[];
   stewardSoulUpdated: boolean;
+  stewardModelUpdated: boolean;
   changes: Array<{
     action: "create" | "disable" | "update_soul";
     citizenId: string;
@@ -794,6 +939,7 @@ function computeChangeset(
   const agentToDisable: string[] = [];
   const agentToUpdateSoul: string[] = [];
   let stewardSoulUpdated = false;
+  let stewardModelUpdated = false;
   const changes: Array<{
     action: "create" | "disable" | "update_soul";
     citizenId: string;
@@ -852,6 +998,16 @@ function computeChangeset(
         }
       }
     }
+
+    // ── Steward modelRef change detection ──
+    // The steward is the main Agent (town-steward) in openclaw.json, NOT managed by
+    // citizen-agent-manager. We detect the change here and apply it in the async
+    // publish handler (computeChangeset itself is synchronous).
+    const oldModelRef = oldSteward?.modelRef ?? "";
+    const newModelRef = newSteward.modelRef ?? "";
+    if (newModelRef !== oldModelRef) {
+      stewardModelUpdated = true;
+    }
   }
 
   // ── Citizen change detection ──
@@ -892,13 +1048,12 @@ function computeChangeset(
     }
   }
 
-  return { totalCharacters: newChars.length, agentToCreate, agentToDisable, agentToUpdateSoul, stewardSoulUpdated, changes };
+  return { totalCharacters: newChars.length, agentToCreate, agentToDisable, agentToUpdateSoul, stewardSoulUpdated, stewardModelUpdated, changes };
 }
 
 const SOUL_GEN_TIMEOUT_MS = 90_000;
 
 async function generateSoulViaAgent(system: string, user: string): Promise<string> {
-  const { getTownRuntime } = require("./runtime.js") as typeof import("./runtime.js");
   const rt = getTownRuntime();
   const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
   const sessionKey = `agent:town-steward:soul-gen:${Date.now()}`;
@@ -1058,6 +1213,22 @@ async function handleCitizenWorkshopApi(
 
       syncTownDefaults(published, pluginDir);
 
+      // ── Steward (town-steward) model ref update ──
+      // The steward is the main Agent in openclaw.json, not a citizen agent.
+      // Apply its modelRef change directly to openclaw.json so channel.ts /
+      // llm-agent-proxy pick up the new model on the next conversation.
+      if (changeset.stewardModelUpdated) {
+        try {
+          const { updateAgentModel } = await import("./citizen-agent-manager.js");
+          const stewardEntry = published.characters.find((c: any) => c.role === "steward");
+          const newModelRef = stewardEntry?.modelRef || undefined;
+          updateAgentModel("town-steward", newModelRef);
+          console.log(`[citizen-workshop] Updated steward (town-steward) model to ${newModelRef ?? "(default)"}`);
+        } catch (err: any) {
+          console.error("[citizen-workshop] Failed to update steward model:", err?.message);
+        }
+      }
+
       const hasAgentChanges = changeset.changes.length > 0;
       const allSuccess = !agentError;
 
@@ -1114,11 +1285,53 @@ async function handleCitizenWorkshopApi(
     return true;
   }
 
+  if (route === "update-agent-model") {
+    try {
+      // NOTE: request body was already consumed at the top of
+      // handleCitizenWorkshopApi() via `await readBody(req)`. Re-reading
+      // here would hang forever waiting for an 'end' event that already
+      // fired. Reuse the already-parsed `body` instead.
+      const agentId = String(body?.agentId ?? "");
+      const modelRef = body?.modelRef ? String(body.modelRef) : undefined;
+      if (!agentId) {
+        jsonRes(res, { error: "agentId required" }, 400);
+        return true;
+      }
+      const { updateAgentModel } = await import("./citizen-agent-manager.js");
+      updateAgentModel(agentId, modelRef);
+
+      // Also update modelRef in citizen-config.json (published) so that
+      // load-published returns the correct value on page refresh.
+      // For steward, the citizenId is "steward"; for citizens, strip the
+      // "citizen-" prefix from agentId to get the npcId.
+      const citizenId = agentId === "town-steward" ? "steward" : agentId.replace(/^citizen-/, "");
+      try {
+        if (existsSync(d.publishedConfigPath)) {
+          const pub = JSON.parse(readFileSync(d.publishedConfigPath, "utf-8"));
+          const chars: any[] = pub.characters ?? [];
+          const entry = chars.find((c: any) => c.id === citizenId);
+          if (entry) {
+            if (modelRef) entry.modelRef = modelRef;
+            else delete entry.modelRef;
+            writeFileSync(d.publishedConfigPath, JSON.stringify(pub, null, 2), "utf-8");
+          }
+        }
+      } catch (pubErr: any) {
+        console.warn("[citizen-workshop] Failed to sync modelRef to citizen-config.json:", pubErr?.message);
+      }
+
+      jsonRes(res, { success: true, agentId, model: modelRef });
+    } catch (err: any) {
+      jsonRes(res, { error: err?.message ?? "Failed to update agent model" }, 500);
+    }
+    return true;
+  }
+
   if (route === "models") {
     try {
       const m = await import("./model-config.js");
       const file = m.readModelsConfig();
-      const options: Array<{ value: string; label: string; providerId: string; modelId: string }> = [];
+      const options: Array<{ value: string; label: string; providerId: string; modelId: string; contextWindow?: number }> = [];
       for (const [pid, prov] of Object.entries(file.providers ?? {})) {
         const p = prov as any;
         for (const model of p.models ?? []) {
@@ -1127,6 +1340,7 @@ async function handleCitizenWorkshopApi(
             label: `${model.name ?? model.id} (${pid})`,
             providerId: pid,
             modelId: model.id,
+            contextWindow: typeof model.contextWindow === "number" ? model.contextWindow : undefined,
           });
         }
       }
@@ -1183,7 +1397,7 @@ async function handleCitizenWorkshopApi(
   }
 
   if (route === "generate-soul") {
-    const { name, bio, industry, specialty } = body as {
+    const { name, bio, industry: _industry, specialty } = body as {
       name: string;
       bio: string;
       industry: string;
@@ -1285,7 +1499,16 @@ async function handleModelsApi(
     switch (route) {
       case "load": {
         const file = m.readModelsConfig();
-        jsonRes(res, { providers: file.providers });
+        jsonRes(res, { providers: file.providers, defaultModel: m.readDefaultModel() });
+        return true;
+      }
+      case "get-default": {
+        jsonRes(res, { success: true, defaultModel: m.readDefaultModel() });
+        return true;
+      }
+      case "set-default": {
+        const ref = m.writeDefaultModel(body.modelRef);
+        jsonRes(res, { success: true, defaultModel: ref });
         return true;
       }
       case "save": {
@@ -1346,6 +1569,337 @@ async function handleModelsApi(
     const code = err?.code ?? "INTERNAL_ERROR";
     const message = err?.message ?? "Internal error";
     jsonRes(res, { error: message, code }, 400);
+    return true;
+  }
+}
+
+// ── Claw (OpenClaw settings + sessions) API ──
+
+interface SessionSummary {
+  sessionKey: string;
+  sessionId: string;
+  agentId: string;
+  agentName: string;
+  chatType: string;
+  status: string;
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheRead: number;
+  cacheWrite: number;
+  reasoningTokens: number;
+  estimatedCostUsd: number;
+  modelProvider: string;
+  model: string;
+  contextTokens: number;
+  updatedAt: number;
+  startedAt: number;
+  endedAt: number;
+  runtimeMs: number;
+  compactionCount: number;
+}
+
+/**
+ * Scan ~/.openclaw/agents/<agentId>/sessions/sessions.json and collect a flat
+ * list of session summaries with token usage. Each sessions.json maps
+ * sessionKey → metadata; we surface the fields the UI needs.
+ */
+function collectSessionSummaries(): SessionSummary[] {
+  const root = stateDir();
+  const agentsDir = join(root, "agents");
+  if (!existsSync(agentsDir)) return [];
+
+  // Build agentId → name map from openclaw.json for friendly labels.
+  const agentNames = new Map<string, string>();
+  try {
+    const cfg = JSON.parse(readFileSync(join(root, "openclaw.json"), "utf-8"));
+    for (const a of cfg?.agents?.list ?? []) {
+      agentNames.set(a.id, a.identity?.name || a.name || a.id);
+    }
+  } catch { /* ignore */ }
+
+  const out: SessionSummary[] = [];
+  for (const entry of readdirSync(agentsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const agentId = entry.name;
+    const sessionsJsonPath = join(agentsDir, agentId, "sessions", "sessions.json");
+    if (!existsSync(sessionsJsonPath)) continue;
+    let sessions: any;
+    try {
+      sessions = JSON.parse(readFileSync(sessionsJsonPath, "utf-8"));
+    } catch {
+      continue;
+    }
+    if (!sessions || typeof sessions !== "object") continue;
+    for (const [sessionKey, meta] of Object.entries(sessions)) {
+      const m = meta as any;
+      if (!m || typeof m !== "object") continue;
+      out.push({
+        sessionKey,
+        sessionId: m.sessionId ?? "",
+        agentId,
+        agentName: agentNames.get(agentId) ?? agentId,
+        chatType: m.chatType ?? "direct",
+        status: m.status ?? "unknown",
+        totalTokens: m.totalTokens ?? 0,
+        inputTokens: m.inputTokens ?? 0,
+        outputTokens: m.outputTokens ?? 0,
+        cacheRead: m.cacheRead ?? 0,
+        cacheWrite: m.cacheWrite ?? 0,
+        reasoningTokens: m.reasoningTokens ?? 0,
+        estimatedCostUsd: m.estimatedCostUsd ?? 0,
+        modelProvider: m.modelProvider ?? "",
+        model: m.model ?? "",
+        contextTokens: m.contextTokens ?? 0,
+        updatedAt: m.updatedAt ?? 0,
+        startedAt: m.startedAt ?? m.sessionStartedAt ?? 0,
+        endedAt: m.endedAt ?? 0,
+        runtimeMs: m.runtimeMs ?? 0,
+        compactionCount: m.compactionCount ?? 0,
+      });
+    }
+  }
+  // Most recently updated first.
+  out.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return out;
+}
+
+async function handleClawApi(
+  req: any,
+  res: any,
+  route: string,
+): Promise<boolean> {
+  let body: any = {};
+  if (req.method === "POST") {
+    try {
+      const raw = await readBody(req);
+      if (raw) body = JSON.parse(raw);
+    } catch {
+      jsonRes(res, { error: "Invalid JSON body" }, 400);
+      return true;
+    }
+  }
+
+  try {
+    const m = await import("./model-config.js");
+    switch (route) {
+      case "config/load": {
+        const cfg = m.readOpenClawConfig();
+        // Surface only the commonly-edited sections to keep the payload small
+        // and avoid leaking secrets (apiKeys are masked by the model manager).
+        const summary = {
+          gateway: cfg?.gateway ?? { mode: "local" },
+          agents: {
+            defaults: cfg?.agents?.defaults ?? {},
+            count: (cfg?.agents?.list ?? []).length,
+            list: (cfg?.agents?.list ?? []).map((a: any) => ({
+              id: a.id,
+              name: a.identity?.name || a.name || a.id,
+              emoji: a.identity?.emoji,
+            })),
+          },
+          plugin: {
+            enabled: cfg?.plugins?.entries?.agentshire?.enabled ?? true,
+            autoLaunch: cfg?.plugins?.entries?.agentshire?.config?.autoLaunch ?? false,
+            allowConversationAccess:
+              cfg?.plugins?.entries?.agentshire?.hooks?.allowConversationAccess ?? false,
+          },
+          bindings: cfg?.bindings ?? [],
+          meta: cfg?.meta ?? {},
+          defaultModel: m.readDefaultModel(),
+          // ── Extended config sections ──
+          logging: cfg?.logging ?? {},
+          browser: cfg?.browser ?? {},
+          update: cfg?.update ?? {},
+          session: cfg?.session ?? {},
+          security: cfg?.security ?? {},
+          diagnostics: cfg?.diagnostics ?? {},
+        };
+        jsonRes(res, { success: true, config: summary });
+        return true;
+      }
+      case "config/save": {
+        const cfg = m.readOpenClawConfig();
+        // Gateway mode
+        if (body.gateway?.mode) {
+          cfg.gateway = cfg.gateway ?? {};
+          cfg.gateway.mode = String(body.gateway.mode);
+        }
+        // Subagent timeout
+        if (body.subagentsTimeoutSeconds !== undefined) {
+          cfg.agents = cfg.agents ?? {};
+          cfg.agents.defaults = cfg.agents.defaults ?? {};
+          cfg.agents.defaults.subagents = cfg.agents.defaults.subagents ?? {};
+          const sec = Number(body.subagentsTimeoutSeconds);
+          if (Number.isFinite(sec) && sec > 0) {
+            cfg.agents.defaults.subagents.runTimeoutSeconds = sec;
+          }
+        }
+        // Plugin enabled / autoLaunch / allowConversationAccess
+        if (body.pluginEnabled !== undefined) {
+          cfg.plugins = cfg.plugins ?? {};
+          cfg.plugins.entries = cfg.plugins.entries ?? {};
+          cfg.plugins.entries.agentshire = cfg.plugins.entries.agentshire ?? {};
+          cfg.plugins.entries.agentshire.enabled = Boolean(body.pluginEnabled);
+        }
+        if (body.autoLaunch !== undefined) {
+          cfg.plugins = cfg.plugins ?? {};
+          cfg.plugins.entries = cfg.plugins.entries ?? {};
+          cfg.plugins.entries.agentshire = cfg.plugins.entries.agentshire ?? {};
+          cfg.plugins.entries.agentshire.config = cfg.plugins.entries.agentshire.config ?? {};
+          cfg.plugins.entries.agentshire.config.autoLaunch = Boolean(body.autoLaunch);
+        }
+        if (body.allowConversationAccess !== undefined) {
+          cfg.plugins = cfg.plugins ?? {};
+          cfg.plugins.entries = cfg.plugins.entries ?? {};
+          cfg.plugins.entries.agentshire = cfg.plugins.entries.agentshire ?? {};
+          cfg.plugins.entries.agentshire.hooks = cfg.plugins.entries.agentshire.hooks ?? {};
+          cfg.plugins.entries.agentshire.hooks.allowConversationAccess = Boolean(body.allowConversationAccess);
+        }
+        // ── Logging ──
+        if (body.logging) {
+          cfg.logging = cfg.logging ?? {};
+          const lg = body.logging;
+          if (lg.level !== undefined) cfg.logging.level = String(lg.level);
+          if (lg.consoleLevel !== undefined) cfg.logging.consoleLevel = String(lg.consoleLevel);
+          if (lg.consoleStyle !== undefined) cfg.logging.consoleStyle = String(lg.consoleStyle);
+          if (lg.redactSensitive !== undefined) cfg.logging.redactSensitive = String(lg.redactSensitive);
+        }
+        // ── Browser ──
+        if (body.browser) {
+          cfg.browser = cfg.browser ?? {};
+          const br = body.browser;
+          if (br.enabled !== undefined) cfg.browser.enabled = Boolean(br.enabled);
+          if (br.headless !== undefined) cfg.browser.headless = Boolean(br.headless);
+          if (br.noSandbox !== undefined) cfg.browser.noSandbox = Boolean(br.noSandbox);
+          if (br.cdpUrl !== undefined) cfg.browser.cdpUrl = String(br.cdpUrl);
+          if (br.actionTimeoutMs !== undefined) {
+            const ms = Number(br.actionTimeoutMs);
+            if (Number.isFinite(ms) && ms > 0) cfg.browser.actionTimeoutMs = ms;
+          }
+        }
+        // ── Update ──
+        if (body.update) {
+          cfg.update = cfg.update ?? {};
+          const up = body.update;
+          if (up.channel !== undefined) cfg.update.channel = String(up.channel);
+          if (up.checkOnStart !== undefined) cfg.update.checkOnStart = Boolean(up.checkOnStart);
+          if (up.auto?.enabled !== undefined) {
+            cfg.update.auto = cfg.update.auto ?? {};
+            cfg.update.auto.enabled = Boolean(up.auto.enabled);
+          }
+        }
+        // ── Session ──
+        if (body.session) {
+          cfg.session = cfg.session ?? {};
+          const ss = body.session;
+          if (ss.maxHistoryTurns !== undefined) {
+            const n = Number(ss.maxHistoryTurns);
+            if (Number.isFinite(n) && n >= 0) cfg.session.maxHistoryTurns = n;
+          }
+          if (ss.compactionThresholdTokens !== undefined) {
+            const n = Number(ss.compactionThresholdTokens);
+            if (Number.isFinite(n) && n > 0) cfg.session.compactionThresholdTokens = n;
+          }
+        }
+        // ── Diagnostics ──
+        if (body.diagnostics) {
+          cfg.diagnostics = cfg.diagnostics ?? {};
+          const dg = body.diagnostics;
+          if (dg.enabled !== undefined) cfg.diagnostics.enabled = Boolean(dg.enabled);
+          if (dg.stuckSessionWarnMs !== undefined) {
+            const ms = Number(dg.stuckSessionWarnMs);
+            if (Number.isFinite(ms) && ms > 0) cfg.diagnostics.stuckSessionWarnMs = ms;
+          }
+          if (dg.stuckSessionAbortMs !== undefined) {
+            const ms = Number(dg.stuckSessionAbortMs);
+            if (Number.isFinite(ms) && ms > 0) cfg.diagnostics.stuckSessionAbortMs = ms;
+          }
+        }
+        m.writeOpenClawConfig(cfg);
+        jsonRes(res, { success: true });
+        return true;
+      }
+      case "sessions/list": {
+        const sessions = collectSessionSummaries();
+        // Aggregate totals for quick display.
+        const totals = sessions.reduce(
+          (acc, s) => {
+            acc.totalTokens += s.totalTokens;
+            acc.inputTokens += s.inputTokens;
+            acc.outputTokens += s.outputTokens;
+            acc.cacheRead += s.cacheRead;
+            acc.estimatedCostUsd += s.estimatedCostUsd;
+            acc.count += 1;
+            return acc;
+          },
+          { totalTokens: 0, inputTokens: 0, outputTokens: 0, cacheRead: 0, estimatedCostUsd: 0, count: 0 },
+        );
+        jsonRes(res, { success: true, sessions, totals });
+        return true;
+      }
+      case "sessions/clear": {
+        // Clear all sessions except the specified keepSessionKey.
+        // Removes entries from sessions.json AND deletes the .jsonl session files.
+        const keepSessionKey = String(body.keepSessionKey ?? "");
+        const keepAgentId = String(body.keepAgentId ?? "");
+        const root = stateDir();
+        const agentsDir = join(root, "agents");
+        if (!existsSync(agentsDir)) {
+          jsonRes(res, { success: true, cleared: 0 });
+          return true;
+        }
+        let cleared = 0;
+        for (const entry of readdirSync(agentsDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const agentId = entry.name;
+          const sessionsJsonPath = join(agentsDir, agentId, "sessions", "sessions.json");
+          if (!existsSync(sessionsJsonPath)) continue;
+          let sessionsMap: any;
+          try {
+            sessionsMap = JSON.parse(readFileSync(sessionsJsonPath, "utf-8"));
+          } catch {
+            continue;
+          }
+          if (!sessionsMap || typeof sessionsMap !== "object") continue;
+          const keysToRemove: string[] = [];
+          for (const [sessionKey, meta] of Object.entries(sessionsMap)) {
+            // Keep the specified session (matched by agentId + sessionKey)
+            if (keepSessionKey && agentId === keepAgentId && sessionKey === keepSessionKey) continue;
+            keysToRemove.push(sessionKey);
+            // Delete session files
+            const m = meta as any;
+            const sessionId = m?.sessionId;
+            if (sessionId) {
+              const sessionDir = join(agentsDir, agentId, "sessions");
+              for (const suffix of [".jsonl", ".trajectory.jsonl", ".trajectory-path.json"]) {
+                const fp = join(sessionDir, sessionId + suffix);
+                if (existsSync(fp)) {
+                  try { unlinkSync(fp); } catch { /* ignore */ }
+                }
+              }
+            }
+          }
+          for (const key of keysToRemove) {
+            delete sessionsMap[key];
+            cleared++;
+          }
+          if (keysToRemove.length > 0) {
+            try {
+              writeFileSync(sessionsJsonPath, JSON.stringify(sessionsMap, null, 2) + "\n", "utf-8");
+            } catch { /* ignore write errors */ }
+          }
+        }
+        jsonRes(res, { success: true, cleared });
+        return true;
+      }
+      default:
+        jsonRes(res, { error: "Unknown API" }, 404);
+        return true;
+    }
+  } catch (err: any) {
+    const message = err?.message ?? "Internal error";
+    jsonRes(res, { error: message }, 400);
     return true;
   }
 }
@@ -1459,6 +2013,46 @@ export async function handleEditorRequest(
     return true;
   }
 
+  // /town-map/_api/load → GET: load saved TownMapConfig
+  if (urlPath === "/town-map/_api/load" && method === "GET") {
+    const mapPath = join(d.townDataDir, "town-map.json");
+    if (existsSync(mapPath)) {
+      try {
+        const config = JSON.parse(readFileSync(mapPath, "utf-8"));
+        jsonRes(res, { config });
+      } catch {
+        jsonRes(res, { config: null });
+      }
+    } else {
+      jsonRes(res, { config: null });
+    }
+    return true;
+  }
+
+  // /town-map/_api/save → POST: persist TownMapConfig
+  if (urlPath === "/town-map/_api/save" && method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.config) { jsonRes(res, { error: "Missing config" }, 400); return true; }
+      writeFileSync(join(d.townDataDir, "town-map.json"), JSON.stringify(body.config, null, 2), "utf-8");
+      jsonRes(res, { success: true });
+    } catch (err: any) {
+      jsonRes(res, { error: err?.message ?? "Save failed" }, 500);
+    }
+    return true;
+  }
+
+  // /town-map/_api/assets → GET: return full asset catalog (builtin + custom)
+  if (urlPath === "/town-map/_api/assets" && method === "GET") {
+    try {
+      const assets = await buildAssetCatalog(pluginDir, d);
+      jsonRes(res, assets);
+    } catch (err: any) {
+      jsonRes(res, { builtin: [], custom: [], error: err?.message });
+    }
+    return true;
+  }
+
   // /citizen-workshop/_api/* → citizen workshop API
   if (
     urlPath.startsWith("/citizen-workshop/_api/") &&
@@ -1475,6 +2069,12 @@ export async function handleEditorRequest(
   ) {
     const route = urlPath.slice("/models/_api/".length).split("?")[0];
     return handleModelsApi(req, res, route);
+  }
+
+  // /claw/_api/* → OpenClaw settings + sessions API
+  if (urlPath.startsWith("/claw/_api/")) {
+    const route = urlPath.slice("/claw/_api/".length).split("?")[0];
+    return handleClawApi(req, res, route);
   }
 
   // /board/plans → read-only plan snapshot for office whiteboard

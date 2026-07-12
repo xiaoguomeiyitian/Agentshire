@@ -139,11 +139,10 @@ export class ActivityStream {
       return '执行命令'
     }
     if (['read', 'read_file', 'grep', 'glob'].includes(toolName)) {
-      const p = String(inp.path ?? inp.pattern ?? '').split('/').pop() ?? ''
-      return `阅读 ${p || '文件'}`
+      const readPath = String(inp.path ?? inp.pattern ?? '').split('/').pop() ?? ''
+      return `阅读 ${readPath || '文件'}`
     }
     if (['write', 'edit', 'write_file', 'edit_file'].includes(toolName)) {
-      const p = String(inp.path ?? inp.file ?? inp.content?.toString().slice(0, 0) ?? '').split('/').pop() ?? ''
       const writePath = String(inp.path ?? inp.file ?? '').split('/').pop() ?? ''
       return `编辑 ${writePath || '文件'}`
     }

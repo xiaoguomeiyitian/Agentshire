@@ -1,5 +1,4 @@
 import type { TownConfig } from './TownConfig'
-import { createDefaultTownConfig } from './TownConfig'
 
 const CONFIG_KEY = 'agentshire_config'
 const ACTIVE_SESSION_KEY = 'agentshire_active_session'

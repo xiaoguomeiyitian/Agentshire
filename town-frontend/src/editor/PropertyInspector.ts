@@ -38,13 +38,10 @@ export class PropertyInspector {
     this.initTooltip()
   }
 
-  private tooltipEl: HTMLElement | null = null
-
   private initTooltip(): void {
     const tip = document.createElement('div')
     tip.className = 'pi-tooltip'
     document.body.appendChild(tip)
-    this.tooltipEl = tip
 
     this.el.addEventListener('pointerenter', (e) => {
       const btn = (e.target as HTMLElement).closest('[data-tip]') as HTMLElement | null
@@ -560,7 +557,7 @@ export class PropertyInspector {
     })
   }
 
-  private addMultiActionButtons(items: PlacedItem[]): void {
+  private addMultiActionButtons(_items: PlacedItem[]): void {
     const wrap = document.createElement('div')
     wrap.className = 'pi-group-btns'
 

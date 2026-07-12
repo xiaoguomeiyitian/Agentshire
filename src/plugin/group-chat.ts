@@ -14,8 +14,7 @@
  */
 
 import { routeCitizenMessage } from "./citizen-chat-router.js";
-import { sanitizeTownSessionId } from "./town-session.js";
-import { broadcastAgentEvent, pushGroupChatMessage } from "./ws-server.js";
+import { broadcastAgentEvent, pushGroupChatMessage, pushGroupChatTyping, pushGroupChatTypingDone } from "./ws-server.js";
 import {
   buildContextForCitizen,
   maybeGenerateSummary,
@@ -27,7 +26,6 @@ import {
 import {
   appendGroupMessage,
   loadGroupHistory,
-  loadFullGroupHistory,
   type PersistedGroupMessage,
 } from "./group-chat-history.js";
 import { readFileSync, existsSync } from "node:fs";
@@ -39,11 +37,14 @@ const DEFAULT_GROUP_ID = "town-square";
 const DEFAULT_GROUP_NAME = "小镇广场";
 
 const TURN_TIMEOUT_MS = 60_000;
-const MAX_TOTAL_TURNS = 50;
-const MAX_CONCURRENT_SPEAKERS = 5;
-const SPEAKER_COOLDOWN_MS = 3_000;
-const IDLE_TIMEOUT_MS = 60_000;
+const MAX_TOTAL_TURNS = 120;
+const MAX_CONCURRENT_SPEAKERS = 2; // 降低并发避免 session 冲突（OpenClaw session settle ~15s）
+const SPEAKER_COOLDOWN_MS = 10_000; // 增大冷却，OpenClaw session 释放很慢
+const IDLE_TIMEOUT_MS = 120_000; // 增大 idle 超时，管家需要时间处理夜行动/投票
 const MAX_MENTION_CHAIN = 3; // max A↔B ping-pong before auto-break
+const MAX_ALL_BROADCAST_CHAIN = 12; // @所有人 广播链上限（裁判/管家需反复广播，单独放宽）
+const SESSION_CONFLICT_RETRY_MS = 8_000; // session 冲突后初始延迟重试间隔（指数退避基数）
+const SESSION_CONFLICT_MAX_RETRIES = 10; // session 冲突最大重试次数（agent 可能正在执行 subagent，需等几分钟）
 
 interface ActiveGroupChat {
   groupId: string;
@@ -65,7 +66,11 @@ interface ActiveGroupChat {
   idleTimer: ReturnType<typeof setTimeout> | null;
   responseBuffers: Map<string, string>;
   contextBudgets: Map<string, number>;
-  usageMap: Map<string, { input: number; output: number; totalTokens?: number }>;
+  usageMap: Map<string, { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number }>;
+  modelMap: Map<string, string>;
+  sessionConflictRetries: Map<string, number>;
+  finalizedSpeakers: Set<string>; // speakers whose response is finalized but routeCitizenMessage await hasn't returned
+  compactionCount: number; // max compaction count across all citizen turns
 }
 
 const activeGroups = new Map<string, ActiveGroupChat>();
@@ -102,8 +107,7 @@ export function loadAllEnabledCitizens(): Participant[] {
       } catch {}
     }
 
-    // Build a set of all agent IDs from openclaw.json
-    const allAgentIds = new Set(openclawAgents.map((a: any) => a.id));
+    // Build a set of citizen agent IDs from openclaw.json
     const citizenAgentIds = new Set(
       openclawAgents
         .filter((a: any) => a.id?.startsWith("citizen-"))
@@ -190,6 +194,10 @@ export function getOrCreateDefaultGroup(ctx: {
     responseBuffers: new Map(),
     contextBudgets: new Map(),
     usageMap: new Map(),
+    modelMap: new Map(),
+    sessionConflictRetries: new Map(),
+    finalizedSpeakers: new Set(),
+    compactionCount: 0,
   };
 
   // Load persisted history
@@ -252,6 +260,10 @@ export function startGroupChat(params: {
     responseBuffers: new Map(),
     contextBudgets: new Map(),
     usageMap: new Map(),
+    modelMap: new Map(),
+    sessionConflictRetries: new Map(),
+    finalizedSpeakers: new Set(),
+    compactionCount: 0,
   };
 
   // Load persisted history for this group
@@ -426,7 +438,7 @@ export function onUserGroupMessage(params: {
 }
 
 /** Handle citizen LLM output (streaming text). */
-export function onCitizenResponse(agentId: string, text: string, contextTokenBudget?: number, usage?: { input: number; output: number; totalTokens?: number }): void {
+export function onCitizenResponse(agentId: string, text: string, contextTokenBudget?: number, usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number }, model?: string): void {
   const group = findGroupByAgentId(agentId);
   if (!group || group.stopped) return;
 
@@ -445,12 +457,21 @@ export function onCitizenResponse(agentId: string, text: string, contextTokenBud
   if (usage) {
     group.usageMap.set(participant.npcId, usage);
   }
+  // Store model from llm_output for inclusion in group_chat_message
+  if (model) {
+    group.modelMap.set(participant.npcId, model);
+  }
 }
 
 /** Handle citizen turn end (agent_end hook). */
-export function onCitizenTurnEnd(agentId: string, usage?: { input: number; output: number; totalTokens?: number }): void {
+export function onCitizenTurnEnd(agentId: string, _usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number }, compactionCount?: number): void {
   const group = findGroupByAgentId(agentId);
   if (!group || group.stopped) return;
+
+  // Track max compaction count across all citizen turns
+  if (typeof compactionCount === "number" && compactionCount > group.compactionCount) {
+    group.compactionCount = compactionCount;
+  }
 
   const participant = group.participants.find(p => p.agentId === agentId);
   if (!participant) return;
@@ -471,15 +492,28 @@ export function onCitizenTurnEnd(agentId: string, usage?: { input: number; outpu
     group.contextBudgets.delete(participant.npcId);
     const storedUsage = group.usageMap.get(participant.npcId);
     group.usageMap.delete(participant.npcId);
+    const storedModel = group.modelMap.get(participant.npcId);
+    group.modelMap.delete(participant.npcId);
 
-    // Now safe to release the speaker slot
-    group.activeSpeakers.delete(participant.npcId);
+    // NOTE: Do NOT delete activeSpeakers here. activeSpeakers is released only
+    // after routeCitizenMessage's await returns in dispatchToCitizen, because
+    // OpenClaw's session remains locked until dispatchReplyWithBufferedBlockDispatcher
+    // completes (which fires message_sending AFTER agent_end). Deleting here would
+    // allow a new dispatch to collide with the still-locked session.
+    // Mark that this citizen's response is finalized so dispatchToCitizen knows
+    // it can release the speaker slot once the await returns.
+    group.finalizedSpeakers.add(participant.npcId);
+    // Notify frontend that this citizen is done typing
+    pushGroupChatTypingDone(group.townSessionId, {
+      groupId: group.groupId,
+      npcId: participant.npcId,
+    });
     if (!responseText || isSkipResponse(responseText)) {
       console.log(`[group-chat] ${participant.name} skipped response`);
       drainPendingMentions(group);
       return;
     }
-    finalizeCitizenResponse(group, participant, responseText, storedUsage, contextBudget);
+    finalizeCitizenResponse(group, participant, responseText, storedUsage, contextBudget, storedModel);
   };
 
   if ((group.responseBuffers.get(participant.npcId) ?? "").trim()) {
@@ -505,7 +539,7 @@ export function onCitizenTurnEnd(agentId: string, usage?: { input: number; outpu
 }
 
 /** Finalize a citizen response: parse mentions, persist, broadcast, chain. */
-function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participant, responseText: string, usage?: { input: number; output: number; totalTokens?: number }, contextBudget?: number): void {
+function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participant, responseText: string, usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number }, contextBudget?: number, model?: string): void {
   // Parse mentions from citizen output
   const mentions = parseMentionsFromText(responseText, group.participants);
 
@@ -519,6 +553,7 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
     mentions,
     ...(usage ? { usage } : {}),
     ...(typeof contextBudget === "number" ? { contextBudget } : {}),
+    ...(model ? { model } : {}),
   };
   group.history.push(msg);
   persistMessage(group, msg);
@@ -538,6 +573,7 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
     mentions,
     ...(usage ? { usage } : {}),
     ...(typeof contextBudget === "number" ? { contextBudget } : {}),
+    ...(model ? { model } : {}),
   });
 
   // Check mention chain limit (includes @all to prevent infinite broadcast loops)
@@ -552,20 +588,20 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
     }
   }
 
-  // Track @all broadcast count to prevent infinite loops
+  // Track @all broadcast count to prevent infinite loops (uses higher limit)
   if (mentions.includes("all")) {
     const allChainKey = `${participant.npcId}→all`;
     const allCount = (group.mentionChainCount.get(allChainKey) ?? 0) + 1;
     group.mentionChainCount.set(allChainKey, allCount);
-    if (allCount >= MAX_MENTION_CHAIN) {
-      console.log(`[group-chat] @all chain from ${participant.name} reached limit (${MAX_MENTION_CHAIN}), breaking`);
+    if (allCount >= MAX_ALL_BROADCAST_CHAIN) {
+      console.log(`[group-chat] @all chain from ${participant.name} reached limit (${MAX_ALL_BROADCAST_CHAIN}), breaking`);
     }
   }
 
   // Determine next targets
   let nextTargets: string[] = [];
   const allChainExceeded = mentions.includes("all") &&
-    (group.mentionChainCount.get(`${participant.npcId}→all`) ?? 0) >= MAX_MENTION_CHAIN;
+    (group.mentionChainCount.get(`${participant.npcId}→all`) ?? 0) >= MAX_ALL_BROADCAST_CHAIN;
   if (mentions.includes("all") && !allChainExceeded) {
     nextTargets = group.participants
       .filter(p => p.npcId !== participant.npcId)
@@ -577,9 +613,13 @@ function finalizeCitizenResponse(group: ActiveGroupChat, participant: Participan
   }
   // If no mentions, citizen chose not to pass the baton — no auto-dispatch
 
-  // Dispatch to next targets (not directly mentioned — these are citizen-chosen passes)
+  // Dispatch to next targets
+  // @所有人 → all targets are directly mentioned (must reply, not skip)
+  // @specific → only mentioned targets are directly mentioned
+  const isAllMention = mentions.includes("all");
   for (const npcId of nextTargets) {
-    dispatchToCitizen(npcId, group, false);
+    const directlyMentioned = isAllMention || mentions.includes(npcId);
+    dispatchToCitizen(npcId, group, directlyMentioned);
   }
 
   // Drain pending mentions (citizens queued due to max concurrent speakers limit)
@@ -603,14 +643,21 @@ async function dispatchToCitizen(npcId: string, group: ActiveGroupChat, isDirect
 
   // Check if already speaking
   if (group.activeSpeakers.has(npcId)) {
-    console.log(`[group-chat] ${participant.name} already speaking, skipping`);
+    console.log(`[group-chat] ${participant.name} already speaking, queuing`);
+    // Deduplicate: don't queue if already pending
+    if (!group.pendingMentions.some(p => p.npcId === npcId)) {
+      group.pendingMentions.push({ npcId, isDirectlyMentioned });
+    }
     return;
   }
 
   // Check max concurrent speakers
   if (group.activeSpeakers.size >= MAX_CONCURRENT_SPEAKERS) {
     console.log(`[group-chat] Max concurrent speakers reached, queuing ${participant.name}`);
-    group.pendingMentions.push({ npcId, isDirectlyMentioned });
+    // Deduplicate: don't queue if already pending
+    if (!group.pendingMentions.some(p => p.npcId === npcId)) {
+      group.pendingMentions.push({ npcId, isDirectlyMentioned });
+    }
     return;
   }
 
@@ -634,6 +681,13 @@ async function dispatchToCitizen(npcId: string, group: ActiveGroupChat, isDirect
   group.activeSpeakers.add(npcId);
   group.speakerCooldowns.set(npcId, now);
 
+  // Notify frontend that this citizen is composing a reply (typing indicator)
+  pushGroupChatTyping(group.townSessionId, {
+    groupId: group.groupId,
+    npcId: participant.npcId,
+    speakerName: participant.name,
+  });
+
   // Build context
   const contextMessage = buildContextForCitizen(
     group.groupId,
@@ -649,8 +703,10 @@ async function dispatchToCitizen(npcId: string, group: ActiveGroupChat, isDirect
     if (!group.activeSpeakers.has(npcId)) return;
     console.log(`[group-chat] ${participant.name} timed out after ${TURN_TIMEOUT_MS}ms`);
     group.activeSpeakers.delete(npcId);
+    group.finalizedSpeakers.delete(npcId);
     group.responseBuffers.delete(npcId);
     group.turnTimers.delete(npcId);
+    pushGroupChatTypingDone(group.townSessionId, { groupId: group.groupId, npcId });
     drainPendingMentions(group);
   }, TURN_TIMEOUT_MS);
   group.turnTimers.set(npcId, timer);
@@ -667,13 +723,81 @@ async function dispatchToCitizen(npcId: string, group: ActiveGroupChat, isDirect
       accountId: group.accountId,
       cfg: group.cfg,
       sessionKeyPrefix: `group:${group.groupId}`,
+      // Group chat has its own retry mechanism with longer backoff (8s/16s/24s...)
+      // that handles session conflicts better. Skip internal retry to avoid storms.
+      skipConflictRetry: true,
     });
-  } catch (err) {
-    console.error(`[group-chat] Failed to dispatch to ${participant.name}:`, err);
+    // routeCitizenMessage await returned — OpenClaw dispatch fully completed.
+    // Now it's safe to release the speaker slot and set cooldown.
     group.activeSpeakers.delete(npcId);
-    group.responseBuffers.delete(npcId);
+    group.finalizedSpeakers.delete(npcId);
+    group.sessionConflictRetries.delete(npcId); // dispatch 成功，清除重试计数
+    group.speakerCooldowns.set(npcId, Date.now());
     const t = group.turnTimers.get(npcId);
     if (t) { clearTimeout(t); group.turnTimers.delete(npcId); }
+    drainPendingMentions(group);
+  } catch (err) {
+    console.error(`[group-chat] Failed to dispatch to ${participant.name}:`, err);
+    const t = group.turnTimers.get(npcId);
+    if (t) { clearTimeout(t); group.turnTimers.delete(npcId); }
+    pushGroupChatTypingDone(group.townSessionId, { groupId: group.groupId, npcId });
+
+    // If session conflict, re-queue with exponential backoff retry (instead of dropping)
+    const errMsg = err instanceof Error ? err.message : String(err ?? "");
+    if (errMsg.includes("session initialization conflicted")) {
+      const retryCount = (group.sessionConflictRetries.get(npcId) ?? 0) + 1;
+      group.sessionConflictRetries.set(npcId, retryCount);
+      // 关键：session 冲突意味着 OpenClaw 的 session 仍被占用（idle settle 15s）。
+      // 不删除 activeSpeakers，保持锁定状态，防止 drainPendingMentions 中的 pending
+      // 被立即 dispatch（避免多个 dispatch 竞争同一个 session）。
+      // 只通过 retry setTimeout 来重新 dispatch。
+      // Set cooldown to now so the retry after backoff won't be blocked by cooldown check
+      group.speakerCooldowns.set(npcId, Date.now());
+      if (retryCount <= SESSION_CONFLICT_MAX_RETRIES) {
+        // 指数退避 + 随机 jitter：
+        // retry 1 → 8s, 2 → 16s, 3 → 32s, 4 → 64s, 5+ → 120s (cap)
+        // agent 可能正在执行 subagent（如 steward 派遣 点点 做开发），session 被长期占用
+        // （可能几分钟），需要足够长的退避让 subagent 完成
+        const expBackoffMs = Math.min(
+          SESSION_CONFLICT_RETRY_MS * Math.pow(2, retryCount - 1),
+          120_000, // cap at 2 minutes
+        );
+        const jitterMs = Math.floor(Math.random() * 5000); // 0-5s random jitter
+        const backoffMs = expBackoffMs + jitterMs;
+        console.log(`[group-chat] ${participant.name} session conflict, re-queuing (retry ${retryCount}/${SESSION_CONFLICT_MAX_RETRIES}) after ${backoffMs}ms (jitter=${jitterMs}ms)`);
+        setTimeout(() => {
+          if (group.stopped) return;
+          // 注意：不在这里删除 sessionConflictRetries，让计数持续递增直到成功或达到上限
+          // retry 计数器在 dispatch 成功时清除（见上方 await 成功路径）
+          // 释放 activeSpeakers 锁，允许 retry dispatch
+          group.activeSpeakers.delete(npcId);
+          group.finalizedSpeakers.delete(npcId);
+          group.responseBuffers.delete(npcId);
+          if (!group.activeSpeakers.has(npcId)) {
+            dispatchToCitizen(npcId, group, isDirectlyMentioned).catch(() => {});
+          } else {
+            // 仍在发言中，放回队列
+            if (!group.pendingMentions.some(p => p.npcId === npcId)) {
+              group.pendingMentions.push({ npcId, isDirectlyMentioned });
+            }
+          }
+        }, backoffMs);
+        // 不调用 drainPendingMentions，避免立即触发新的 dispatch 竞争 session
+        return;
+      } else {
+        console.log(`[group-chat] ${participant.name} session conflict max retries (${SESSION_CONFLICT_MAX_RETRIES}) exceeded, dropping`);
+        group.sessionConflictRetries.delete(npcId);
+        // 达到上限后释放锁
+        group.activeSpeakers.delete(npcId);
+        group.finalizedSpeakers.delete(npcId);
+        group.responseBuffers.delete(npcId);
+      }
+    } else {
+      // 非 session 冲突错误，释放锁
+      group.activeSpeakers.delete(npcId);
+      group.finalizedSpeakers.delete(npcId);
+      group.responseBuffers.delete(npcId);
+    }
     drainPendingMentions(group);
   }
 }
@@ -742,6 +866,7 @@ export function getGroupInfo(groupId: string): {
   participants: Array<{ npcId: string; name: string; specialty?: string }>;
   topic?: string;
   messageCount: number;
+  compactionCount: number;
 } | null {
   const group = activeGroups.get(groupId);
   if (!group) return null;
@@ -756,12 +881,30 @@ export function getGroupInfo(groupId: string): {
     })),
     topic: group.topic,
     messageCount: group.history.length,
+    compactionCount: group.compactionCount,
   };
 }
 
 /** Get the default group ID. */
 export function getDefaultGroupId(): string {
   return DEFAULT_GROUP_ID;
+}
+
+/**
+ * Get the list of citizens currently composing a reply in a group.
+ * Used to restore typing indicators on frontend reconnect/refresh.
+ */
+export function getActiveTypingCitizens(groupId: string): Array<{ npcId: string; speakerName: string }> {
+  const group = activeGroups.get(groupId);
+  if (!group || group.stopped) return [];
+  const result: Array<{ npcId: string; speakerName: string }> = [];
+  for (const npcId of group.activeSpeakers) {
+    const participant = group.participants.find(p => p.npcId === npcId);
+    if (participant) {
+      result.push({ npcId: participant.npcId, speakerName: participant.name });
+    }
+  }
+  return result;
 }
 
 /** Stop all groups (on plugin shutdown). */

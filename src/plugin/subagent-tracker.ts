@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { SessionLogWatcher } from "./session-log-watcher.js";
 import { broadcastAgentEvent } from "./ws-server.js";
-import type { AgentEvent } from "../contracts/events.js";
 import { stateDir } from "./paths.js";
 
 const TOWN_AGENT_ID = "town-steward";
@@ -149,7 +148,7 @@ function parseActivityLog(filePath: string): ActivityLogEntry[] {
       if (!msg || !Array.isArray(msg.content)) continue;
 
       if (msg.role === "assistant") {
-        for (const [id, info] of pendingTools) {
+        for (const [, info] of pendingTools) {
           entries.push({ name: info.name, input: info.input, output: "(abandoned)", success: false });
         }
         pendingTools.clear();

@@ -1,6 +1,7 @@
 import type { AgentEvent } from "../contracts/events.js";
 import type { ContentKind } from "../contracts/media.js";
 import { readFileSync, existsSync } from "node:fs";
+import { estimateInputTokens, estimateOutputTokens, withEstimatedFallback } from "./token-estimate.js";
 
 function tryReadBase64(filePath: string): string | undefined {
   try {
@@ -11,6 +12,25 @@ function tryReadBase64(filePath: string): string | undefined {
 
 let sessionCounter = 0;
 
+/** Cache estimated input tokens per runId, from llm_input → llm_output/agent_end */
+const inputTokenEstimates = new Map<string, number>();/** Timestamp when each runId was cached, for TTL cleanup (5 min) */
+const inputTokenTimestamps = new Map<string, number>();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+function cacheInputEstimate(runId: string, tokens: number): void {
+  inputTokenEstimates.set(runId, tokens);
+  inputTokenTimestamps.set(runId, Date.now());
+  // Sweep expired entries periodically
+  if (inputTokenEstimates.size > 50) {
+    const now = Date.now();
+    for (const [id, ts] of inputTokenTimestamps) {
+      if (now - ts > CACHE_TTL_MS) {
+        inputTokenEstimates.delete(id);
+        inputTokenTimestamps.delete(id);
+      }
+    }
+  }
+}
 const MEDIA_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp",
   "mp4", "webm", "mov", "avi", "mkv",
@@ -81,15 +101,25 @@ export function hookToAgentEvent(
         });
       }
 
-      const usage = payload.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+      const rawUsage = payload.usage as { inputTokens?: number; outputTokens?: number } | undefined;
+      const runId = String(payload.runId ?? "");
+      const estInput = runId ? (inputTokenEstimates.get(runId) ?? 0) : 0;
+      const usage = withEstimatedFallback(
+        rawUsage ? { input: rawUsage.inputTokens ?? 0, output: rawUsage.outputTokens ?? 0 } : undefined,
+        estInput,
+        0, // agent_end doesn't have assistantTexts; output already shown via llm_output
+      );
+      // NOTE: Do NOT delete cache here — llm_output may fire AFTER agent_end
+      // (OpenClaw 2026.6.11 ordering). Cache entries are cleaned by TTL sweep.
       events.push({
         type: "turn_end",
         usage: {
-          inputTokens: usage?.inputTokens ?? 0,
-          outputTokens: usage?.outputTokens ?? 0,
+          inputTokens: usage.input,
+          outputTokens: usage.output,
         },
         toolCalls: (payload.toolCalls as number) ?? 0,
         durationMs: (payload.durationMs as number) ?? 0,
+        ...(typeof (payload as any).compactionCount === "number" ? { compactionCount: (payload as any).compactionCount as number } : {}),
       });
 
       return events;
@@ -97,21 +127,49 @@ export function hookToAgentEvent(
 
     case "llm_input": {
       const delta = String(payload.thinking ?? payload.reasoning ?? payload.thought ?? "");
+      // Estimate input tokens and cache for llm_output/agent_end fallback
+      const runId = String(payload.runId ?? "");
+      if (runId) {
+        const systemPrompt = String(payload.systemPrompt ?? "");
+        const prompt = String(payload.prompt ?? "");
+        const historyMessages = (payload.historyMessages as Array<{ role?: string; content?: unknown }>) ?? [];
+        const est = estimateInputTokens(systemPrompt, prompt, historyMessages);
+        cacheInputEstimate(runId, est);
+      }
       return { type: "thinking_delta", delta };
     }
 
     case "llm_output": {
       const texts = payload.assistantTexts as string[] | undefined;
       const text = texts?.[texts.length - 1] ?? String(payload.text ?? payload.content ?? "");
-      const rawUsage = payload.usage as { input?: number; output?: number; totalTokens?: number } | undefined;
+      const rawUsage = payload.usage as { input?: number; output?: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number } | undefined;
       const contextTokenBudget = typeof payload.contextTokenBudget === "number" ? payload.contextTokenBudget as number : undefined;
+
+      // Fallback: estimate tokens when API returns 0
+      const runId = String(payload.runId ?? "");
+      const estInput = runId ? (inputTokenEstimates.get(runId) ?? 0) : 0;
+      const estOutput = estimateOutputTokens(texts ?? (text ? [text] : []));
+      const usage = withEstimatedFallback(
+        rawUsage ? { input: rawUsage.input ?? 0, output: rawUsage.output ?? 0 } : undefined,
+        estInput,
+        estOutput,
+      );
+      const cacheRead = typeof rawUsage?.cacheRead === "number" ? rawUsage.cacheRead : undefined;
+      const cacheWrite = typeof rawUsage?.cacheWrite === "number" ? rawUsage.cacheWrite : undefined;
+      // Clean up cache after reading (llm_output is the final consumer)
+      if (runId) {
+        inputTokenEstimates.delete(runId);
+        inputTokenTimestamps.delete(runId);
+      }
 
       const events: AgentEvent[] = [];
 
       // Emit context_update with token usage + context window budget
-      if (rawUsage || contextTokenBudget) {
-        const inputTokens = rawUsage?.input ?? 0;
-        const outputTokens = rawUsage?.output ?? 0;
+      // Only emit when there's actual usage data (API-provided, estimated, or budget)
+      const hasUsage = !!rawUsage || contextTokenBudget !== undefined || estInput > 0 || estOutput > 0;
+      if (hasUsage || contextTokenBudget) {
+        const inputTokens = usage.input;
+        const outputTokens = usage.output;
         const limit = contextTokenBudget ?? 0;
         const used = inputTokens;
         const percent = limit > 0 ? Math.round((used / limit) * 100) : 0;
@@ -121,6 +179,8 @@ export function hookToAgentEvent(
           usage: {
             inputTokens,
             outputTokens,
+            ...(cacheRead !== undefined ? { cacheRead } : {}),
+            ...(cacheWrite !== undefined ? { cacheWrite } : {}),
           },
           messagesCount: 0,
           iteration: 0,

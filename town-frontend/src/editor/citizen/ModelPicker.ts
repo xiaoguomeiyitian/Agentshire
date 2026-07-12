@@ -20,7 +20,6 @@ export class ModelPicker {
 
   private tabsEl: HTMLElement
   private gridEl: HTMLElement
-  private scrollEl: HTMLElement
 
   private allGroups: CharacterGroup[] = []
   private customGroups: CharacterGroup[] = []
@@ -41,10 +40,9 @@ export class ModelPicker {
   selectedVariant = 1
   selectedColor = 1
 
-  constructor(tabsEl: HTMLElement, gridEl: HTMLElement, scrollEl: HTMLElement) {
+  constructor(tabsEl: HTMLElement, gridEl: HTMLElement, _scrollEl: HTMLElement) {
     this.tabsEl = tabsEl
     this.gridEl = gridEl
-    this.scrollEl = scrollEl
     this.allGroups = [...getBuiltinGroups()]
     this.probeLibraryAssets()
     this.loadCustomModels()
@@ -268,7 +266,6 @@ export class ModelPicker {
       <button class="popover-item popover-danger" data-action="delete">${ModelPicker.SVG_DELETE} ${getLocale() === 'en' ? 'Delete' : '删除'}</button>
     `
 
-    const card = anchor.closest('.cw-model-card') as HTMLElement
     const rect = anchor.getBoundingClientRect()
     const gridRect = this.gridEl.getBoundingClientRect()
     pop.style.position = 'absolute'

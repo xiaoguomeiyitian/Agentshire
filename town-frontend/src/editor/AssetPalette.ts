@@ -35,23 +35,29 @@ export interface AssetCatalogEntry {
   assetType: string
 }
 
-type Category = keyof typeof catalogZh | 'custom'
+type Category = keyof typeof catalogZh | 'custom' | 'characters' | 'pets'
 
 const CATEGORY_LABELS_ZH: Record<string, string> = {
-  custom: '我的', kaykit: '小镇', buildings: '建筑', vehicles: '汽车',
+  custom: '我的',
+  characters: '角色',
+  pets: '宠物', kaykit: '小镇', buildings: '建筑', vehicles: '汽车',
   roads: '道路', nature: '自然', streetProps: '街道', tiles: '瓦片',
   signs: '标牌', factory: '工厂', foodProps: '餐饮', roofProps: '屋顶',
   basketball: '球场', other: '其他', construction: '工地',
 }
 const CATEGORY_LABELS_EN: Record<string, string> = {
-  custom: 'Custom', kaykit: 'Town', buildings: 'Buildings', vehicles: 'Vehicles',
+  custom: 'Custom',
+  characters: 'Characters',
+  pets: 'Pets', kaykit: 'Town', buildings: 'Buildings', vehicles: 'Vehicles',
   roads: 'Roads', nature: 'Nature', streetProps: 'Street', tiles: 'Tiles',
   signs: 'Signs', factory: 'Factory', foodProps: 'Food', roofProps: 'Roof',
   basketball: 'Sports', other: 'Other', construction: 'Build',
 }
 
 const CATEGORY_KEYS: Category[] = [
-  'custom', 'kaykit', 'buildings', 'vehicles', 'roads', 'nature', 'streetProps',
+  'custom',
+  'characters',
+  'pets', 'kaykit', 'buildings', 'vehicles', 'roads', 'nature', 'streetProps',
   'tiles', 'signs', 'factory', 'foodProps', 'roofProps', 'basketball', 'other', 'construction',
 ]
 
@@ -98,9 +104,9 @@ export class AssetPalette {
   setCustomStore(store: CustomAssetStore): void {
     this.customStore = store
     store.onChange(() => {
-      if (this.activeCategory === 'custom') this.renderList()
+      if (this.activeCategory === 'custom' || this.activeCategory === 'characters' || this.activeCategory === 'pets') this.renderList()
     })
-    if (this.activeCategory === 'custom') this.renderList()
+    if (this.activeCategory === 'custom' || this.activeCategory === 'characters' || this.activeCategory === 'pets') this.renderList()
   }
 
   setCustomUpload(upload: CustomAssetUpload): void {
@@ -108,7 +114,7 @@ export class AssetPalette {
   }
 
   private initTabs(): void {
-    const tabContainer = this.container.querySelector('.palette-tabs')!
+    const tabContainer = this.container.querySelector('.palette-tabs') as HTMLElement
     tabContainer.innerHTML = ''
     for (const cat of getCategories()) {
       const btn = document.createElement('button')
@@ -122,22 +128,76 @@ export class AssetPalette {
         this.selectedCustomAsset = null
         this.container.querySelectorAll('.palette-tab').forEach(t => t.classList.remove('active'))
         btn.classList.add('active')
-        // Remove custom footer when switching away
-        const footer = this.container.querySelector('.custom-add-footer')
-        if (footer && cat.key !== 'custom') footer.remove()
+        // Scroll the active tab into view
+        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
         this.renderList()
       })
       tabContainer.appendChild(btn)
     }
+
+    // Enable horizontal scroll via mouse wheel (translate vertical wheel to horizontal)
+    tabContainer.addEventListener('wheel', (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        e.preventDefault()
+        tabContainer.scrollLeft += e.deltaY
+      }
+    }, { passive: false })
+
+    // Add scroll indicator arrows
+    this.setupTabScrollIndicators(tabContainer as HTMLElement)
+  }
+
+  private setupTabScrollIndicators(tabContainer: HTMLElement): void {
+    // Find or create the wrapper that contains .palette-tabs
+    const parent = tabContainer.parentElement
+    if (!parent) return
+
+    // Create left/right arrow indicators if not already present
+    let leftArrow = parent.querySelector('.tab-scroll-arrow.left') as HTMLElement | null
+    let rightArrow = parent.querySelector('.tab-scroll-arrow.right') as HTMLElement | null
+
+    if (!leftArrow) {
+      leftArrow = document.createElement('button')
+      leftArrow.className = 'tab-scroll-arrow left'
+      leftArrow.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>'
+      leftArrow.setAttribute('aria-label', 'Scroll left')
+      leftArrow.addEventListener('click', () => {
+        tabContainer.scrollBy({ left: -120, behavior: 'smooth' })
+      })
+      tabContainer.insertAdjacentElement('beforebegin', leftArrow)
+    }
+    if (!rightArrow) {
+      rightArrow = document.createElement('button')
+      rightArrow.className = 'tab-scroll-arrow right'
+      rightArrow.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>'
+      rightArrow.setAttribute('aria-label', 'Scroll right')
+      rightArrow.addEventListener('click', () => {
+        tabContainer.scrollBy({ left: 120, behavior: 'smooth' })
+      })
+      tabContainer.insertAdjacentElement('afterend', rightArrow)
+    }
+
+    const updateArrows = () => {
+      const maxScroll = tabContainer.scrollWidth - tabContainer.clientWidth
+      const canScrollLeft = tabContainer.scrollLeft > 2
+      const canScrollRight = tabContainer.scrollLeft < maxScroll - 2
+      leftArrow!.classList.toggle('visible', canScrollLeft)
+      rightArrow!.classList.toggle('visible', canScrollRight)
+    }
+
+    tabContainer.addEventListener('scroll', updateArrows, { passive: true })
+    // Initial state + update after layout settles
+    requestAnimationFrame(updateArrows)
+    setTimeout(updateArrows, 100)
   }
 
   private getGroups(): AssetGroup[] {
-    if (this.activeCategory === 'custom') return []
+    if (this.activeCategory === 'custom' || this.activeCategory === 'characters' || this.activeCategory === 'pets') return []
     return (getCatalog() as unknown as Record<string, AssetGroup[]>)[this.activeCategory] ?? []
   }
 
   private renderList(): void {
-    if (this.activeCategory === 'custom') {
+    if (this.activeCategory === 'custom' || this.activeCategory === 'characters' || this.activeCategory === 'pets') {
       this.renderCustomList()
       return
     }
@@ -228,14 +288,31 @@ export class AssetPalette {
   }
 
   private renderCustomList(): void {
-    const assets = this.customStore?.getAssets('model') ?? []
+    // Filter assets by current category:
+    // - 'custom': assets with no category or category === 'custom'
+    // - 'characters' / 'pets': assets with matching category
+    let assets: CustomAsset[]
+    if (this.activeCategory === 'characters' || this.activeCategory === 'pets') {
+      assets = this.customStore?.getAssets('model', this.activeCategory) ?? []
+    } else {
+      // 'custom' tab: show assets without a category (or category === 'custom')
+      assets = (this.customStore?.getAssets('model') ?? []).filter(
+        a => !a.category || a.category === 'custom',
+      )
+    }
     this.listEl.innerHTML = ''
 
-    // Remove existing pager
+    // Remove existing pager and add-footer to keep DOM order stable
     let pagerEl = this.container.querySelector('.palette-pager') as HTMLElement
     if (pagerEl) pagerEl.remove()
+    let addBtn = this.container.querySelector('.custom-add-footer') as HTMLElement
+    if (addBtn) addBtn.remove()
 
     if (assets.length === 0) {
+      const isEmpty = getLocale() === 'en' ? 'No assets' : '暂无资产'
+      const addLabel = getLocale() === 'en' ? '+ Add Asset' : '+ 添加资产'
+      // Only show add button on 'custom' tab; characters/pets are preset libraries
+      const showAdd = this.activeCategory === 'custom'
       this.listEl.innerHTML = `
         <div class="palette-empty custom-empty">
           <div class="custom-empty-icon">
@@ -245,8 +322,8 @@ export class AssetPalette {
               <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
           </div>
-          <div>${getLocale() === 'en' ? 'Add your first scene asset' : '添加你的第一个场景资产'}</div>
-          <button class="custom-add-btn-empty">${getLocale() === 'en' ? '+ Add Asset' : '+ 添加资产'}</button>
+          <div>${isEmpty}</div>
+          ${showAdd ? `<button class="custom-add-btn-empty">${addLabel}</button>` : ''}
         </div>
       `
       this.listEl.querySelector('.custom-add-btn-empty')?.addEventListener('click', () => {
@@ -294,15 +371,20 @@ export class AssetPalette {
         }
       })
 
-      card.querySelector('.custom-more-btn')!.addEventListener('click', (e) => {
-        e.stopPropagation()
-        this.showPopover(card.querySelector('.custom-more-btn') as HTMLElement, asset)
-      })
+      // Only show "more" (edit/delete) menu on 'custom' tab — preset libraries are read-only
+      if (this.activeCategory === 'custom') {
+        card.querySelector('.custom-more-btn')!.addEventListener('click', (e) => {
+          e.stopPropagation()
+          this.showPopover(card.querySelector('.custom-more-btn') as HTMLElement, asset)
+        })
+      } else {
+        card.querySelector('.custom-more-btn')!.remove()
+      }
 
       this.listEl.appendChild(card)
     }
 
-    // Pager
+    // Pager — always append before add-footer to keep stable order
     if (totalPages > 1) {
       pagerEl = document.createElement('div')
       pagerEl.className = 'palette-pager'
@@ -320,9 +402,8 @@ export class AssetPalette {
       })
     }
 
-    // Fixed add button at bottom
-    let addBtn = this.container.querySelector('.custom-add-footer') as HTMLElement
-    if (!addBtn) {
+    // Fixed add button at bottom — only on 'custom' tab, always after pager
+    if (this.activeCategory === 'custom') {
       addBtn = document.createElement('button')
       addBtn.className = 'custom-add-footer'
       addBtn.innerHTML = getLocale() === 'en' ? '+ Add Asset' : '+ 添加资产'

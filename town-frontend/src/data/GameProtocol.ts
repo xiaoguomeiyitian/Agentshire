@@ -183,6 +183,16 @@ export type GameEvent =
   // NPC model change (as GameEvent, mirrored from GameAction)
   | { type: 'npc_change_model'; npcId: string; characterKey: string; modelUrl?: string; modelTransform?: { scale: number; rotationX: number; rotationY: number; rotationZ: number; offsetX: number; offsetY: number; offsetZ: number }; animMapping?: Partial<Record<string, string>>; animFileUrls?: string[] }
 
+  // Scene editing (AI steward tools → world_control → scene_edit)
+  | { type: 'scene_edit'; action: 'place' | 'move' | 'transform' | 'delete' | 'set_terrain' | 'expand';
+      objectId?: string; category?: string; modelKey?: string; modelUrl?: string;
+      gridX?: number; gridZ?: number; rotationY?: number; scale?: number;
+      flipX?: boolean; flipZ?: boolean;
+      widthCells?: number; depthCells?: number;
+      fixRotationX?: number; fixRotationY?: number; fixRotationZ?: number;
+      cells?: Array<{ col: number; row: number; type: string }>;
+      newCols?: number; newRows?: number }
+
 // ── GameAction: everything the game layer emits ──
 
 export type GameAction =

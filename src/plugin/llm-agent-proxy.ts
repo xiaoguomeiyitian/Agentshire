@@ -6,6 +6,7 @@
  */
 
 import { getTownRuntime } from "./runtime.js";
+import { estimateTokens, withEstimatedFallback } from "./token-estimate.js";
 
 export interface LLMChatRequest {
   system: string;
@@ -133,11 +134,12 @@ async function callAnthropicMessages(config: ProviderConfig, req: LLMChatRequest
   };
 
   const text = data.content?.find(b => b.type === "text")?.text ?? "";
+  const apiUsage = data.usage
+    ? { input: data.usage.input_tokens ?? 0, output: data.usage.output_tokens ?? 0 }
+    : undefined;
   return {
     text,
-    usage: data.usage
-      ? { input: data.usage.input_tokens ?? 0, output: data.usage.output_tokens ?? 0 }
-      : undefined,
+    usage: withEstimatedFallback(apiUsage, estimateTokens(req.system) + estimateTokens(req.user), estimateTokens(text)),
   };
 }
 
@@ -174,11 +176,12 @@ async function callOpenAI(config: ProviderConfig, req: LLMChatRequest): Promise<
   };
 
   const text = data.choices?.[0]?.message?.content ?? "";
+  const apiUsage = data.usage
+    ? { input: data.usage.prompt_tokens ?? 0, output: data.usage.completion_tokens ?? 0 }
+    : undefined;
   return {
     text,
-    usage: data.usage
-      ? { input: data.usage.prompt_tokens ?? 0, output: data.usage.completion_tokens ?? 0 }
-      : undefined,
+    usage: withEstimatedFallback(apiUsage, estimateTokens(req.system) + estimateTokens(req.user), estimateTokens(text)),
   };
 }
 

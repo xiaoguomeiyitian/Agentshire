@@ -126,7 +126,6 @@ export class BanweiGame implements MinigameSlot {
   private orbIdCounter = 0
   private bossIdCounter = 0
   private celebrationCooldown = false
-  private warningActive = false
   private updateCb: ((dt: number) => void) | null = null
 
   // ── MinigameSlot lifecycle ──
@@ -153,7 +152,6 @@ export class BanweiGame implements MinigameSlot {
     this.lastWarnLevel = 0
     this.firstOrbShown = false
     this.celebrationCooldown = false
-    this.warningActive = false
 
     this.updateCb = (dt: number) => this.loop(dt)
     this.ctx.onUpdate(this.updateCb)
@@ -298,7 +296,6 @@ export class BanweiGame implements MinigameSlot {
       this.firstOrbShown = true
       this.renderer.clearCombo()
       this.renderer.showVoice({ ...getSteward(), config: this.ctx?.getNpcVoiceConfig('steward') ?? null }, getLocale() === 'en' ? 'Citizens are stressed! Click to help' : '居民开始出现班味了，镇长请点击帮他们减压', false)
-      this.warningActive = true
       this.renderer.cancelHudFade()
       this.renderer.addPulseIndicator(orb.el)
     }
@@ -319,7 +316,6 @@ export class BanweiGame implements MinigameSlot {
     orb.el.addEventListener('animationend', () => this.removeOrb(orb, true), { once: true })
 
     this.combo++
-    this.warningActive = false
     if (this.comboTimer) clearTimeout(this.comboTimer)
     this.comboTimer = setTimeout(() => {
       this.combo = 0
@@ -490,7 +486,6 @@ export class BanweiGame implements MinigameSlot {
   private showWarning(text: string): void {
     this.renderer.clearCombo()
     this.renderer.showVoice({ ...getSteward(), config: this.ctx?.getNpcVoiceConfig('steward') ?? null }, text, true)
-    this.warningActive = true
     this.renderer.cancelHudFade()
   }
 
@@ -500,7 +495,6 @@ export class BanweiGame implements MinigameSlot {
 
   private syncHudWithHazards(): void {
     if (this.hasActiveHazards()) return
-    this.warningActive = false
     this.lastWarnLevel = 0
     this.renderer.cancelHudFade()
     this.renderer.clearCombo()

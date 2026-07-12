@@ -1,5 +1,10 @@
 import * as THREE from 'three'
 import { AssetLoader } from '../visual/AssetLoader'
+import type {
+  TownMapConfig, BuildingPlacement, PropPlacement, RoadPlacement,
+  TerrainType, PlacedItem,
+} from '../../editor/TownMapConfig'
+import { TERRAIN_COLORS_HEX } from '../../editor/TownMapConfig'
 
 interface WindowDef {
   pos: [number, number, number]
@@ -98,6 +103,18 @@ export class TownBuilder {
   private townGroup = new THREE.Group()
   private lightingRefs: TownLightingRefs | null = null
 
+  // ── Config-driven scene editing state ──
+  private mapConfig: TownMapConfig | null = null
+  private modelMap = new Map<string, THREE.Group>()
+  private terrainGroup = new THREE.Group()
+  private terrainMeshes: THREE.Mesh[][] = []
+  private gridHelper: THREE.GridHelper | null = null
+  private static readonly DOOR_GEO = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 8)
+  private static readonly DOOR_MAT = new THREE.MeshLambertMaterial({
+    color: 0x00ffaa, transparent: true, opacity: 0.4,
+    emissive: 0x00ffaa, emissiveIntensity: 0.5,
+  })
+
   constructor(scene: THREE.Scene) {
     this.scene = scene
   }
@@ -130,6 +147,234 @@ export class TownBuilder {
     return this.doorMarkers
   }
 
+  // ═══════════════════════════════════════════════════════
+  //  Config-driven scene editing (AI steward tools)
+  // ═══════════════════════════════════════════════════════
+
+  getMapConfig(): TownMapConfig | null {
+    return this.mapConfig
+  }
+
+  /**
+   * Initialize config-driven editing state from an existing (already built) scene.
+   * Unlike buildFromConfig, this does NOT rebuild the scene — it just sets the mapConfig
+   * so that subsequent incremental operations (addBuilding, removeObject, etc.) work.
+   * Used when the town was built from hardcoded BUILDINGS and AI starts editing.
+   */
+  initFromConfig(config: TownMapConfig, _assets: AssetLoader): void {
+    this.mapConfig = config
+    // Build terrain mesh grid for updateTerrainCell to work
+    this.buildGroundFromConfig(config)
+  }
+
+  /**
+   * Build the entire town from a TownMapConfig (replaces hardcoded build).
+   * Falls back to the legacy hardcoded build() if no config is provided.
+   */
+  buildFromConfig(config: TownMapConfig, assets: AssetLoader): void {
+    this.mapConfig = config
+    this.townGroup.name = 'town'
+    this.scene.add(this.townGroup)
+    this.townGroup.add(this.terrainGroup)
+
+    this.buildSkyAndFog()
+    this.buildLighting()
+    this.buildGroundFromConfig(config)
+    for (const b of config.buildings) this.addBuilding(b, assets)
+    for (const p of config.props) this.addProp(p, assets)
+    for (const r of config.roads) this.addRoad(r, assets)
+  }
+
+  private buildGroundFromConfig(config: TownMapConfig): void {
+    this.terrainGroup.clear()
+    this.terrainMeshes = []
+    const { cols, rows } = config.grid
+    const geo = new THREE.PlaneGeometry(1, 1)
+    for (let r = 0; r < rows; r++) {
+      const row: THREE.Mesh[] = []
+      for (let c = 0; c < cols; c++) {
+        const t = config.terrain[r]?.[c]?.type ?? 'grass'
+        const mat = new THREE.MeshLambertMaterial({ color: TERRAIN_COLORS_HEX[t] })
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.rotation.x = -Math.PI / 2
+        mesh.position.set(c + 0.5, 0, r + 0.5)
+        mesh.receiveShadow = true
+        mesh.userData = { terrain: true, col: c, row: r }
+        this.terrainGroup.add(mesh)
+        row.push(mesh)
+      }
+      this.terrainMeshes.push(row)
+    }
+    if (this.gridHelper) { this.scene.remove(this.gridHelper); this.gridHelper = null }
+    const gridSize = Math.max(cols, rows)
+    this.gridHelper = new THREE.GridHelper(gridSize, gridSize, 0x444444, 0x444444)
+    this.gridHelper.position.set(cols / 2, 0.01, rows / 2)
+    const mat = this.gridHelper.material as THREE.LineBasicMaterial
+    mat.transparent = true; mat.opacity = 0.15
+    this.scene.add(this.gridHelper)
+  }
+
+  /** Add a single building to the scene (incremental). */
+  addBuilding(b: BuildingPlacement, assets: AssetLoader): void {
+    const model = assets.getBuildingModel(b.modelKey)
+    if (model) {
+      this.placeModel(model, b.gridX + b.widthCells / 2, 0, b.gridZ + b.depthCells / 2, b.scale ?? 1, (b.rotationY * Math.PI) / 180)
+      this.applyFixRotation(model, b)
+      model.userData = { itemId: b.id, kind: 'building' }
+      this.modelMap.set(b.id, model)
+    } else if (b.modelUrl) {
+      // Cache miss — async load by URL (megapack assets not preloaded)
+      assets.loadModelByUrl(b.modelUrl).then(m => {
+        if (!m) { console.warn('[TownBuilder] addBuilding: failed to load', b.modelUrl); return }
+        this.placeModel(m, b.gridX + b.widthCells / 2, 0, b.gridZ + b.depthCells / 2, b.scale ?? 1, (b.rotationY * Math.PI) / 180)
+        this.applyFixRotation(m, b)
+        m.userData = { itemId: b.id, kind: 'building' }
+        this.modelMap.set(b.id, m)
+      }).catch(e => console.warn('[TownBuilder] addBuilding async load failed:', e))
+    }
+    // Door marker
+    const door = new THREE.Mesh(TownBuilder.DOOR_GEO, TownBuilder.DOOR_MAT)
+    door.position.set(b.gridX + b.widthCells / 2, 0.05, b.gridZ + b.depthCells + 0.5)
+    door.name = `door_${b.id}`
+    this.townGroup.add(door)
+    this.doorMarkers.set(b.id, door)
+  }
+
+  /** Add a single prop to the scene (incremental). */
+  addProp(p: PropPlacement, assets: AssetLoader): void {
+    const model = assets.getPropModel(p.modelKey)
+    if (model) {
+      this.placeModel(model, p.gridX + 0.5, 0, p.gridZ + 0.5, p.scale ?? 1, (p.rotationY * Math.PI) / 180)
+      this.applyFixRotation(model, p)
+      model.userData = { itemId: p.id, kind: 'prop' }
+      this.modelMap.set(p.id, model)
+    } else if (p.modelUrl) {
+      assets.loadModelByUrl(p.modelUrl).then(m => {
+        if (!m) { console.warn('[TownBuilder] addProp: failed to load', p.modelUrl); return }
+        this.placeModel(m, p.gridX + 0.5, 0, p.gridZ + 0.5, p.scale ?? 1, (p.rotationY * Math.PI) / 180)
+        this.applyFixRotation(m, p)
+        m.userData = { itemId: p.id, kind: 'prop' }
+        this.modelMap.set(p.id, m)
+      }).catch(e => console.warn('[TownBuilder] addProp async load failed:', e))
+    }
+  }
+
+  /** Add a single road to the scene (incremental). */
+  addRoad(r: RoadPlacement, assets: AssetLoader): void {
+    const model = assets.getBuildingModel(r.modelKey) ?? assets.getPropModel(r.modelKey)
+    if (model) {
+      this.placeModel(model, r.gridX + 1, 0, r.gridZ + 1, 1, (r.rotationY * Math.PI) / 180)
+      this.applyFixRotation(model, r)
+      model.userData = { itemId: r.id, kind: 'road' }
+      this.modelMap.set(r.id, model)
+    } else if (r.modelUrl) {
+      assets.loadModelByUrl(r.modelUrl).then(m => {
+        if (!m) { console.warn('[TownBuilder] addRoad: failed to load', r.modelUrl); return }
+        this.placeModel(m, r.gridX + 1, 0, r.gridZ + 1, 1, (r.rotationY * Math.PI) / 180)
+        this.applyFixRotation(m, r)
+        m.userData = { itemId: r.id, kind: 'road' }
+        this.modelMap.set(r.id, m)
+      }).catch(e => console.warn('[TownBuilder] addRoad async load failed:', e))
+    }
+  }
+
+  /** Apply fixRotationX/Y/Z from catalog (megapack models need X=90 rotation). */
+  private applyFixRotation(model: THREE.Group, item: { fixRotationX?: number; fixRotationY?: number; fixRotationZ?: number }): void {
+    if (item.fixRotationX) model.rotation.x = (item.fixRotationX * Math.PI) / 180
+    if (item.fixRotationY) model.rotation.y += (item.fixRotationY * Math.PI) / 180
+    if (item.fixRotationZ) model.rotation.z = (item.fixRotationZ * Math.PI) / 180
+  }
+
+  /** Remove a single object by ID (incremental). */
+  removeObject(objectId: string): void {
+    const m = this.modelMap.get(objectId)
+    if (m) { this.townGroup.remove(m); this.modelMap.delete(objectId) }
+    const dm = this.doorMarkers.get(objectId)
+    if (dm) { this.townGroup.remove(dm); this.doorMarkers.delete(objectId) }
+  }
+
+  /** Update an existing object's transform (move / rotate / scale / flip). */
+  updateObjectTransform(item: PlacedItem): void {
+    const m = this.modelMap.get(item.data.id)
+    if (!m) return
+    const d = item.data as { flipX?: boolean; flipZ?: boolean }
+    const fx = d.flipX ? -1 : 1
+    const fz = d.flipZ ? -1 : 1
+    if (item.kind === 'building') {
+      const b = item.data as BuildingPlacement
+      const s = b.scale ?? 1
+      m.position.set(b.gridX + b.widthCells / 2, 0, b.gridZ + b.depthCells / 2)
+      m.rotation.y = (b.rotationY * Math.PI) / 180
+      m.scale.set(s * fx, s, s * fz)
+      // Move door marker
+      const dm = this.doorMarkers.get(b.id)
+      if (dm) dm.position.set(b.gridX + b.widthCells / 2, 0.05, b.gridZ + b.depthCells + 0.5)
+    } else if (item.kind === 'prop') {
+      const p = item.data as PropPlacement
+      const s = p.scale ?? 1
+      m.position.set(p.gridX + 0.5, 0, p.gridZ + 0.5)
+      m.rotation.y = (p.rotationY * Math.PI) / 180
+      m.scale.set(s * fx, s, s * fz)
+    } else {
+      const r = item.data as RoadPlacement
+      m.position.set(r.gridX + 1, 0, r.gridZ + 1)
+      m.rotation.y = (r.rotationY * Math.PI) / 180
+      m.scale.set(fx, 1, fz)
+    }
+  }
+
+  /** Update a single terrain cell's color (incremental). */
+  updateTerrainCell(col: number, row: number, type: TerrainType): void {
+    const mesh = this.terrainMeshes[row]?.[col]
+    if (!mesh) return
+    ;(mesh.material as THREE.MeshLambertMaterial).color.setHex(TERRAIN_COLORS_HEX[type])
+  }
+
+  /** Expand the map grid to new dimensions. New cells default to grass. */
+  expandGrid(newCols: number, newRows: number): void {
+    if (!this.mapConfig) return
+    const { cols: oldCols, rows: oldRows } = this.mapConfig.grid
+    if (newCols === oldCols && newRows === oldRows) return
+
+    // Extend terrain array
+    const terrain = this.mapConfig.terrain
+    for (let r = 0; r < newRows; r++) {
+      if (!terrain[r]) terrain[r] = []
+      for (let c = 0; c < newCols; c++) {
+        if (!terrain[r][c]) terrain[r][c] = { type: 'grass' }
+      }
+    }
+    this.mapConfig.grid.cols = newCols
+    this.mapConfig.grid.rows = newRows
+
+    // Rebuild ground (full rebuild of terrain layer — only the ground, not buildings)
+    this.buildGroundFromConfig(this.mapConfig)
+  }
+
+  /** Find a placed item by objectId. */
+  findObjectById(objectId: string): PlacedItem | null {
+    if (!this.mapConfig) return null
+    const b = this.mapConfig.buildings.find(x => x.id === objectId)
+    if (b) return { kind: 'building', data: b }
+    const p = this.mapConfig.props.find(x => x.id === objectId)
+    if (p) return { kind: 'prop', data: p }
+    const r = this.mapConfig.roads.find(x => x.id === objectId)
+    if (r) return { kind: 'road', data: r }
+    return null
+  }
+
+  /** List all objects in the current map config. */
+  listObjects(category?: 'building' | 'prop' | 'road' | 'all'): PlacedItem[] {
+    if (!this.mapConfig) return []
+    const all: PlacedItem[] = [
+      ...this.mapConfig.buildings.map(b => ({ kind: 'building' as const, data: b })),
+      ...this.mapConfig.props.map(p => ({ kind: 'prop' as const, data: p })),
+      ...this.mapConfig.roads.map(r => ({ kind: 'road' as const, data: r })),
+    ]
+    if (!category || category === 'all') return all
+    return all.filter(item => item.kind === category)
+  }
+
   clear(): void {
     this.townGroup.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
@@ -140,8 +385,13 @@ export class TownBuilder {
       }
     })
     this.scene.remove(this.townGroup)
+    if (this.gridHelper) { this.scene.remove(this.gridHelper); this.gridHelper = null }
     this.townGroup = new THREE.Group()
+    this.terrainGroup = new THREE.Group()
+    this.terrainMeshes = []
+    this.modelMap.clear()
     this.doorMarkers.clear()
+    this.mapConfig = null
   }
 
   /* ───── Helpers ───── */

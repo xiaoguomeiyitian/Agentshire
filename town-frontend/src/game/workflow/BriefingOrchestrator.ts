@@ -39,7 +39,6 @@ function getMarchPhrases(): string[] {
 const BUBBLE_MS_PER_CHAR = 120
 const BUBBLE_MIN_MS = 1500
 const WALK_SPEED = 3.0
-const OFFICE_ARRIVE_THRESHOLD = 2.5
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]

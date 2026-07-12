@@ -3,7 +3,7 @@ import { WAYPOINTS, BUILDING_REGISTRY, type BuildingDef, type NPCRouteProfile } 
 import type { GameClock } from '../game/GameClock'
 import type { ActivityJournal } from './ActivityJournal'
 import type { AgentBrain } from './AgentBrain'
-import { matchTemplate, getTemplateById, getScheduleSlotForPeriod, randInRange, type RoutineTemplate } from './RoutineTemplates'
+import { matchTemplate, getTemplateById, getScheduleSlotForPeriod, randInRange } from './RoutineTemplates'
 import { getLocale } from '../i18n'
 
 export type BehaviorState =
@@ -82,7 +82,6 @@ export function generateRouteProfile(npcId: string, homeBuilding: string, specia
 }
 
 export class DailyBehavior {
-  private static nextDebugId = 1
   private npc: NPC
   private gameClock: GameClock
   private profile: NPCRouteProfile
@@ -107,7 +106,6 @@ export class DailyBehavior {
   private homeTimer = 0
   private journal: ActivityJournal | null = null
   private brain: AgentBrain | null = null
-  private debugId: number
 
   constructor(npc: NPC, gameClock: GameClock, profile: NPCRouteProfile, spotAllocator?: import('./SpotAllocator').SpotAllocator) {
     this.npc = npc
@@ -115,7 +113,6 @@ export class DailyBehavior {
     this.profile = profile
     this.spotAllocator = spotAllocator ?? null
     this.periodListenerId = `daily-${npc.id}`
-    this.debugId = DailyBehavior.nextDebugId++
 
     this.gameClock.onPeriodChange(this.periodListenerId, (state) => {
       if (!this.active) return
@@ -204,7 +201,7 @@ export class DailyBehavior {
     return this.state
   }
 
-  interrupt(reason: 'summoned'): void {
+  interrupt(_reason: 'summoned'): void {
     this.leaveCurrentBuilding()
     this.setDestination(null)
     this.walkToken++
@@ -472,9 +469,37 @@ export class DailyBehavior {
   }
 
   private wanderPark(): void {
-    const park = WAYPOINTS[pick(PARK_KEYS)]
-    if (!park) return
-    const target = { x: park.x + (Math.random() - 0.5) * 3, z: park.z + (Math.random() - 0.5) * 3 }
+    // Try park waypoints first; if not available, wander to a random building area
+    const validParkKeys = PARK_KEYS.filter(k => WAYPOINTS[k])
+    if (validParkKeys.length > 0) {
+      const park = WAYPOINTS[pick(validParkKeys)]
+      const target = { x: park.x + (Math.random() - 0.5) * 3, z: park.z + (Math.random() - 0.5) * 3 }
+      this.doWalk('roaming', target, 2, () => {
+        this.transitionTo('at_building')
+        this.stateDuration = randRange(20_000, 40_000)
+        this.microInterval = randRange(15_000, 30_000)
+        this.npc.playAnim('idle')
+      })
+      return
+    }
+    // Fallback: wander near a random building from the registry
+    if (BUILDING_REGISTRY.length > 0) {
+      const b = pick(BUILDING_REGISTRY)
+      const wp = WAYPOINTS[b.key]
+      if (wp) {
+        const target = { x: wp.x + (Math.random() - 0.5) * 4, z: wp.z + (Math.random() - 0.5) * 4 }
+        this.doWalk('roaming', target, 2, () => {
+          this.transitionTo('at_building')
+          this.stateDuration = randRange(20_000, 40_000)
+          this.microInterval = randRange(15_000, 30_000)
+          this.npc.playAnim('idle')
+        })
+        return
+      }
+    }
+    // Last resort: wander near current position
+    const pos = this.npc.getPosition()
+    const target = { x: pos.x + (Math.random() - 0.5) * 6, z: pos.z + (Math.random() - 0.5) * 6 }
     this.doWalk('roaming', target, 2, () => {
       this.transitionTo('at_building')
       this.stateDuration = randRange(20_000, 40_000)
@@ -542,8 +567,8 @@ export class DailyBehavior {
   }
 
   private getInitialAnimForBuilding(b: BuildingDef): string {
-    if (b.key === 'cafe_door') return 'sitting'
-    if (b.key === 'museum_door') return Math.random() < 0.4 ? 'thinking' : 'idle'
+    if (b.tag === 'cafe') return 'sitting'
+    if (b.tag === 'museum') return Math.random() < 0.4 ? 'thinking' : 'idle'
     return 'idle'
   }
 

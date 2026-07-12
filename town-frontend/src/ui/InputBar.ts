@@ -3,7 +3,7 @@
  * Handles text input, voice (browser STT), image attachment, and send.
  * Communicates with OpenClaw backend via WebSocket.
  */
-import { isSttSupported, startStt, stopStt, isSttActive } from './speech'
+import { isSttSupported, startStt, stopStt } from './speech'
 import { parseCommand } from '../utils/command-parser'
 import { t } from '../i18n'
 import { showMentionPicker, parseMentionsFromInput, type MentionableCitizen } from './MentionPicker'
@@ -37,6 +37,7 @@ export class InputBar {
   private sttInterim: HTMLElement | null
   private composing = false
   private recording = false
+  private busy = false
   private pendingImages: PendingImage[] = []
   private opts: InputBarOptions
   private groupMode = false
@@ -64,6 +65,8 @@ export class InputBar {
     this.textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !this.composing) {
         e.preventDefault()
+        // Block sending while busy (e.g. topic gathering / agent thinking)
+        if (this.busy) return
         this.submit()
       }
     })
@@ -326,6 +329,7 @@ export class InputBar {
   }
 
   setBusy(busy: boolean): void {
+    this.busy = busy
     this.textarea.placeholder = busy ? t('input.busy') : t('input.idle')
     this.sendBtn.classList.toggle('btn-busy', busy)
   }

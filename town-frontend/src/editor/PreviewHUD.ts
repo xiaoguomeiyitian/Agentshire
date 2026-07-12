@@ -22,12 +22,8 @@ export class PreviewHUD {
   private timeSlider: HTMLInputElement
   private weatherBtns: HTMLButtonElement[] = []
   private speedBtns: HTMLButtonElement[] = []
-  private callbacks: PreviewHUDCallbacks
-  private currentWeather = 'clear'
-  private currentSpeed = 1
 
   constructor(container: HTMLElement, callbacks: PreviewHUDCallbacks) {
-    this.callbacks = callbacks
     this.el = document.createElement('div')
     this.el.className = 'preview-hud'
 
@@ -86,7 +82,6 @@ export class PreviewHUD {
       btn.textContent = getLocale() === 'en' ? opt.labelEn : opt.label
       btn.dataset.weather = opt.type
       btn.addEventListener('click', () => {
-        this.currentWeather = opt.type
         this.weatherBtns.forEach(b => b.classList.toggle('active', b.dataset.weather === opt.type))
         callbacks.onWeatherChange(opt.type)
       })
@@ -108,7 +103,6 @@ export class PreviewHUD {
       if (spd === 1) btn.classList.add('active')
       btn.textContent = `${spd}x`
       btn.addEventListener('click', () => {
-        this.currentSpeed = spd
         this.speedBtns.forEach(b => b.classList.remove('active'))
         btn.classList.add('active')
         callbacks.onSpeedChange(spd)

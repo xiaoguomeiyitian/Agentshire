@@ -85,21 +85,45 @@ async function dispatchTownMessage(params: {
     SenderId: "user",
     Provider: CHANNEL_ID,
     Surface: CHANNEL_ID,
+    // Authorize slash commands (e.g. /new, /reset) so OpenClaw recognises
+    // them as session-reset triggers instead of treating them as plain text.
+    CommandAuthorized: true,
+    CommandSource: "text",
     ...(mediaPaths?.length ? { MediaPaths: mediaPaths } : {}),
   });
 
-  await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: msgCtx,
-    cfg,
-    dispatcherOptions: {
-      deliver: async (payload: any) => {
-        const replyText = payload?.text ?? payload?.body;
-        if (replyText) {
-          broadcastAgentEvent({ type: "text", content: replyText }, townSessionId);
-        }
-      },
-    },
-  });
+  // Retry with backoff for "reply session initialization conflicted" errors.
+  // This happens when OpenClaw's optimistic lock detects a stale snapshot
+  // (e.g. ChatSessionWatcher switched the session file between read and commit).
+  // OpenClaw internally retries once, but persistent conflicts need more attempts.
+  const MAX_RETRIES = 3;
+  const RETRY_DELAYS = [500, 1000, 2000];
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx: msgCtx,
+        cfg,
+        dispatcherOptions: {
+          deliver: async (payload: any) => {
+            const replyText = payload?.text ?? payload?.body;
+            if (replyText) {
+              broadcastAgentEvent({ type: "text", content: replyText }, townSessionId);
+            }
+          },
+        },
+      });
+      return;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isConflict = errMsg.includes("reply session initialization conflicted");
+      if (!isConflict || attempt >= MAX_RETRIES) throw err;
+      console.log(
+        `[agentshire] dispatchTownMessage retry ${attempt + 1}/${MAX_RETRIES} after ${RETRY_DELAYS[attempt]}ms (conflict)`,
+      );
+      await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+    }
+  }
 }
 
 const { outbound: townOutbound, messaging: townMessaging } = createOutboundAdapter();
@@ -136,7 +160,7 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
 
   config: {
     listAccountIds: () => ["default"],
-    resolveAccount: (cfg: any, accountId: string) => resolveAccount(cfg, accountId),
+    resolveAccount: (cfg: any, accountId?: string | null) => resolveAccount(cfg, accountId ?? "default"),
     defaultAccountId: () => "default",
     isConfigured: () => true,
   },
@@ -251,6 +275,11 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
             }
           } catch (err) {
             console.error("[agentshire] onMultimodal dispatch error:", err);
+            broadcastAgentEvent({
+              type: "error",
+              message: `消息发送失败：${(err as Error).message}`,
+              recoverable: true,
+            } as any, townSessionId);
           }
         },
         onAction: async ({ action, townSessionId }) => {
@@ -270,10 +299,46 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
                 body: text,
               });
             } else if (action.type === "abort_requested") {
-              rt.system.enqueueSystemEvent({ type: "abort" });
+              // enqueueSystemEvent(text, options) — options.sessionKey is required.
+              // For steward: sessionKey = "agent:town-steward:town:{accountId}:{townSessionId}"
+              // For citizen: sessionKey = "agent:{agentId}:{townSessionId}"
+              const agentId = action.agentId as string | undefined;
+              const npcId = action.npcId as string | undefined;
+              const sanitizedSession = sanitizeTownSessionId(townSessionId);
+              if (agentId && agentId !== "steward" && agentId !== "town-steward") {
+                // Citizen abort — construct citizen sessionKey
+                const sessionKey = `agent:${agentId}:${sanitizedSession}`;
+                console.log(`[agentshire] abort citizen agentId=${agentId} sessionKey=${sessionKey}`);
+                rt.system.enqueueSystemEvent("abort", { sessionKey });
+              } else if (npcId && npcId !== "steward") {
+                // Citizen abort by npcId — resolve agentId
+                try {
+                  const { findCitizenAgentId } = await import("./citizen-chat-router.js");
+                  const resolvedAgentId = findCitizenAgentId(npcId);
+                  if (resolvedAgentId) {
+                    const sessionKey = `agent:${resolvedAgentId}:${sanitizedSession}`;
+                    console.log(`[agentshire] abort citizen npcId=${npcId} → agentId=${resolvedAgentId} sessionKey=${sessionKey}`);
+                    rt.system.enqueueSystemEvent("abort", { sessionKey });
+                  } else {
+                    console.warn(`[agentshire] abort: could not resolve agentId for npcId=${npcId}`);
+                  }
+                } catch (err) {
+                  console.error(`[agentshire] abort citizen resolution error:`, err);
+                }
+              } else {
+                // Steward abort (default)
+                const sessionKey = createTownSessionKey(account.accountId, townSessionId);
+                console.log(`[agentshire] abort steward sessionKey=${sessionKey}`);
+                rt.system.enqueueSystemEvent("abort", { sessionKey });
+              }
             }
           } catch (err) {
             console.error("[agentshire] onAction dispatch error:", err);
+            broadcastAgentEvent({
+              type: "error",
+              message: `操作失败：${(err as Error).message}`,
+              recoverable: true,
+            } as any, townSessionId);
           }
         },
         onCitizenChat: async ({ npcId, message, townSessionId }) => {
@@ -292,6 +357,20 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
             });
           } catch (err) {
             console.error("[agentshire] onCitizenChat dispatch error:", err);
+            // Notify frontend so it can clear the thinking indicator.
+            // Without this, the frontend would stay in "thinking" state
+            // until the 2-minute safety timeout, because the backend
+            // never sends turn_end when dispatch fails.
+            // Use agentId (e.g. "citizen-citizen_7") not npcId (e.g. "citizen_7")
+            // because the frontend's routingKey is agentId-based.
+            const { findCitizenAgentId } = await import("./citizen-chat-router.js");
+            const agentId = findCitizenAgentId(npcId);
+            broadcastAgentEvent({
+              type: "error",
+              message: `消息发送失败：${(err as Error).message}`,
+              recoverable: true,
+              npcId: agentId ?? npcId,
+            } as any, townSessionId);
           }
         },
         onTopicStart: async ({ npcIds, topic, townSessionId }) => {
@@ -344,8 +423,6 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
             // Check for any active group (the most recently started topic group)
             if (hasActiveGroup()) {
               // Use the first active non-default group
-              const { getGroupInfo } = await import("./group-chat.js");
-              // Try common topic group IDs — but we don't track which is "current topic"
               // For backward compat: if topic_message arrives, route to the active topic group
               // The frontend should use group_chat_message for the default group
               // Fall through to default group if no specific group found
@@ -369,7 +446,7 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
         },
         onTopicEnd: async () => {
           try {
-            const { endGroupChat, pauseGroup } = await import("./group-chat.js");
+            const { pauseGroup } = await import("./group-chat.js");
             // End all non-default groups, pause default
             // The frontend will specify which group; for now just pause default
             pauseGroup("town-square");
@@ -379,9 +456,9 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
         },
         onGroupChatInit: async ({ townSessionId }) => {
           try {
-            const { getOrCreateDefaultGroup, getGroupInfo } = await import("./group-chat.js");
+            const { getOrCreateDefaultGroup, getGroupInfo, getActiveTypingCitizens } = await import("./group-chat.js");
             const { loadGroupHistory } = await import("./group-chat-history.js");
-            const { pushGroupChatInfo, pushGroupChatHistory } = await import("./ws-server.js");
+            const { pushGroupChatInfo, pushGroupChatHistory, pushGroupChatTyping } = await import("./ws-server.js");
             const sanitized = sanitizeTownSessionId(townSessionId);
             const group = getOrCreateDefaultGroup({
               townSessionId: sanitized,
@@ -401,11 +478,21 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
                 messages: history,
               });
             }
+            // Re-emit typing indicators for citizens currently composing replies
+            // so the frontend can restore the "..." animation after a refresh
+            const typingCitizens = getActiveTypingCitizens(group.groupId);
+            for (const citizen of typingCitizens) {
+              pushGroupChatTyping(sanitized, {
+                groupId: group.groupId,
+                npcId: citizen.npcId,
+                speakerName: citizen.speakerName,
+              });
+            }
           } catch (err) {
             console.error("[agentshire] onGroupChatInit error:", err);
           }
         },
-        onGroupChatMessage: async ({ groupId, message, mentions, townSessionId }) => {
+        onGroupChatMessage: async ({ groupId: _groupId, message, mentions, townSessionId }) => {
           try {
             const { getOrCreateDefaultGroup, onUserGroupMessage, getGroupInfo } = await import("./group-chat.js");
             const { pushGroupChatInfo } = await import("./ws-server.js");
@@ -429,7 +516,7 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
             console.error("[agentshire] onGroupChatMessage error:", err);
           }
         },
-        onGroupChatClear: async ({ groupId, townSessionId }) => {
+        onGroupChatClear: async ({ groupId: _groupId, townSessionId }) => {
           try {
             const { getOrCreateDefaultGroup } = await import("./group-chat.js");
             const { clearGroupHistory } = await import("./group-chat-history.js");
@@ -483,7 +570,7 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
           let launched = false;
           try {
             const rt = getTownRuntime();
-            await rt.system.runCommandWithTimeout(openCmd, openArgs, { timeoutMs: 5000 });
+            await rt.system.runCommandWithTimeout([openCmd, ...openArgs], { timeoutMs: 5000 });
             launched = true;
           } catch {}
           if (!launched) {
@@ -510,9 +597,10 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
   },
 
   agentPrompt: {
-    formatHint: () =>
+    messageToolHints: () => [
       "You are connected to a 3D Agentshire. Your actions are visualized as NPC behaviors " +
       "in a low-poly town. Users can see you thinking, coding, and collaborating. " +
       "Use the town_announce tool to broadcast messages, and town_effect to trigger visual effects.",
+    ],
   },
 };

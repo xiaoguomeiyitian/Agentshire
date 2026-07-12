@@ -10,6 +10,7 @@ export interface AgentInfo {
   type: 'steward' | 'citizen'
   online?: boolean
   agentId?: string
+  modelRef?: string
 }
 
 export function useAgents() {
@@ -49,6 +50,7 @@ export function useAgents() {
             type: entry.role === 'steward' ? 'steward' : 'citizen',
             online: entry.role === 'steward' ? true : !!(entry.agentEnabled && entry.agentId),
             agentId: entry.agentId,
+            modelRef: entry.modelRef || undefined,
           })
         }
 

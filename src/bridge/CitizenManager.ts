@@ -1,7 +1,7 @@
 // @desc Citizen lifecycle: persona detection, spawn animation sequence, and name matching
 import type { GameEvent } from '../../town-frontend/src/data/GameProtocol.js'
 import type { RouteManager } from './RouteManager.js'
-import { CITIZEN_SPAWN_ORIGIN, STEWARD_FACE_POS } from './RouteManager.js'
+import { CITIZEN_SPAWN_ORIGIN } from './RouteManager.js'
 import { getCharacterKeyForNpc } from '../../town-frontend/src/data/CharacterRoster.js'
 
 export interface CitizenManagerDeps {
@@ -171,9 +171,7 @@ export class CitizenManager {
       const greetPoint = this.deps.routes.getGreetPoint(idx)
       const greetX = greetPoint.x
       const greetZ = greetPoint.z
-      const distToSteward = Math.sqrt((greetX - spawnX) ** 2 + (greetZ - spawnZ) ** 2)
       const walkSpeed = 5
-      const greetStart = Date.now()
       console.log(`[CitizenManager][CitizenFlow] ${npcId} -> greet target=(${greetX.toFixed(2)}, ${greetZ.toFixed(2)}) speed=${walkSpeed} mode=arrival-driven`)
 
       const greetStatus = await this.deps.routes.moveNpcAndWait(
@@ -199,7 +197,6 @@ export class CitizenManager {
       const targetZ = destination.z + (Math.random() - 0.5) * 1.3
       this.deps.routes.claimDestinationForNpc(npcId, destination.id)
       claimedDestinationId = destination.id
-      const distToDestination = this.deps.routes.distance2D({ x: greetX, z: greetZ }, { x: targetX, z: targetZ })
       console.log(`[CitizenManager][CitizenFlow] ${npcId} route destination=${destination.id} target=(${targetX.toFixed(2)}, ${targetZ.toFixed(2)}) score=${destination.score.toFixed(2)} mode=arrival-driven`)
 
       const destinationStatus = await this.deps.routes.moveNpcAndWait(

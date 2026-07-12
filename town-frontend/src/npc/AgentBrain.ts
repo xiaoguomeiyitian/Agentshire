@@ -14,7 +14,7 @@ import type { NPC } from './NPC'
 import type { GameClock } from '../game/GameClock'
 import type { ActivityJournal } from './ActivityJournal'
 import type { PersonaCache } from './PersonaStore'
-import type { DailyPlanItem, TimePeriod } from '../types'
+import type { DailyPlanItem } from '../types'
 import { BUILDING_REGISTRY, WAYPOINTS } from '../types'
 
 // ── Types ──
@@ -52,9 +52,9 @@ export interface AgentBrainDeps {
 
 const L2_COOLDOWN_MS = 120_000
 const STAY_TIMEOUT_MS = 60_000
-const AVAILABLE_PLACES = BUILDING_REGISTRY.map(b => b.key)
-const PLACE_NAMES: Record<string, string> = {}
-for (const b of BUILDING_REGISTRY) PLACE_NAMES[b.key] = b.name
+// Dynamic accessors — BUILDING_REGISTRY is updated at runtime by updateWaypointsFromMapConfig()
+const getAvailablePlaces = (): string[] => BUILDING_REGISTRY.map(b => b.key)
+const getPlaceName = (key: string): string => BUILDING_REGISTRY.find(b => b.key === key)?.name ?? key
 
 const NEARBY_RADIUS = 5
 
@@ -211,7 +211,7 @@ export class AgentBrain {
 
     const yesterday = this.journal.getYesterdaySummary(dayCount)
     const relationships = this.journal.getRelationshipsForPrompt()
-    const places = AVAILABLE_PLACES.map(k => PLACE_NAMES[k] || k)
+    const places = getAvailablePlaces().map(k => getPlaceName(k))
 
     const user = JSON.stringify({
       yesterday_summary: yesterday,
@@ -285,7 +285,7 @@ export class AgentBrain {
     const nearby = this.deps.getNearbyNpcs(this.npcId, NEARBY_RADIUS)
     const townRecent = this.deps.getTownRecent()
     const currentPlan = this.journal.getCurrentPlanItem()
-    const locationName = this.currentPlace ? (PLACE_NAMES[this.currentPlace] ?? this.currentPlace) : '小镇'
+    const locationName = this.currentPlace ? getPlaceName(this.currentPlace) : '小镇'
 
     const system = `你是${name}，小镇居民。${this.persona?.coreSummary ?? ''}根据当前情境选择行动。`
 
@@ -298,7 +298,7 @@ export class AgentBrain {
     const options: string[] = ['stay']
     for (const n of nearby) options.push(`talk_to:${n.name}`)
     for (const b of BUILDING_REGISTRY) {
-      if (b.key !== this.currentPlace) options.push(`leave_to:${PLACE_NAMES[b.key] ?? b.key}`)
+      if (b.key !== this.currentPlace) options.push(`leave_to:${getPlaceName(b.key)}`)
     }
     options.push('go_home')
 

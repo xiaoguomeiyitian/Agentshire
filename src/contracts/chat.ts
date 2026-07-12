@@ -24,7 +24,11 @@ export interface ChatTextItem extends ChatItemBase {
   text: string;
   source?: "user_input" | "llm" | "system";
   /** LLM token usage for this assistant message (if available from transcript). */
-  usage?: { input: number; output: number; totalTokens?: number };
+  usage?: { input: number; output: number; totalTokens?: number; reasoningTokens?: number; cacheRead?: number; cacheWrite?: number };
+  /** Model id used for this assistant response (e.g. "deepseek-v4-flash") */
+  model?: string;
+  /** Reasoning/thinking text extracted from the assistant message (if present). */
+  reasoning?: string;
 }
 
 export interface ChatMediaItem extends ChatItemBase {

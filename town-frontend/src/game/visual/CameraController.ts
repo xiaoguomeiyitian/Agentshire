@@ -30,7 +30,11 @@ export class CameraController {
   private static readonly ZOOM_MIN = 0.5
   private static readonly ZOOM_MAX = 1.6
   private zoomLevel = 1.0
-  private static readonly PATROL_POINTS = [
+
+  /** Default town pan bounds (matches the original 40×24 map). Updated via setMapBounds(). */
+  private panBounds = { minX: 5, maxX: 35, minZ: 3, maxZ: 21 }
+  /** Auto-pilot patrol points, regenerated from map bounds. */
+  private patrolPoints: { x: number; z: number }[] = [
     { x: 18, z: 13 },
     { x: 17, z: 5 },
     { x: 3, z: 10 },
@@ -51,6 +55,39 @@ export class CameraController {
     this.updateCameraPosition(true)
     this.container.addEventListener('wheel', this.onWheel, { passive: false })
     this.lastInteractionTime = performance.now()
+  }
+
+  /**
+   * Update the town pan bounds based on the loaded TownMapConfig grid size.
+   * Keeps a small margin so the camera can't look past the map edge, and
+   * regenerates auto-pilot patrol points to cover the (possibly larger) map.
+   */
+  setMapBounds(cols: number, rows: number): void {
+    const margin = 5
+    this.panBounds = {
+      minX: margin,
+      maxX: Math.max(margin * 2, cols - margin),
+      minZ: Math.max(2, margin - 2),
+      maxZ: Math.max(margin, rows - 2),
+    }
+    // Regenerate patrol points spread across the map.
+    const { minX, maxX, minZ, maxZ } = this.panBounds
+    const cx = (minX + maxX) / 2
+    const cz = (minZ + maxZ) / 2
+    const rx = (maxX - minX) / 2
+    const rz = (maxZ - minZ) / 2
+    this.patrolPoints = [
+      { x: cx, z: cz },
+      { x: minX + rx * 0.6, z: cz },
+      { x: maxX - rx * 0.6, z: cz },
+      { x: cx, z: minZ + rz * 0.6 },
+      { x: cx, z: maxZ - rz * 0.6 },
+      { x: minX + rx * 0.3, z: minZ + rz * 0.3 },
+      { x: maxX - rx * 0.3, z: maxZ - rz * 0.3 },
+    ]
+    // Re-clamp the current target so the camera doesn't sit outside the new bounds.
+    this.clampBounds(this.targetLookAt)
+    this.clampBounds(this.currentLookAt)
   }
 
   follow(target: THREE.Object3D | null): void {
@@ -79,7 +116,7 @@ export class CameraController {
   }
 
   /** Called by Input system's drag gesture */
-  onDrag(phase: 'start' | 'move' | 'end', delta: { x: number; y: number }, totalDelta: { x: number; y: number }): void {
+  onDrag(phase: 'start' | 'move' | 'end', _delta: { x: number; y: number }, totalDelta: { x: number; y: number }): void {
     if (phase === 'start') {
       this.isDragging = true
       this.dragStartLookAt.copy(this.targetLookAt)
@@ -156,7 +193,7 @@ export class CameraController {
   }
 
   private updateAutoPilot(): void {
-    const points = CameraController.PATROL_POINTS
+    const points = this.patrolPoints
     const idx = Math.floor(Math.random() * points.length)
     this.autoPilotTarget = new THREE.Vector3(points[idx].x, 0, points[idx].z)
   }
@@ -221,8 +258,8 @@ export class CameraController {
   }
 
   private clampBounds(p: THREE.Vector3): THREE.Vector3 {
-    p.x = Math.max(5, Math.min(35, p.x))
-    p.z = Math.max(3, Math.min(21, p.z))
+    p.x = Math.max(this.panBounds.minX, Math.min(this.panBounds.maxX, p.x))
+    p.z = Math.max(this.panBounds.minZ, Math.min(this.panBounds.maxZ, p.z))
     return p
   }
 

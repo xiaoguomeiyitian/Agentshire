@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import { EditorAssetLoader } from './EditorAssetLoader'
 import {
-  type TownMapConfig, type TerrainType, type PlacedItem,
+  type TerrainType, type PlacedItem,
   type BuildingPlacement, type PropPlacement, type RoadPlacement,
   type Rotation, type GroupDef, TERRAIN_COLORS_HEX, genId,
   applyLightPresets,
 } from './TownMapConfig'
-import type { TownEditor, EditorTool } from './TownEditor'
+import type { TownEditor } from './TownEditor'
 import type { Command } from './UndoStack'
 import type { AssetCatalogEntry } from './AssetPalette'
 import type { CustomAssetStore } from './CustomAssetStore'
@@ -15,7 +15,6 @@ import { getLocale } from '../i18n'
 const SKY_COLOR = 0x87ceeb
 const SELECTION_COLOR = 0x00d4ff
 const GHOST_OK_COLOR = 0x00d4ff
-const GHOST_BLOCKED_COLOR = 0xff4466
 const DOOR_MARKER_COLOR = 0xffaa22
 const GRID_COLOR = 0x444466
 
@@ -1051,13 +1050,11 @@ export class EditorScene {
 
   /* ── Snap to target ── */
 
-  private snapSourceItem: PlacedItem | null = null
   private snapCallback: ((newX: number, newZ: number, newElev: number) => void) | null = null
   private snapHandler: ((e: MouseEvent) => void) | null = null
 
   enterSnapMode(sourceItem: PlacedItem, callback: (newX: number, newZ: number, newElev: number) => void): void {
     this.exitSnapMode()
-    this.snapSourceItem = sourceItem
     this.snapCallback = callback
     this.renderer.domElement.style.cursor = 'crosshair'
 
@@ -1116,7 +1113,6 @@ export class EditorScene {
       this.renderer.domElement.removeEventListener('click', this.snapHandler, true)
       this.snapHandler = null
     }
-    this.snapSourceItem = null
     this.snapCallback = null
     this.renderer.domElement.style.cursor = ''
     const statusTool = document.getElementById('status-tool')
@@ -1502,7 +1498,7 @@ export class EditorScene {
     else this.addModelForRoad(item.data as RoadPlacement)
   }
 
-  enterLightPlaceMode(item: PlacedItem, lightType: import('./TownMapConfig').LightType, onPlaced: (offset: { x: number; y: number; z: number }) => void): void {
+  enterLightPlaceMode(item: PlacedItem, _lightType: import('./TownMapConfig').LightType, onPlaced: (offset: { x: number; y: number; z: number }) => void): void {
     const model = this.modelMap.get(item.data.id)
     if (!model) return
 

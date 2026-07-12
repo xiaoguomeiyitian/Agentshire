@@ -82,7 +82,6 @@ export class GameClock {
     const speedFactor = period === 'night' ? this.config.nightSpeedMultiplier : 1.0
     const baseSpeed = (24 * 3600) / (this.config.dayDurationRealMs / 1000)
 
-    const prevHour = Math.floor(this.gameSeconds / 3600)
     this.gameSeconds += deltaTime * baseSpeed * speedFactor
 
     if (this.gameSeconds >= 24 * 3600) {

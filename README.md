@@ -60,11 +60,12 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
 ## Features
 
-### Dual-Mode Interface
+### Tri-Mode Interface
 
 - **Town Mode** — Low-poly 3D town where you watch NPCs live, work, collaborate, and celebrate in real time
 - **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), commands (`/new` `/help` `/stop` `/clear`), group chat with @mention, and clear-session with confirmation
-- **Top Navigation** — One-click switch between Town and Chat, with a quick menu (Citizen Workshop / Town Editor / Model Manager / Skill Store / Settings)
+- **Claw Settings** — In-app panel for OpenClaw runtime config (gateway mode, subagent timeout, logging, browser, update channel) and live session/token-usage inspection; embeds the LLM Model Manager as a sub-section
+- **Top Navigation** — One-click switch between Town / Chat / Claw, with a quick menu (Citizen Workshop / Town Editor / Skill Store / Settings)
 - **Bilingual UI** — Full Chinese and English interface, auto-detected or manually switchable
 
 ### Core
@@ -91,8 +92,9 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
 - **Citizen Workshop** — Create and configure citizen characters: select/upload 3D models, edit soul personality (AI generation supported), configure animation mapping (8 slots), assign per-agent LLM model (empty = inherit global default), publish as independent Agents
 - **Town Editor** — Visual drag-and-drop map editing: place buildings/roads/props/lights, with grouping, alignment, undo, and JSON export (runtime integration in progress)
+- **AI Town Editing** — The steward can edit the town through natural language via 7 new tools: list assets/objects, place/move/transform/delete objects, set terrain, and expand the map — all reflected live in the 3D scene
 - **Editor Preview** — One-click game-level preview window (WASD controls + full day/night + weather + vehicle animations + audio)
-- **LLM Model Manager** — Standalone page for `openclaw.json` providers/models CRUD: add/update/delete providers and models, import/export, with undo/redo history
+- **LLM Model Manager** — Manage `openclaw.json` providers/models CRUD (add/update/delete, import/export, undo/redo) directly inside the Claw Settings panel — no separate page needed
 - **Soul System** — Each NPC has a Markdown personality file defining character traits, speaking style, expertise, and work approach
 
 ### Interaction & Visuals
@@ -102,7 +104,8 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **Rich VFX** — Summon shockwave, completion fireworks, error lightning, persona-transform magic circle, thinking halo, search radar, confetti…
 - **10-Workstation Office** — Each workstation has its own monitor (real-time code animation), full NPC enter/work/leave choreography
 - **Deliverable Preview** — After project completion, deliverable cards pop up with image lightbox, video, audio preview and download; games/websites launch directly in iframe
-- **AI Tool Control** — Agents can control the town via tools (broadcast messages, spawn NPCs, trigger effects, set time/weather)
+- **AI Tool Control** — Agents can control the town via tools (broadcast messages, spawn NPCs, trigger effects, set time/weather, and now edit the map: place/move/transform/delete objects, set terrain, expand map)
+- **Token Usage Tracking** — Per-turn token usage with cache read/write breakdown and compaction count; heuristic fallback estimation when the LLM API returns zero usage
 - **Reconnection** — WebSocket auto-reconnect with exponential backoff and work state recovery
 
 ---
@@ -196,7 +199,7 @@ Visit `http://localhost:20009/editor.html` to open the visual map editor.
 
 ### LLM Model Manager
 
-Visit `http://localhost:20009/model-manager.html` to manage LLM providers and models in `openclaw.json`.
+Open the **Claw** tab in the top navigation (or visit `http://localhost:20009/#claw`) and switch to the **Models** section to manage LLM providers and models in `openclaw.json`. The model manager is now a first-class React panel embedded in the Claw settings view — no separate page needed.
 
 
 ### Configuration (Optional)
@@ -242,6 +245,14 @@ Customize ports and behavior in your `openclaw.json` (`~/.openclaw/openclaw.json
 | `create_plan` | Create a collaboration plan (parallel steps, requires `create_project` or `create_task` first) |
 | `next_step` | Query plan progress and get next step instructions |
 | `mission_complete` | Unified completion handler — auto-routes to celebration or partial delivery based on remaining work |
+| `town_list_assets` | List available 3D assets (buildings / props / roads / characters / pets), filterable by category |
+| `town_list_objects` | List objects currently placed in the town map, filterable by type |
+| `town_place_object` | Place a new object (building / prop / road) on the grid with rotation, scale, and footprint |
+| `town_move_object` | Move an existing object to a new grid cell |
+| `town_transform_object` | Transform an object: rotation, scale, flip X/Z |
+| `town_delete_object` | Delete an object from the town map |
+| `town_set_terrain` | Set terrain type (grass / sand / street / plaza / sidewalk / water) for a list of cells |
+| `town_expand_map` | Expand the town map to a larger grid size |
 
 ---
 
@@ -343,15 +354,16 @@ npm test                              # Plugin + bridge layer
 cd town-frontend && npx vitest run    # Frontend
 ```
 
-The frontend has 5 entry pages:
+The frontend has 4 entry pages:
 
 | Page | URL | Description |
 |------|-----|-------------|
-| Town | `index.html` | 3D town + chat |
+| Town | `index.html` | 3D town + chat + Claw settings (3 tabs) |
 | Town Editor | `editor.html` | Visual map editing |
 | Citizen Workshop | `citizen-editor.html` | Character creation and configuration |
-| LLM Model Manager | `model-manager.html` | LLM providers/models CRUD |
 | Editor Preview | `preview.html` | Game-level preview window |
+
+> The LLM Model Manager is now embedded in the **Claw** tab of the Town page (`index.html#claw`), no longer a separate page.
 
 > Developer architecture guide: [AGENTS.md](AGENTS.md)
 

@@ -1,17 +1,18 @@
 import * as THREE from 'three'
 import { AssetLoader } from '../visual/AssetLoader'
 import { GameClock } from '../GameClock'
+import type { TownMapConfig } from '../../editor/TownMapConfig'
 
 const CAR_MODELS = ['car_sedan', 'car_hatchback', 'car_taxi'] as const
 
 const ROAD_Y = 0.06
-const ROAD_Z_CENTER = 22.5
 const LANE_OFFSET = 0.45
-const LANE_RIGHT = ROAD_Z_CENTER - LANE_OFFSET // ~22.05, vehicles heading right
-const LANE_LEFT  = ROAD_Z_CENTER + LANE_OFFSET // ~22.95, vehicles heading left
-const SPAWN_LEFT = -12
-const SPAWN_RIGHT = 52
 const Z_JITTER = 0.1
+
+// ── Legacy fallback constants (used when no map config is loaded) ──
+const LEGACY_ROAD_Z_CENTER = 22.5
+const LEGACY_SPAWN_LEFT = -12
+const LEGACY_SPAWN_RIGHT = 52
 
 interface TrafficDensity {
   startHour: number
@@ -48,12 +49,30 @@ interface PooledVehicle {
   wrapper: THREE.Group
   active: boolean
   progress: number
-  startX: number
-  endX: number
-  duration: number
-  z: number
+  /** Current path the vehicle is traveling along */
+  path: Array<{ x: number; z: number }>
+  pathIndex: number
+  /** Total length of the current path segment chain */
+  totalLength: number
+  /** Traveled distance along the path */
+  traveled: number
+  /** Speed in world units per second */
+  speed: number
   headlight: THREE.PointLight
   taillightMat: THREE.MeshBasicMaterial
+}
+
+// ── Road network extracted from TownMapConfig ──
+interface RoadSegment {
+  cx: number  // center x in world coords
+  cz: number  // center z in world coords
+  gridX: number
+  gridZ: number
+  neighbors: RoadSegment[]
+}
+
+interface RoadPath {
+  points: Array<{ x: number; z: number }>
 }
 
 export class VehicleManager {
@@ -63,6 +82,15 @@ export class VehicleManager {
   private templates: THREE.Group[] = []
   private spawnTimer = 2 // first car appears after 2 seconds
   private yOffsets: number[] = [] // per-template Y offset to fix wheel sinking
+
+  // Road network state
+  private roadSegments: RoadSegment[] = []
+  private roadGrid = new Map<string, RoadSegment>() // key: "gridX,gridZ"
+  private roadPaths: RoadPath[] = [] // pre-computed long paths for spawning
+  private hasRoadNetwork = false
+  // Map boundary (in grid coords) — used to find edge road segments
+  private mapCols = 0
+  private mapRows = 0
 
   private static readonly POOL_SIZE = 6
 
@@ -75,6 +103,226 @@ export class VehicleManager {
   build(assets: AssetLoader) {
     this.buildTemplates(assets)
     this.buildPool()
+  }
+
+  /** Load road network from TownMapConfig. Called after map is loaded. */
+  loadRoadNetwork(config: TownMapConfig): void {
+    this.roadSegments = []
+    this.roadGrid.clear()
+    this.roadPaths = []
+    this.hasRoadNetwork = false
+    this.mapCols = config.grid?.cols ?? 0
+    this.mapRows = config.grid?.rows ?? 0
+
+    if (!config.roads || config.roads.length === 0) return
+
+    // Build road segment grid. Each road is a 2x2 cell placed at (gridX, gridZ).
+    // World center = (gridX + 1, gridZ + 1).
+    for (const r of config.roads) {
+      const key = `${r.gridX},${r.gridZ}`
+      if (this.roadGrid.has(key)) continue
+      const seg: RoadSegment = {
+        cx: r.gridX + 1,
+        cz: r.gridZ + 1,
+        gridX: r.gridX,
+        gridZ: r.gridZ,
+        neighbors: [],
+      }
+      this.roadSegments.push(seg)
+      this.roadGrid.set(key, seg)
+    }
+
+    // Connect neighbors: roads that are adjacent (2 cells apart in grid coords,
+    // since each road segment is 2x2)
+    for (const seg of this.roadSegments) {
+      const offsets = [
+        { dx: 2, dz: 0 },   // east
+        { dx: -2, dz: 0 },  // west
+        { dx: 0, dz: 2 },   // south
+        { dx: 0, dz: -2 },  // north
+      ]
+      for (const off of offsets) {
+        const nkey = `${seg.gridX + off.dx},${seg.gridZ + off.dz}`
+        const neighbor = this.roadGrid.get(nkey)
+        if (neighbor) {
+          seg.neighbors.push(neighbor)
+        }
+      }
+    }
+
+    // Pre-compute long paths by random walking the road network
+    this.roadPaths = this.computeRoadPaths()
+    this.hasRoadNetwork = this.roadPaths.length > 0
+    if (this.hasRoadNetwork) {
+      console.log(`[VehicleManager] Road network loaded: ${this.roadSegments.length} segments, ${this.roadPaths.length} paths`)
+    }
+  }
+
+  /** Compute traversable paths by walking the road network from each endpoint */
+  private computeRoadPaths(): RoadPath[] {
+    const paths: RoadPath[] = []
+    const visited = new Set<string>()
+
+    // Find edge segments — road segments near the map boundary.
+    // These are where vehicles should appear and disappear.
+    const edgeSegments = this.roadSegments.filter(s => this.isEdgeSegment(s))
+
+    // Find endpoint segments (segments with only 1 neighbor) and junctions (3+ neighbors)
+    const endpoints = this.roadSegments.filter(s => s.neighbors.length <= 1)
+    const junctions = this.roadSegments.filter(s => s.neighbors.length >= 3)
+
+    // Start paths from edge segments first (preferred — cars enter from map edge),
+    // then endpoints and junctions as fallback
+    const startNodes = [...edgeSegments, ...endpoints, ...junctions]
+    if (startNodes.length === 0 && this.roadSegments.length > 0) {
+      // Circular road — start from any segment
+      startNodes.push(this.roadSegments[0])
+    }
+
+    for (const start of startNodes) {
+      // Generate a few random walks from each start node
+      for (let walk = 0; walk < 3; walk++) {
+        const path = this.randomWalk(start, 8 + Math.floor(Math.random() * 12))
+        if (path.points.length >= 3) {
+          const key = path.points.map(p => `${p.x.toFixed(1)},${p.z.toFixed(1)}`).join('|')
+          if (!visited.has(key)) {
+            visited.add(key)
+            paths.push(path)
+          }
+        }
+      }
+    }
+
+    // If we still don't have enough paths, generate from all segments
+    if (paths.length < 4) {
+      for (const seg of this.roadSegments) {
+        const path = this.randomWalk(seg, 6 + Math.floor(Math.random() * 8))
+        if (path.points.length >= 3) {
+          paths.push(path)
+        }
+        if (paths.length >= 10) break
+      }
+    }
+
+    return paths
+  }
+
+  /** Check if a road segment is near the map boundary (where vehicles appear/disappear) */
+  private isEdgeSegment(seg: RoadSegment): boolean {
+    if (this.mapCols === 0 || this.mapRows === 0) return false
+    // A road segment is 2x2 cells, centered at (gridX+1, gridZ+1).
+    // It's at the edge if gridX or gridZ is within 2 cells of the boundary.
+    const margin = 2
+    return seg.gridX <= margin
+      || seg.gridZ <= margin
+      || seg.gridX >= this.mapCols - margin - 2
+      || seg.gridZ >= this.mapRows - margin - 2
+  }
+
+  /** Check if a world-space point is near the map boundary */
+  private isEdgePoint(p: { x: number; z: number }): boolean {
+    if (this.mapCols === 0 || this.mapRows === 0) return false
+    // World coords: center = gridX+1, gridZ+1. Map spans 0..mapCols, 0..mapRows.
+    const margin = 3 // world units from edge
+    return p.x <= margin
+      || p.z <= margin
+      || p.x >= this.mapCols - margin
+      || p.z >= this.mapRows - margin
+  }
+
+  /** Random walk along the road network to create a path.
+   *  Prefers walking toward edge segments so the path ends at the map boundary. */
+  private randomWalk(start: RoadSegment, maxSteps: number): RoadPath {
+    const points: Array<{ x: number; z: number }> = []
+    let current: RoadSegment | null = start
+    const visited = new Set<string>()
+    const laneOffset = LANE_OFFSET
+
+    while (current && visited.size < maxSteps) {
+      const key = `${current.gridX},${current.gridZ}`
+      if (visited.has(key)) break
+      visited.add(key)
+
+      // Add lane offset based on direction of travel
+      points.push({ x: current.cx, z: current.cz })
+
+      // Pick a random neighbor (prefer unvisited, then prefer edge segments)
+      const unvisited: RoadSegment[] = current.neighbors.filter(n => !visited.has(`${n.gridX},${n.gridZ}`))
+      const candidates: RoadSegment[] = unvisited.length > 0 ? unvisited : current.neighbors
+      if (candidates.length === 0) break
+
+      // 50% chance to prefer edge segments (so paths tend to end at map boundary)
+      if (Math.random() < 0.5) {
+        const edgeCandidates = candidates.filter(c => this.isEdgeSegment(c))
+        if (edgeCandidates.length > 0) {
+          current = edgeCandidates[Math.floor(Math.random() * edgeCandidates.length)]
+          continue
+        }
+      }
+      current = candidates[Math.floor(Math.random() * candidates.length)]
+    }
+
+    // Apply lane offset to the path (shift to the right side of the road)
+    if (points.length >= 2) {
+      for (let i = 0; i < points.length; i++) {
+        const prev = points[Math.max(0, i - 1)]
+        const next = points[Math.min(points.length - 1, i + 1)]
+        const dx = next.x - prev.x
+        const dz = next.z - prev.z
+        const len = Math.sqrt(dx * dx + dz * dz) || 1
+        // Perpendicular to direction, shifted to the right side
+        const perpX = -dz / len * laneOffset
+        const perpZ = dx / len * laneOffset
+        points[i] = {
+          x: points[i].x + perpX + (Math.random() - 0.5) * Z_JITTER,
+          z: points[i].z + perpZ + (Math.random() - 0.5) * Z_JITTER,
+        }
+      }
+    }
+
+    return { points }
+  }
+
+  /** Compute total length of a path */
+  private pathLength(points: Array<{ x: number; z: number }>): number {
+    let len = 0
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i - 1].x
+      const dz = points[i].z - points[i - 1].z
+      len += Math.sqrt(dx * dx + dz * dz)
+    }
+    return len
+  }
+
+  /** Get position and heading along a path at a given distance.
+   *  The car model template has rotation.y = Math.PI/2 baked in (so the model's
+   *  front points toward +X by default). We subtract that offset so that
+   *  wrapper.rotation.y = angle makes the car face the travel direction. */
+  private pointAtDistance(points: Array<{ x: number; z: number }>, dist: number): { pos: THREE.Vector3; angle: number } {
+    const MODEL_Y_OFFSET = -Math.PI / 2
+    if (points.length === 0) return { pos: new THREE.Vector3(), angle: MODEL_Y_OFFSET }
+    if (points.length === 1) return { pos: new THREE.Vector3(points[0].x, ROAD_Y, points[0].z), angle: MODEL_Y_OFFSET }
+
+    let remaining = dist
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i - 1].x
+      const dz = points[i].z - points[i - 1].z
+      const segLen = Math.sqrt(dx * dx + dz * dz)
+      if (remaining <= segLen) {
+        const t = remaining / segLen
+        const x = THREE.MathUtils.lerp(points[i - 1].x, points[i].x, t)
+        const z = THREE.MathUtils.lerp(points[i - 1].z, points[i].z, t)
+        return { pos: new THREE.Vector3(x, ROAD_Y, z), angle: Math.atan2(dx, dz) + MODEL_Y_OFFSET }
+      }
+      remaining -= segLen
+    }
+    // Past the end
+    const last = points[points.length - 1]
+    const prev = points[points.length - 2]
+    return {
+      pos: new THREE.Vector3(last.x, ROAD_Y, last.z),
+      angle: Math.atan2(last.x - prev.x, last.z - prev.z) + MODEL_Y_OFFSET,
+    }
   }
 
   private buildTemplates(assets: AssetLoader) {
@@ -161,10 +409,11 @@ export class VehicleManager {
         wrapper,
         active: false,
         progress: 0,
-        startX: 0,
-        endX: 0,
-        duration: 0,
-        z: ROAD_Z_CENTER,
+        path: [],
+        pathIndex: 0,
+        totalLength: 0,
+        traveled: 0,
+        speed: 0,
         headlight,
         taillightMat,
       })
@@ -179,18 +428,53 @@ export class VehicleManager {
     const vehicle = this.getInactive()
     if (!vehicle) return
 
-    const goRight = Math.random() > 0.5
-    vehicle.startX = goRight ? SPAWN_LEFT : SPAWN_RIGHT
-    vehicle.endX = goRight ? SPAWN_RIGHT : SPAWN_LEFT
-    vehicle.progress = 0
-    vehicle.duration = 6 + Math.random() * 4
-    const laneZ = goRight ? LANE_RIGHT : LANE_LEFT
-    vehicle.z = laneZ + (Math.random() - 0.5) * Z_JITTER
-    vehicle.active = true
+    if (this.hasRoadNetwork && this.roadPaths.length > 0) {
+      // Config-driven: spawn along a random road path
+      // Prefer paths whose start point is near the map edge (vehicles enter from edge)
+      const edgePaths = this.roadPaths.filter(p => this.isEdgePoint(p.points[0]))
+      const candidatePaths = edgePaths.length > 0 ? edgePaths : this.roadPaths
+      const path = candidatePaths[Math.floor(Math.random() * candidatePaths.length)]
+      const goForward = Math.random() > 0.5
+      const points = goForward ? path.points : [...path.points].reverse()
+      const totalLength = this.pathLength(points)
+      if (totalLength < 2) return
 
-    vehicle.wrapper.visible = true
-    vehicle.wrapper.position.set(vehicle.startX, ROAD_Y, vehicle.z)
-    vehicle.wrapper.rotation.y = goRight ? 0 : Math.PI
+      vehicle.path = points
+      vehicle.pathIndex = 0
+      vehicle.totalLength = totalLength
+      vehicle.traveled = 0
+      vehicle.speed = 3 + Math.random() * 2 // world units per second
+      vehicle.progress = 0
+      vehicle.active = true
+
+      const { pos, angle } = this.pointAtDistance(points, 0)
+      vehicle.wrapper.visible = true
+      vehicle.wrapper.position.copy(pos)
+      vehicle.wrapper.rotation.y = angle
+    } else {
+      // Legacy fallback: straight road at z=22.5
+      const goRight = Math.random() > 0.5
+      const startX = goRight ? LEGACY_SPAWN_LEFT : LEGACY_SPAWN_RIGHT
+      const endX = goRight ? LEGACY_SPAWN_RIGHT : LEGACY_SPAWN_LEFT
+      const laneZ = goRight
+        ? LEGACY_ROAD_Z_CENTER - LANE_OFFSET
+        : LEGACY_ROAD_Z_CENTER + LANE_OFFSET
+
+      vehicle.path = [
+        { x: startX, z: laneZ + (Math.random() - 0.5) * Z_JITTER },
+        { x: endX, z: laneZ + (Math.random() - 0.5) * Z_JITTER },
+      ]
+      vehicle.pathIndex = 0
+      vehicle.totalLength = Math.abs(endX - startX)
+      vehicle.traveled = 0
+      vehicle.speed = (endX - startX) / (6 + Math.random() * 4)
+      vehicle.progress = 0
+      vehicle.active = true
+
+      vehicle.wrapper.visible = true
+      vehicle.wrapper.position.set(startX, ROAD_Y, vehicle.path[0].z)
+      vehicle.wrapper.rotation.y = goRight ? 0 : Math.PI
+    }
 
     vehicle.headlight.intensity = isNight ? 1.5 : 0
     vehicle.taillightMat.opacity = isNight ? 0.9 : 0
@@ -218,16 +502,19 @@ export class VehicleManager {
     for (const v of this.pool) {
       if (!v.active) continue
 
-      v.progress += delta / v.duration
-      if (v.progress >= 1) {
+      v.traveled += v.speed * delta
+      if (v.traveled >= v.totalLength) {
         this.recycle(v)
         continue
       }
 
-      const x = THREE.MathUtils.lerp(v.startX, v.endX, v.progress)
-      const bump = Math.sin(time * 12 + v.startX) * 0.015
-      v.wrapper.position.x = x
+      const { pos, angle } = this.pointAtDistance(v.path, v.traveled)
+      const bump = Math.sin(time * 12 + v.traveled) * 0.015
+      v.wrapper.position.x = pos.x
       v.wrapper.position.y = ROAD_Y + bump
+      v.wrapper.position.z = pos.z
+      // Smoothly rotate towards heading
+      v.wrapper.rotation.y = angle
 
       v.headlight.intensity = needLights ? 1.5 : 0
       v.taillightMat.opacity = needLights ? 0.9 : 0
@@ -238,6 +525,12 @@ export class VehicleManager {
     this.pool = []
     this.templates = []
     this.yOffsets = []
+    this.roadSegments = []
+    this.roadGrid.clear()
+    this.roadPaths = []
+    this.hasRoadNetwork = false
+    this.mapCols = 0
+    this.mapRows = 0
     this.group.clear()
     this.scene.remove(this.group)
   }

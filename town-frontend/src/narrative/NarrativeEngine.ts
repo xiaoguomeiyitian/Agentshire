@@ -13,8 +13,6 @@ export class NarrativeEngine {
   private currentIndex = 0
   private running = false
   private paused = false
-  private stepStartTime = 0
-  private currentStepPromise: Promise<void> | null = null
   
   private handlers: Map<string, (params: Record<string, any>) => Promise<void>> = new Map()
   

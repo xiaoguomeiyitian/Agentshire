@@ -60,11 +60,12 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
 ## 功能特性
 
-### 双模式界面
+### 三模式界面
 
 - **Town 模式** — 3D 低多边形小镇，实时观看 NPC 生活、工作、协作、庆祝
 - **Chat 模式** — IM 风格聊天界面，左侧 Agent 列表（管家 + 居民，在线状态），右侧消息流，支持文本/图片多模态、聊天历史（游标分页）、命令系统（`/new` `/help` `/stop` `/clear`）、群聊 @提及、清空会话确认
-- **顶部导航栏** — Town / Chat 一键切换，右上角快捷菜单（居民管理 / 小镇改造 / 模型管理 / 技能商店 / 设置）
+- **Claw 设置** — 应用内面板，管理 OpenClaw 运行时配置（Gateway 模式、子 Agent 超时、日志、浏览器、更新通道）并实时查看会话与 token 用量；内嵌 LLM 模型管理子模块
+- **顶部导航栏** — Town / Chat / Claw 一键切换，右上角快捷菜单（居民管理 / 小镇改造 / 技能商店 / 设置）
 - **双语界面** — 完整中英文界面，自动检测或手动切换
 
 ### 核心
@@ -91,8 +92,9 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
 - **居民工坊** — 创建和配置居民角色：选择/上传 3D 模型、编辑灵魂人设（支持 AI 一键生成）、配置动画映射（8 槽位）、分配独立 LLM 模型（留空则继承全局默认）、发布为独立 Agent
 - **小镇编辑器** — 可视化拖拽编辑地图：放置建筑/道路/道具/灯光，支持组合、对齐、撤销、导入导出（已支持导出 JSON，与小镇接入开发中）
+- **AI 小镇编辑** — 管家可通过自然语言用 7 个新工具编辑小镇：列出资产/物件、放置/移动/变换/删除物件、设置地形、扩展地图——所有改动实时反映到 3D 场景
 - **编辑器预览** — 一键打开游戏级预览窗口（WASD 控制 + 完整昼夜天气 + 车辆动画 + 音频）
-- **LLM 模型管理** — 独立页面管理 `openclaw.json` 中的提供商/模型：增删改查、导入导出、撤销重做
+- **LLM 模型管理** — 直接在 Claw 设置面板内管理 `openclaw.json` 提供商/模型：增删改查、导入导出、撤销重做——无需独立页面
 - **灵魂系统** — 每个 NPC 有一份 Markdown 人设文件，定义性格、说话风格、专长和工作方式
 
 ### 交互与视觉
@@ -102,7 +104,8 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **丰富的 VFX** — 召唤冲击波、完成烟花、错误闪电、人格变换魔法阵、思考光环、搜索雷达、部署彩纸…
 - **10 工位办公室** — 每个工位有独立显示器（实时代码动画），NPC 进场/工作/离场全流程编排
 - **交付物预览** — 项目完成后弹出交付物卡片，支持图片（lightbox 放大）、视频、音频预览和下载，游戏/网站类直接 iframe 启动
-- **AI 工具控制** — Agent 可以通过工具主动控制小镇（广播消息、生成 NPC、触发特效、设置时间/天气）
+- **AI 工具控制** — Agent 可以通过工具主动控制小镇（广播消息、生成 NPC、触发特效、设置时间/天气，现已支持编辑地图：放置/移动/变换/删除物件、设置地形、扩展地图）
+- **Token 用量跟踪** — 每轮对话的 token 用量，含缓存读写拆分与压缩次数；当 LLM API 返回 0 时启用启发式估算回退
 - **断线重连** — WebSocket 断线自动指数退避重连，工作状态自动恢复
 
 ---
@@ -194,7 +197,7 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
 
 ### LLM 模型管理
 
-访问 `http://localhost:20009/model-manager.html` 管理 `openclaw.json` 中的 LLM 提供商和模型。
+点击顶部导航栏的 **Claw** Tab（或访问 `http://localhost:20009/#claw`），切换到 **模型** 模块即可管理 `openclaw.json` 中的 LLM 提供商和模型。模型管理现已作为一等 React 面板内嵌于 Claw 设置视图，无需独立页面。
 
 ### 配置（可选）
 
@@ -239,6 +242,14 @@ Link 安装用户：`cd Agentshire && git pull && npm install`。
 | `create_plan` | 创建协作计划（分步骤并行执行，需先 `create_project` 或 `create_task`） |
 | `next_step` | 查询计划进度，获取下一步指令 |
 | `mission_complete` | 统一完成处理 — 自动判断触发庆祝结束或仅发交付物卡片 |
+| `town_list_assets` | 列出可用 3D 资产（建筑/道具/道路/角色/宠物），可按分类筛选 |
+| `town_list_objects` | 列出当前小镇地图中已放置的物件，可按类型筛选 |
+| `town_place_object` | 在网格上放置新物件（建筑/道具/道路），支持旋转、缩放、占地尺寸 |
+| `town_move_object` | 将已有物件移动到新网格坐标 |
+| `town_transform_object` | 变换物件：旋转、缩放、X/Z 轴翻转 |
+| `town_delete_object` | 从小镇地图删除物件 |
+| `town_set_terrain` | 批量设置格子地形类型（草地/沙地/街道/广场/人行道/水面） |
+| `town_expand_map` | 将小镇地图扩展到更大的网格尺寸 |
 
 ---
 
@@ -340,15 +351,16 @@ npm test                              # 插件 + 桥接层
 cd town-frontend && npx vitest run    # 前端
 ```
 
-前端有 5 个入口页面：
+前端有 4 个入口页面：
 
 | 页面 | URL | 说明 |
 |------|-----|------|
-| 小镇主页 | `index.html` | 3D 小镇 + 聊天 |
+| 小镇主页 | `index.html` | 3D 小镇 + 聊天 + Claw 设置（3 个 Tab） |
 | 小镇编辑器 | `editor.html` | 地图可视化编辑 |
 | 居民工坊 | `citizen-editor.html` | 角色创建和配置 |
-| LLM 模型管理 | `model-manager.html` | LLM 提供商/模型增删改查 |
 | 编辑器预览 | `preview.html` | 游戏级预览窗口 |
+
+> LLM 模型管理现已内嵌于小镇主页的 **Claw** Tab（`index.html#claw`），不再是独立页面。
 
 > 开发者架构指南见 [AGENTS.md](AGENTS.md)。
 

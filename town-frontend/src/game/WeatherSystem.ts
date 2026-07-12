@@ -184,7 +184,6 @@ function pickDayTheme(): DayTheme {
 // ═════════════════════════════════════════════════════════════
 
 export class WeatherSystem {
-  private scene: THREE.Scene
   private lighting: TimeOfDayLighting
   private postProcess: PostProcessManager | null
   private camera: THREE.Camera
@@ -218,7 +217,6 @@ export class WeatherSystem {
     lighting: TimeOfDayLighting, postProcess: PostProcessManager | null,
     profile: PerformanceProfile,
   ) {
-    this.scene = scene
     this.camera = camera
     this.lighting = lighting
     this.postProcess = postProcess
@@ -398,7 +396,7 @@ export class WeatherSystem {
     this.effects.triggerLightningFlash()
   }
 
-  setScene(scene: THREE.Scene): void { this.scene = scene; this.effects.setScene(scene) }
+  setScene(scene: THREE.Scene): void { this.effects.setScene(scene) }
   clear(): void { this.effects.clear() }
   destroy(): void { this.effects.destroy() }
 }

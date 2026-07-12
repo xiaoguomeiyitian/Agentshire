@@ -71,14 +71,12 @@ export class CasualEncounter {
   private pairCooldowns = new Map<string, number>()
   private activeChats: ActiveChat[] = []
   private onBubble: CasualBubbleCallback
-  private onAnim: CasualAnimCallback
   private onPause: CasualPauseCallback
   private onResume: CasualResumeCallback
   private isBlocked?: (npcId: string) => boolean
 
-  constructor(onBubble: CasualBubbleCallback, onAnim: CasualAnimCallback, onPause: CasualPauseCallback, onResume: CasualResumeCallback, isBlocked?: (npcId: string) => boolean) {
+  constructor(onBubble: CasualBubbleCallback, _onAnim: CasualAnimCallback, onPause: CasualPauseCallback, onResume: CasualResumeCallback, isBlocked?: (npcId: string) => boolean) {
     this.onBubble = onBubble
-    this.onAnim = onAnim
     this.onPause = onPause
     this.onResume = onResume
     this.isBlocked = isBlocked

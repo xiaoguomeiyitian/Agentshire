@@ -122,7 +122,6 @@ const syncTownSessionUrl = (townSessionId: string) => {
   }
   const implicitChatPending = new Map<string, { resolve: (v: { text: string; usage?: { input: number; output: number } }) => void; timer: ReturnType<typeof setTimeout> }>()
   const seenCitizenMessageKeys = new Set<string>()
-  let implicitChatSeq = 0
 
   if (!useMock) {
     // @ts-ignore -- resolved by Vite alias at runtime
@@ -198,6 +197,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
           const evt = data.event
           if (evt.type === 'deliverable_card' || evt.type === 'media_preview') {
             if (sceneRef) sceneRef.handleGameEvent(evt)
+          } else if (evt.type === 'world_control' && (evt as any).target === 'scene') {
+            // Scene editing events → DirectorBridge → EventTranslator → MainScene.handleSceneEdit
+            director.processAgentEvent(evt)
           } else if (evt.npcId && evt.npcId !== 'steward') {
             director.processCitizenEvent(evt.npcId, evt)
           } else {
@@ -326,47 +328,6 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
   await engine.loadScene(scene)
 
-  let implicitChatFnRef: ((req: {
-    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
-  }) => Promise<{ text: string; fallback: boolean }>) | null = null
-
-  if (bridgeModule && townWs) {
-    const IMPLICIT_CHAT_TIMEOUT_MS = 12000
-    const _ws = townWs
-    implicitChatFnRef = async (req: {
-      scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
-    }) => {
-      if (_ws.readyState !== WebSocket.OPEN) {
-        const result = await bridgeModule.implicitChat({
-          scene: req.scene, system: req.system, user: req.user,
-          maxTokens: req.maxTokens, extraStop: req.extraStop,
-        })
-        return { text: result.text, fallback: result.fallback }
-      }
-      const id = `ic-${++implicitChatSeq}-${Date.now().toString(36)}`
-      return new Promise<{ text: string; fallback: boolean }>((resolve) => {
-        const timer = setTimeout(() => {
-          implicitChatPending.delete(id)
-          resolve({ text: '', fallback: true })
-        }, IMPLICIT_CHAT_TIMEOUT_MS)
-        implicitChatPending.set(id, {
-          resolve: (r) => resolve({ text: r.text, fallback: !r.text }),
-          timer,
-        })
-        _ws.send(JSON.stringify({
-          type: 'implicit_chat_request',
-          id,
-          system: req.system,
-          user: req.user,
-          maxTokens: req.maxTokens ?? 200,
-          temperature: 0.85,
-          stop: ['\n\n', ...(req.extraStop ?? [])],
-          ...(req.agentId ? { agentId: req.agentId } : {}),
-        }))
-      })
-    }
-  }
-
 
   // ── Send function for InputBar — routes messages via dataSource ──
 
@@ -448,11 +409,6 @@ const syncTownSessionUrl = (townSessionId: string) => {
     inputBar.setGroupMode(false)
     const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
     if (textarea) textarea.placeholder = t('input.idle')
-  }
-
-  const initDefaultGroupChat = () => {
-    // Request default group init from backend
-    wsSend({ type: 'group_chat_init' })
   }
 
   const inputBar = new InputBar({

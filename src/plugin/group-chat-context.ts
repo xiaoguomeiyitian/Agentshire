@@ -5,7 +5,7 @@
  */
 
 import { chat as llmChat } from "./llm-agent-proxy.js";
-import { loadSummary, saveSummary, loadFullGroupHistory, type PersistedGroupMessage } from "./group-chat-history.js";
+import { loadSummary, saveSummary } from "./group-chat-history.js";
 
 export interface GroupMessage {
   sequenceId: number;
@@ -14,7 +14,7 @@ export interface GroupMessage {
   speakerName: string;
   text: string;
   mentions: string[];
-  usage?: { input: number; output: number; totalTokens?: number };
+  usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number };
   contextBudget?: number;
 }
 

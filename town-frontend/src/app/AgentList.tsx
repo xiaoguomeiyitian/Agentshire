@@ -9,6 +9,7 @@ interface AgentListProps {
   className?: string
   groupChatActive?: boolean
   onGroupChatClick?: () => void
+  collapsed?: boolean
 }
 
 function AgentAvatar({ agent, size = 36, isSelected = false }: { agent: AgentInfo; size?: number; isSelected?: boolean }) {
@@ -56,7 +57,56 @@ function AgentAvatar({ agent, size = 36, isSelected = false }: { agent: AgentInf
   )
 }
 
-export function AgentList({ agents, selectedId, onSelect, className, groupChatActive, onGroupChatClick }: AgentListProps) {
+export function AgentList({ agents, selectedId, onSelect, className, groupChatActive, onGroupChatClick, collapsed = false }: AgentListProps) {
+  if (collapsed) {
+    return (
+      <div className={cn('flex flex-col min-h-0 items-center', className)}>
+        {/* ── Group chat entry (collapsed) ── */}
+        {onGroupChatClick && (
+          <button
+            onClick={onGroupChatClick}
+            title="小镇广场"
+            className={cn(
+              'flex items-center justify-center w-full py-2.5 mt-8 cursor-pointer',
+              'transition-colors duration-150',
+              groupChatActive
+                ? 'bg-[rgba(212,165,116,0.08)] text-text-primary'
+                : 'text-text-secondary hover:bg-bg-surface hover:text-text-primary',
+            )}
+          >
+            <div className={cn(
+              'relative shrink-0 rounded-full flex items-center justify-center w-10 h-10',
+              groupChatActive ? 'bg-[rgba(212,165,116,0.15)] ring-1 ring-brand-primary/30' : 'bg-bg-elevated',
+            )}>
+              <Users size={18} strokeWidth={1.5} className={cn(groupChatActive ? 'text-brand-primary' : 'text-text-quaternary')} />
+            </div>
+          </button>
+        )}
+        <div className="w-full border-t border-border-subtle my-1" />
+        <div className="flex-1 overflow-y-auto styled-scrollbar w-full flex flex-col items-center">
+          {agents.map((agent) => {
+            const isSelected = selectedId === agent.id
+            return (
+              <button
+                key={agent.id}
+                onClick={() => onSelect(agent)}
+                title={agent.name + (agent.specialty ? ` · ${agent.specialty}` : '')}
+                className={cn(
+                  'flex items-center justify-center w-full py-2.5 cursor-pointer',
+                  'transition-colors duration-150',
+                  isSelected
+                    ? 'bg-[rgba(212,165,116,0.08)] text-text-primary'
+                    : 'text-text-secondary hover:bg-bg-surface hover:text-text-primary',
+                )}
+              >
+                <AgentAvatar agent={agent} isSelected={isSelected} size={36} />
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
   return (
     <div className={cn('flex flex-col min-h-0', className)}>
       <div className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-text-quaternary">

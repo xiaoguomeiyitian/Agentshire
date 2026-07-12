@@ -60,6 +60,31 @@ export class EventTranslator {
         if (event.target === 'weather') {
           return [{ type: 'set_weather' as const, action: event.action, weather: event.weather }]
         }
+        if (event.target === 'scene') {
+          const e = event as Extract<AgentEvent, { type: 'world_control'; target: 'scene' }>
+          return [{
+            type: 'scene_edit' as const,
+            action: e.action,
+            objectId: (e as any).objectId,
+            category: (e as any).category,
+            modelKey: (e as any).modelKey,
+            modelUrl: (e as any).modelUrl,
+            gridX: (e as any).gridX,
+            gridZ: (e as any).gridZ,
+            rotationY: (e as any).rotationY,
+            scale: (e as any).scale,
+            flipX: (e as any).flipX,
+            flipZ: (e as any).flipZ,
+            widthCells: (e as any).widthCells,
+            depthCells: (e as any).depthCells,
+            fixRotationX: (e as any).fixRotationX,
+            fixRotationY: (e as any).fixRotationY,
+            fixRotationZ: (e as any).fixRotationZ,
+            cells: (e as any).cells,
+            newCols: (e as any).newCols,
+            newRows: (e as any).newRows,
+          }]
+        }
         return []
       }
       case 'error':
@@ -133,7 +158,7 @@ export class EventTranslator {
     return events
   }
 
-  private handleToolResult(event: Extract<AgentEvent, { type: 'tool_result' }>, contextNpcId?: string): GameEvent[] {
+  private handleToolResult(event: Extract<AgentEvent, { type: 'tool_result' }>, _contextNpcId?: string): GameEvent[] {
     if (event.meta?.filePath) {
       return [{ type: 'workstation_screen', stationId: '', state: { mode: 'done' } }]
     }

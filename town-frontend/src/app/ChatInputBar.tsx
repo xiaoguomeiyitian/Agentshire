@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react'
-import { SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, Film, Music } from 'lucide-react'
+import { SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, Film, Music, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { parseCommand, type ParsedCommand } from '@/utils/command-parser'
 
@@ -15,6 +15,10 @@ interface ChatInputBarProps {
   disabled?: boolean
   placeholder?: string
   className?: string
+  /** When true, the agent is thinking — show a stop/abort button instead of send */
+  thinking?: boolean
+  /** Called when the user clicks the stop button */
+  onAbort?: () => void
 }
 
 const MAX_TEXTAREA_HEIGHT = 200
@@ -26,7 +30,7 @@ function getFileIcon(type: string) {
   return <FileText size={14} strokeWidth={1.5} />
 }
 
-export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, placeholder, className }: ChatInputBarProps) {
+export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, placeholder, className, thinking, onAbort }: ChatInputBarProps) {
   const [text, setText] = useState('')
   const [multiline, setMultiline] = useState(false)
   const [attachments, setAttachments] = useState<AttachedFile[]>([])
@@ -88,9 +92,13 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !composingRef.current) {
       e.preventDefault()
+      // Block sending while the agent is thinking — the send button is
+      // replaced by a stop/abort button in this state, so Enter should
+      // not trigger a new message either.
+      if (thinking) return
       submit()
     }
-  }, [submit])
+  }, [submit, thinking])
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current
@@ -224,18 +232,21 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
         </button>
 
         <button
-          onClick={submit}
-          disabled={disabled || (!text.trim() && attachments.length === 0)}
+          onClick={thinking && onAbort ? onAbort : submit}
+          disabled={thinking ? false : (disabled || (!text.trim() && attachments.length === 0))}
           className={cn(
             'flex items-center justify-center w-9 h-9 rounded-full cursor-pointer shrink-0',
             'transition-all duration-150',
-            (text.trim() || attachments.length > 0)
-              ? 'bg-gradient-to-br from-[#C4915E] to-[#D4A574] text-white shadow-[0_4px_12px_rgba(212,165,116,0.3)] hover:shadow-[0_4px_16px_rgba(212,165,116,0.4)] hover:brightness-110 active:scale-92'
-              : 'bg-[rgba(255,255,255,0.06)] text-text-quaternary cursor-default',
+            thinking
+              ? 'bg-status-error/20 text-status-error hover:bg-status-error/30 hover:brightness-110 active:scale-92 border border-status-error/30'
+              : (text.trim() || attachments.length > 0)
+                ? 'bg-gradient-to-br from-[#C4915E] to-[#D4A574] text-white shadow-[0_4px_12px_rgba(212,165,116,0.3)] hover:shadow-[0_4px_16px_rgba(212,165,116,0.4)] hover:brightness-110 active:scale-92'
+                : 'bg-[rgba(255,255,255,0.06)] text-text-quaternary cursor-default',
           )}
-          aria-label="发送"
+          aria-label={thinking ? '中断' : '发送'}
+          title={thinking ? '中断回答' : '发送'}
         >
-          <SendHorizonal size={16} strokeWidth={2} />
+          {thinking ? <Square size={14} strokeWidth={2.5} className="fill-current" /> : <SendHorizonal size={16} strokeWidth={2} />}
         </button>
       </div>
     </div>

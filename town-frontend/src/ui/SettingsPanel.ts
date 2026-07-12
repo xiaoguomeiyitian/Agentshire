@@ -1,4 +1,4 @@
-import { t, getLocale } from '../i18n'
+import { t } from '../i18n'
 
 export interface SettingsState {
   language: string
@@ -8,7 +8,6 @@ export interface SettingsState {
 
 const SETTINGS_KEY = 'agentshire_settings'
 const ACCENT = '#D4A574'
-const ACCENT_HOVER = '#C4915E'
 
 export function loadSettings(): SettingsState {
   try {

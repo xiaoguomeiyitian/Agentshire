@@ -6,8 +6,8 @@ import type { AgentEvent } from '../contracts/events.js'
 import { StateTracker } from './StateTracker.js'
 import { getCharacterKeyForNpc, pickUnusedCharacterKey } from '../../town-frontend/src/data/CharacterRoster.js'
 import { NpcEventQueue } from './NpcEventQueue.js'
-import { RouteManager, CITIZEN_SPAWN_ORIGIN, PLAZA_CENTER, STEWARD_FACE_POS } from './RouteManager.js'
-import { toolToVfxEvents, toolEmoji, extractFilePath, inferDeliverableCardType, CARD_TYPES } from './ToolVfxMapper.js'
+import { RouteManager } from './RouteManager.js'
+import { toolToVfxEvents, toolEmoji, inferDeliverableCardType, CARD_TYPES } from './ToolVfxMapper.js'
 import { ActivityStream } from './ActivityStream.js'
 import { CitizenManager } from './CitizenManager.js'
 
@@ -35,8 +35,6 @@ interface AgentInfo {
 
 const OFFICE_DOOR_SPAWN = { x: 15, z: 24 }
 
-const WORKSTATION_IDS = ['B', 'C', 'F', 'G', 'D', 'H', 'E', 'A']
-
 const SUMMON_COLLECT_WINDOW = 3000
 
 
@@ -58,7 +56,6 @@ export class DirectorBridge {
   private townConfig: any = null
   private personaChangedFn: ((name: string) => void) | null = null
   private npcQueues = new Map<string, NpcEventQueue>()
-  private progressRingId: number | null = null
   private lastToolInput: Record<string, unknown> = {}
   private pendingProjectName = ''
   private pendingProjectType = ''

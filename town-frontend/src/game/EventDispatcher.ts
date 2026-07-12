@@ -46,6 +46,7 @@ export interface EventHandlers {
   onStewardRename(newName: string, characterKey?: string): void
   onSetTime(event: GameEvent & { type: 'set_time' }): void
   onSetWeather(event: GameEvent & { type: 'set_weather' }): void
+  onSceneEdit(event: GameEvent & { type: 'scene_edit' }): void
   onWorkflowIntent(event: GameEvent): void
 }
 
@@ -204,6 +205,9 @@ export class EventDispatcher {
         break
       case 'set_weather':
         this.handlers.onSetWeather(event)
+        break
+      case 'scene_edit':
+        this.handlers.onSceneEdit(event)
         break
       case 'workflow_summon':
       case 'workflow_assign':

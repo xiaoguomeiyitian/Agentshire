@@ -97,7 +97,7 @@ function updateSoulFile(agentId: string, soulContent: string, name: string, spec
   syncSharedFiles(workspace);
 }
 
-function addAgentToConfig(agentId: string, citizenName: string, specialty?: string, modelRef?: string): void {
+function addAgentToConfig(agentId: string, citizenName: string, _specialty?: string, modelRef?: string): void {
   const cfg = loadOpenClawConfig();
   const agents: any[] = cfg.agents?.list ?? [];
   if (agents.some((a: any) => a.id === agentId)) return;
@@ -117,8 +117,8 @@ function addAgentToConfig(agentId: string, citizenName: string, specialty?: stri
   console.log(`[citizen-agent-manager] Added agent ${agentId} to openclaw.json${modelRef ? ` (model=${modelRef})` : ""}`);
 }
 
-/** Update an existing agent's model ref in openclaw.json. */
-function updateAgentModel(agentId: string, modelRef: string | undefined): void {
+/** Update an existing agent's model ref in openclaw.json. Exported for steward model updates. */
+export function updateAgentModel(agentId: string, modelRef: string | undefined): void {
   const cfg = loadOpenClawConfig();
   const agents: any[] = cfg.agents?.list ?? [];
   const agent = agents.find((a: any) => a.id === agentId);
@@ -133,6 +133,23 @@ function updateAgentModel(agentId: string, modelRef: string | undefined): void {
   if (changed) {
     saveOpenClawConfig(cfg);
     console.log(`[citizen-agent-manager] Updated agent ${agentId} model to ${modelRef ?? "(default)"}`);
+  }
+}
+
+/**
+ * Read an agent's model ref from openclaw.json.
+ * Returns undefined if the agent has no explicit model (inherits global default).
+ * Exported for the before_model_resolve hook to dynamically override models per-agent.
+ */
+export function getAgentModelRef(agentId: string): string | undefined {
+  try {
+    const cfg = loadOpenClawConfig();
+    const agents: any[] = cfg.agents?.list ?? [];
+    const agent = agents.find((a: any) => a.id === agentId);
+    if (!agent?.model) return undefined;
+    return typeof agent.model === "string" ? agent.model : agent.model.primary;
+  } catch {
+    return undefined;
   }
 }
 

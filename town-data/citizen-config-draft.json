@@ -168,7 +168,17 @@
       "specialty": "数据分析",
       "persona": "CHEN",
       "homeId": "house_a",
-      "agentEnabled": true
+      "agentEnabled": true,
+      "modelTransform": {
+        "scale": 2.8,
+        "rotationX": 0,
+        "rotationY": 0,
+        "rotationZ": 0,
+        "offsetX": 0,
+        "offsetY": 0,
+        "offsetZ": 0
+      },
+      "modelRef": "7/kilo-auto/free"
     }
   ]
 }

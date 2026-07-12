@@ -74,7 +74,6 @@ export class NPC {
   private currentAction: THREE.AnimationAction | null = null
 
   private glowRing: THREE.Mesh | null = null
-  private glowColor: string = 'none'
   private glowPhase: number = 0
 
   private labelYOffset: number = 1.95
@@ -575,7 +574,6 @@ export class NPC {
   }
 
   setGlow(color: string): void {
-    this.glowColor = color
     if (!this.glowRing) return
 
     if (color === 'none' || !GLOW_COLORS[color]) {

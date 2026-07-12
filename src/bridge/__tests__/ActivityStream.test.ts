@@ -9,7 +9,7 @@ describe('ActivityStream', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     emitFn = vi.fn()
-    stream = new ActivityStream(emitFn)
+    stream = new ActivityStream(emitFn as any)
   })
 
   afterEach(() => {

@@ -1,13 +1,9 @@
-import * as THREE from 'three'
 import type { NPC } from '../../npc/NPC'
 import type { ModeManager } from './ModeManager'
 import type { VFXSystem } from '../visual/VFXSystem'
 import type { GameClock } from '../GameClock'
 import { BaseOrchestrator } from './BaseOrchestrator'
 import { getLocale } from '../../i18n'
-
-const OFFICE_CENTER = new THREE.Vector3(15, 0, 12.5)
-const OFFICE_DOOR = { x: 15, z: 24 }
 
 const CELEBRATION_PHRASES_ZH: Record<string, string[]> = {
   programmer: ['终于跑通了！', '没有 bug！太好了！', '完美！', 'ship it！', '太酷了！'],

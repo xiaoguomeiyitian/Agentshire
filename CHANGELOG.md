@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026.7.12
+
+### New Features
+- **AI Town Editing (7 tools)** — The steward can now edit the 3D town through natural language via 7 new AI tools: `town_list_assets` (browse buildings/props/roads/characters/pets by category), `town_list_objects` (list placed objects), `town_place_object` (place on grid with rotation/scale/footprint + overlap check), `town_move_object`, `town_transform_object` (rotate/scale/flip), `town_delete_object`, `town_set_terrain` (grass/sand/street/plaza/sidewalk/water), and `town_expand_map`. Changes flow through the new `world_control` scene events and `scene_edit` GameEvent, reflected live in the 3D scene.
+- **Claw Settings Panel** — New in-app `ClawSettingsView` React component as a third top-level tab (`#claw`): manage OpenClaw runtime config (gateway mode, subagent timeout, plugin enabled, auto-launch, logging level/style/redaction, browser headless/no-sandbox/CDP, update channel, session max-history) and inspect live session summaries with per-session token usage and cost totals.
+- **Token Usage Enhancements** — `TokenUsage` now carries `cacheRead` / `cacheWrite`; `turn_end` reports `compactionCount`; chat messages expose `model` and `reasoning` fields. Group chat responses propagate model/cache/compaction info per citizen.
+- **Heuristic Token Estimation Fallback** — New `src/plugin/token-estimate.ts`: when an LLM API returns `usage = 0`, estimate tokens via CJK (~1.5 tok/char) + Latin (~0.25 tok/char) heuristic, cached per `runId` with 5-min TTL sweep. Keeps the token-usage panel meaningful for providers that don't report usage.
+- **Unified Asset Catalog** — `editor-serve` now builds a single asset catalog aggregating three sources: preloaded game assets (`public/assets/models/`), Megapack assets (if present on disk), and custom GLB assets (`town-data/custom-assets/`), with existence verification and URL normalization for characters/pets subdirectories.
+- **Preset Asset Pack** — Added 40+ preloaded GLB models: flowers, grass, park grass hill, pebbles, capybara, 12 character models (female/male a–f), and 24 pet models (beaver, bee, bunny, cat, caterpillar, chick, cow, crab, deer, dog, elephant, fish, fox, giraffe, hog, koala, lion, monkey, panda, parrot, penguin, pig, polar, tiger).
+
+### Improvements
+- **Model Manager Merged into Claw Panel** — Removed the standalone `model-manager.html` page and its iframe-based `editor/model/*` modules; the LLM Model Manager is now a first-class `ModelPanel` React component embedded in the Claw Settings view. Vite no longer builds the `model-manager` entry.
+- **Tri-Mode Top Navigation** — Top nav now switches between Town / Chat / Claw (previously Town / Chat). The quick-menu no longer opens a separate model-manager window.
+- **Backend Build Step** — `npm run build` now compiles the TypeScript backend (`tsc`) and copies `town-souls/` + `town-workspace/` into `dist/` via `copy-assets` before building the frontend. Added `build:backend` script for backend-only builds.
+- **Tool Result Wrapping** — All AI tool `execute()` handlers now return `textResult()` via a shared `ok()` helper instead of raw strings, conforming to the SDK `AgentToolResult` contract.
+
+### Chores
+- Updated `openclaw.plugin.json` tool allow-list with the 7 new town-editing tools.
+- Removed `readdirSync` import from `plan-manager` (unused after refactor).
+
 ## 2026.7.11
 
 ### New Features

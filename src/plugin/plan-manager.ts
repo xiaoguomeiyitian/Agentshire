@@ -7,7 +7,7 @@
  */
 import { isLabelBusy } from './subagent-tracker.js'
 import { getActiveTownSessionId } from './ws-server.js'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export interface CitizenRosterEntry {

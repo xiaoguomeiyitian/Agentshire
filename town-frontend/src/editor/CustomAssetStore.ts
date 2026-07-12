@@ -27,6 +27,8 @@ export interface CustomAsset {
   animFileName?: string
   detectedAnimations?: CharacterAnimationSet
   gender?: 'male' | 'female' | 'neutral'
+  /** Asset category for palette grouping: 'characters' | 'pets' | undefined(=custom) */
+  category?: string
 }
 
 type Listener = () => void
@@ -50,9 +52,13 @@ export class CustomAssetStore {
     for (const fn of this.listeners) fn()
   }
 
-  getAssets(kind?: CustomAssetKind): CustomAsset[] {
-    if (kind) return this.assets.filter(a => a.kind === kind)
-    return this.assets
+  getAssets(kind?: CustomAssetKind, category?: string): CustomAsset[] {
+    let list = this.assets
+    if (kind) list = list.filter(a => a.kind === kind)
+    if (category) {
+      list = list.filter(a => (a.category ?? 'custom') === category)
+    }
+    return list
   }
 
   getModelUrl(asset: CustomAsset): string {
@@ -62,6 +68,9 @@ export class CustomAssetStore {
   }
 
   getPersistentUrl(asset: CustomAsset): string {
+    // kind 'character' → custom-assets/characters/<fileName>
+    // kind 'model' → custom-assets/models/<fileName>
+    // fileName may include a subdirectory (e.g. "pets/foo.glb")
     const subDir = asset.kind === 'character' ? 'characters' : 'models'
     return `custom-assets/${subDir}/${asset.fileName}`
   }

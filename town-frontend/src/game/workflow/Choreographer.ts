@@ -17,7 +17,6 @@ import type { GameClock } from '../GameClock'
 import * as THREE from 'three'
 import type { OfficeBuilder } from '../scene/OfficeBuilder'
 import type { SceneType } from '../../types'
-import { WAYPOINTS } from '../../types'
 import { SummonOrchestrator } from './SummonOrchestrator'
 import { BriefingOrchestrator } from './BriefingOrchestrator'
 import { CelebrationOrchestrator } from './CelebrationOrchestrator'
@@ -273,7 +272,7 @@ export class Choreographer {
   }
 
   private async runReturnSequence(event: GameEvent & { type: 'workflow_return' }): Promise<void> {
-    const { npcManager, bubbles, ui, gameClock, modeManager } = this.deps
+    const { npcManager, bubbles, gameClock, modeManager } = this.deps
     const steward = npcManager.get('steward')
     if (!steward) return
 
@@ -303,7 +302,7 @@ export class Choreographer {
         await npc.fadeOut()
       })
 
-      const raceResult = await Promise.race([
+      await Promise.race([
         Promise.all(departPromises).then(() => 'all_done' as const),
         this.delay(12000).then(() => {
           departureCancelled = true

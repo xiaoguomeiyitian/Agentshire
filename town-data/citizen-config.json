@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "publishedAt": "2026-07-10T23:25:26.252Z",
+  "publishedAt": "2026-07-11T22:47:39.469Z",
   "characters": [
     {
       "id": "user",
@@ -55,8 +55,7 @@
       },
       "animMapping": {},
       "animFileUrls": [],
-      "detectedClips": [],
-      "modelRef": ""
+      "detectedClips": []
     },
     {
       "id": "citizen_1",
@@ -234,7 +233,6 @@
       "animMapping": {},
       "animFileUrls": [],
       "detectedClips": [],
-      "modelRef": "",
       "agentId": "citizen-citizen_6",
       "agentStatus": "active"
     },
@@ -264,7 +262,6 @@
       "animMapping": {},
       "animFileUrls": [],
       "detectedClips": [],
-      "modelRef": "",
       "agentId": "citizen-citizen_7",
       "agentStatus": "active"
     }

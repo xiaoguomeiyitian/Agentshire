@@ -264,7 +264,6 @@ interface SplashParticle { life: number; maxLife: number; x: number; z: number }
 
 export class WeatherEffects {
   private scene: THREE.Scene
-  private profile: PerformanceProfile
   private enabled = true
   private time = 0
 
@@ -304,7 +303,6 @@ export class WeatherEffects {
 
   constructor(scene: THREE.Scene, _camera: THREE.Camera, profile: PerformanceProfile) {
     this.scene = scene
-    this.profile = profile
     this.splashCount = SPLASH_COUNT[profile]
 
     if (RAIN_COUNT[profile] > 0) this.initRain(RAIN_COUNT[profile])

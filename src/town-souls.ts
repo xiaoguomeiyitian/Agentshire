@@ -24,7 +24,8 @@ interface SoulDir {
 
 function getPluginDir(): string {
   try {
-    return resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    // import.meta.url is dist/src/town-souls.js → go up two levels to project root
+    return resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
   } catch { return process.cwd(); }
 }
 

@@ -7,10 +7,8 @@ export class StatusIndicator {
   private state: IndicatorState = 'idle'
   private elapsed = 0
   private currentMeshes: THREE.Object3D[] = []
-  private parent: THREE.Object3D
 
   constructor(parent: THREE.Object3D) {
-    this.parent = parent
     this.group = new THREE.Group()
     this.group.position.y = 2.0
     parent.add(this.group)

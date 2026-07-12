@@ -2,7 +2,6 @@ import townDefaults from './town-defaults.json'
 import refZh from './town-defaults.ref-zh.json'
 import refEn from './town-defaults.en.json'
 import type { ModelTransform, AnimMapping, PublishedCitizenConfig } from './CitizenWorkshopConfig'
-import { createDefaultModelTransform } from './CitizenWorkshopConfig'
 import { getLocale } from '../i18n'
 
 export interface StewardConfig {

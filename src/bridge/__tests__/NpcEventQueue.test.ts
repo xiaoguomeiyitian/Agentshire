@@ -25,7 +25,7 @@ describe('NpcEventQueue', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     emitFn = vi.fn()
-    queue = new NpcEventQueue(emitFn)
+    queue = new NpcEventQueue(emitFn as any)
   })
 
   describe('enqueueDialog', () => {

@@ -15,7 +15,6 @@ export class ModeIndicator {
   private lastKey = ''
   private currentSceneType: 'town' | 'office' | 'other' = 'town'
   private onAction: (() => void) | null = null
-  private actionCompact = false
 
   constructor() {
     this.container = document.createElement('div')
@@ -87,8 +86,7 @@ export class ModeIndicator {
     this.onAction = fn
   }
 
-  setActionCompact(compact: boolean): void {
-    this.actionCompact = compact
+  setActionCompact(_compact: boolean): void {
     this.updateActionButtonLabel()
   }
 

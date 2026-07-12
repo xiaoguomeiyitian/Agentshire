@@ -9,7 +9,7 @@ import type { EncounterManager } from '../npc/EncounterManager'
 import type { PersonaStore } from '../npc/PersonaStore'
 import type { TownJournal } from '../npc/TownJournal'
 import type { GameClock } from './GameClock'
-import { WAYPOINTS } from '../types'
+import { WAYPOINTS, BUILDING_REGISTRY } from '../types'
 
 export interface DailySchedulerDeps {
   npcManager: NPCManager
@@ -77,15 +77,27 @@ export class DailyScheduler {
   }
 
   getBestDailyBehaviorHome(npc: NPC): string {
-    const homeOptions: Array<{ key: string; x: number; z: number }> = [
-      { key: 'cafe_door', x: WAYPOINTS.cafe_door.x, z: WAYPOINTS.cafe_door.z },
-      { key: 'house_a_door', x: WAYPOINTS.house_a_door.x, z: WAYPOINTS.house_a_door.z },
-      { key: 'house_b_door', x: WAYPOINTS.house_b_door.x, z: WAYPOINTS.house_b_door.z },
-      { key: 'house_c_door', x: WAYPOINTS.house_c_door.x, z: WAYPOINTS.house_c_door.z },
-      { key: 'market_door', x: WAYPOINTS.market_door.x, z: WAYPOINTS.market_door.z },
-      { key: 'museum_door', x: WAYPOINTS.museum_door.x, z: WAYPOINTS.museum_door.z },
-      { key: 'user_home_door', x: WAYPOINTS.user_home_door.x, z: WAYPOINTS.user_home_door.z },
-    ]
+    // Dynamically build home options from BUILDING_REGISTRY + WAYPOINTS
+    // so NPCs pick homes across the entire map, not just the hardcoded region.
+    const homeOptions: Array<{ key: string; x: number; z: number }> = []
+    for (const b of BUILDING_REGISTRY) {
+      const wp = WAYPOINTS[b.key]
+      if (wp) {
+        homeOptions.push({ key: b.key, x: wp.x, z: wp.z })
+      }
+    }
+    // Fallback to hardcoded options if registry is empty
+    if (homeOptions.length === 0) {
+      homeOptions.push(
+        { key: 'cafe_door', x: WAYPOINTS.cafe_door?.x ?? 29, z: WAYPOINTS.cafe_door?.z ?? 12 },
+        { key: 'house_a_door', x: WAYPOINTS.house_a_door?.x ?? 6, z: WAYPOINTS.house_a_door?.z ?? 7 },
+        { key: 'house_b_door', x: WAYPOINTS.house_b_door?.x ?? 6, z: WAYPOINTS.house_b_door?.z ?? 12 },
+        { key: 'house_c_door', x: WAYPOINTS.house_c_door?.x ?? 6, z: WAYPOINTS.house_c_door?.z ?? 17 },
+        { key: 'market_door', x: WAYPOINTS.market_door?.x ?? 29, z: WAYPOINTS.market_door?.z ?? 6 },
+        { key: 'museum_door', x: WAYPOINTS.museum_door?.x ?? 29, z: WAYPOINTS.museum_door?.z ?? 18 },
+        { key: 'user_home_door', x: WAYPOINTS.user_home_door?.x ?? 6, z: WAYPOINTS.user_home_door?.z ?? 22 },
+      )
+    }
 
     const pos = npc.getPosition()
     let bestHome = homeOptions[0]

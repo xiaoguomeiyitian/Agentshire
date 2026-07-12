@@ -7,11 +7,12 @@ import { hookToAgentEvent } from "./src/plugin/hook-translator.js";
 import { broadcastAgentEvent, clearEventBuffer, getActiveTownSessionId, findCitizenNpcId, retryChatWatchersForBinding } from "./src/plugin/ws-server.js";
 import { extractTownSessionId } from "./src/plugin/town-session.js";
 import { createTownTools } from "./src/plugin/tools.js";
+import { estimateInputTokens, estimateOutputTokens, withEstimatedFallback } from "./src/plugin/token-estimate.js";
 import { onSubagentSpawned, onSubagentEnded, getLabelForSession, stopAll as stopAllWatchers } from "./src/plugin/subagent-tracker.js";
 import { onAgentStarted, onAgentCompleted, clearPlan, isCurrentBatchDone, hasActivePlan, cleanupStaleSessionPlans } from "./src/plugin/plan-manager.js";
-import type { CustomAssetManager } from "./src/plugin/custom-asset-manager.js";
 import { pushNewChatMessages, pushSubagentCompletion } from "./src/plugin/ws-server.js";
 import { handleEditorRequest, ensureEditorDirs, MIME_TYPES } from "./src/plugin/editor-serve.js";
+import { getAgentModelRef } from "./src/plugin/citizen-agent-manager.js";
 
 const NUDGE_DELAY_MS = 10_000;
 let pendingNudgeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -51,34 +52,82 @@ const TOWN_AGENT_ID = "town-steward";
 
 const pendingSpawnTasks = new Map<string, string>();
 
+/** Cache estimated input tokens per runId for group chat usage fallback */
+const groupInputEstimates = new Map<string, number>();
+
 function notifyGroupDiscussion(hookName: string, agentId: string, payload: Record<string, unknown>, ctx?: unknown): void {
   // Only route to group chat if this is a group chat session (sessionKey contains ":group:")
   const sk = (ctx as any)?.sessionKey as string | undefined;
   if (sk && !sk.includes(":group:")) return;
   import("./src/plugin/group-chat.js").then(({ hasActiveGroup, onCitizenResponse, onCitizenTurnEnd }) => {
     if (!hasActiveGroup()) return;
-    if (hookName === "llm_output") {
+    if (hookName === "llm_input") {
+      // Cache input token estimate for this run
+      const runId = String((payload as any).runId ?? "");
+      if (runId) {
+        const systemPrompt = String((payload as any).systemPrompt ?? "");
+        const prompt = String((payload as any).prompt ?? "");
+        const historyMessages = ((payload as any).historyMessages as Array<{ role?: string; content?: string }>) ?? [];
+        groupInputEstimates.set(runId, estimateInputTokens(systemPrompt, prompt, historyMessages));
+      }
+    } else if (hookName === "llm_output") {
       const texts: string[] = (payload as any).assistantTexts ?? [];
-      const text = texts.length > 0
-        ? texts[texts.length - 1]
-        : String((payload as any).lastAssistant ?? (payload as any).text ?? (payload as any).content ?? (payload as any).output ?? "");
+      let text: string = "";
+      if (texts.length > 0) {
+        text = typeof texts[texts.length - 1] === "string" ? texts[texts.length - 1] : String(texts[texts.length - 1] ?? "");
+      } else {
+        // Fallback: extract text from lastAssistant (OpenAI message format) or other fields
+        const lastAssistant = (payload as any).lastAssistant;
+        if (lastAssistant && typeof lastAssistant === "object") {
+          // OpenAI message format: { role: "assistant", content: [...] } or { content: "text" }
+          const content = (lastAssistant as any).content;
+          if (typeof content === "string") {
+            text = content;
+          } else if (Array.isArray(content)) {
+            // Extract text from content array items (e.g., [{ type: "text", text: "..." }])
+            text = content
+              .filter((c: any) => typeof c === "string" || c?.type === "text" || c?.type === "output_text")
+              .map((c: any) => typeof c === "string" ? c : (c.text ?? c.output ?? ""))
+              .join("");
+          }
+        } else if (typeof lastAssistant === "string") {
+          text = lastAssistant;
+        } else {
+          // Final fallback: try text/content/output fields
+          const raw = (payload as any).text ?? (payload as any).content ?? (payload as any).output ?? "";
+          text = typeof raw === "string" ? raw : (raw && typeof raw === "object" ? JSON.stringify(raw) : String(raw ?? ""));
+        }
+      }
       const contextTokenBudget = typeof (payload as any).contextTokenBudget === "number" ? (payload as any).contextTokenBudget : undefined;
-      const rawUsage = (payload as any).usage as { inputTokens?: number; outputTokens?: number; input?: number; output?: number; totalTokens?: number } | undefined;
-      const usage = rawUsage ? {
-        input: rawUsage.inputTokens ?? rawUsage.input ?? 0,
-        output: rawUsage.outputTokens ?? rawUsage.output ?? 0,
-        totalTokens: rawUsage.totalTokens,
-      } : undefined;
-      if (text) onCitizenResponse(agentId, text, contextTokenBudget, usage);
+      const rawUsage = (payload as any).usage as { inputTokens?: number; outputTokens?: number; input?: number; output?: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number } | undefined;
+      // Fallback: estimate tokens when API returns 0
+      const runId = String((payload as any).runId ?? "");
+      const estInput = runId ? (groupInputEstimates.get(runId) ?? 0) : 0;
+      const estOutput = estimateOutputTokens(texts.length > 0 ? texts : (text ? [text] : []));
+      const usage = withEstimatedFallback(
+        rawUsage ? { input: rawUsage.inputTokens ?? rawUsage.input ?? 0, output: rawUsage.outputTokens ?? rawUsage.output ?? 0 } : undefined,
+        estInput,
+        estOutput,
+      );
+      // Attach cache stats from API (when available)
+      if (typeof rawUsage?.cacheRead === "number") (usage as any).cacheRead = rawUsage.cacheRead;
+      if (typeof rawUsage?.cacheWrite === "number") (usage as any).cacheWrite = rawUsage.cacheWrite;
+      const model = typeof (payload as any).model === "string" ? (payload as any).model : undefined;
+      if (text) onCitizenResponse(agentId, text, contextTokenBudget, usage, model);
     } else if (hookName === "agent_end") {
       // agent_end payload lacks usage in OpenClaw 2026.6.11; usage is extracted from llm_output above
       const rawUsage = (payload as any).usage as { inputTokens?: number; outputTokens?: number; input?: number; output?: number; totalTokens?: number } | undefined;
-      const usage = rawUsage ? {
-        input: rawUsage.inputTokens ?? rawUsage.input ?? 0,
-        output: rawUsage.outputTokens ?? rawUsage.output ?? 0,
-        totalTokens: rawUsage.totalTokens,
-      } : undefined;
-      onCitizenTurnEnd(agentId, usage);
+      const runId = String((payload as any).runId ?? "");
+      const estInput = runId ? (groupInputEstimates.get(runId) ?? 0) : 0;
+      const usage = withEstimatedFallback(
+        rawUsage ? { input: rawUsage.inputTokens ?? rawUsage.input ?? 0, output: rawUsage.outputTokens ?? rawUsage.output ?? 0 } : undefined,
+        estInput,
+        0,
+      );
+      // Clean up cache
+      if (runId) groupInputEstimates.delete(runId);
+      const compactionCount = typeof (payload as any).compactionCount === "number" ? (payload as any).compactionCount as number : undefined;
+      onCitizenTurnEnd(agentId, usage, compactionCount);
     }
   }).catch(() => {});
 }
@@ -127,6 +176,7 @@ function dispatchCitizen(hookName: string, payload: Record<string, unknown>, ctx
   const events = Array.isArray(result) ? result : [result];
   for (const event of events) {
     (event as any).npcId = npcId;
+    (event as any).agentId = agentId;
     broadcastAgentEvent(event, sid);
   }
 
@@ -285,7 +335,7 @@ function registerHooks(api: OpenClawPluginApi): void {
   const soulCache = new Map<string, { soul: string; ts: number }>();
   const SOUL_CACHE_TTL_MS = 60_000;
 
-  api.on("before_prompt_build", async (event: any, ctx: any) => {
+  api.on("before_prompt_build", async (_event: any, ctx: any) => {
     try {
       const sessionKey = ctx?.sessionKey as string | undefined;
       if (!sessionKey) return;
@@ -308,7 +358,8 @@ function registerHooks(api: OpenClawPluginApi): void {
       const { loadTownSoul } = await import("./src/town-souls.js");
       const { join } = await import("node:path");
       const { fileURLToPath } = await import("node:url");
-      const pluginDir = join(fileURLToPath(import.meta.url), "..");
+      // import.meta.url is dist/index.js → go up two levels to project root (where town-data/ lives)
+      const pluginDir = join(fileURLToPath(import.meta.url), "..", "..");
       const townSoul = loadTownSoul(agentId, pluginDir);
       if (townSoul.soul) {
         soulCache.set(agentId, { soul: townSoul.soul, ts: now });
@@ -317,6 +368,27 @@ function registerHooks(api: OpenClawPluginApi): void {
       }
     } catch (err) {
       console.error("[agentshire] Failed to inject citizen soul:", err);
+    }
+  });
+
+  // ── Dynamic per-agent model override ──
+  // Reads agent.model from openclaw.json on every agent run and overrides
+  // the model via before_model_resolve. This makes model changes take
+  // effect immediately without restarting the agent session.
+  api.on("before_model_resolve", (_event: any, ctx: any) => {
+    try {
+      const agentId = ctx?.agentId as string | undefined;
+      if (!agentId) return;
+      const modelRef = getAgentModelRef(agentId);
+      if (!modelRef) return; // no explicit model → inherit default
+      const slashIdx = modelRef.indexOf("/");
+      if (slashIdx <= 0) return; // pure model id without provider — skip
+      const providerOverride = modelRef.slice(0, slashIdx);
+      const modelOverride = modelRef.slice(slashIdx + 1);
+      console.log(`[agentshire] before_model_resolve: agent=${agentId} → provider=${providerOverride} model=${modelOverride}`);
+      return { providerOverride, modelOverride };
+    } catch (err) {
+      console.error("[agentshire] before_model_resolve failed:", err);
     }
   });
 }
@@ -347,7 +419,8 @@ function registerFull(api: OpenClawPluginApi): void {
         const { join } = await import("node:path");
         const { readFileSync, existsSync, statSync } = await import("node:fs");
         const { fileURLToPath } = await import("node:url");
-        const pluginDir = join(fileURLToPath(import.meta.url), "..");
+        // import.meta.url is dist/index.js → go up two levels to project root (where town-data/ lives)
+        const pluginDir = join(fileURLToPath(import.meta.url), "..", "..");
         const distDir = join(pluginDir, "town-frontend", "dist");
         if (!existsSync(distDir)) {
           console.log(`[agentshire] Town frontend not built yet. Run: cd ${join(pluginDir, "town-frontend")} && npm run build`);

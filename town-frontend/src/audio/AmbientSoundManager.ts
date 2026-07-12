@@ -47,7 +47,6 @@ export class AmbientSoundManager {
 
   private rainLayer: AmbientLayer | null = null
   private windLayer: AmbientLayer | null = null
-  private thunderLayer: AmbientLayer | null = null
   private birdsLayer: AmbientLayer | null = null
   private nightLayer: AmbientLayer | null = null
   private trafficLayer: AmbientLayer | null = null

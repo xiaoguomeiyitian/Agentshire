@@ -174,8 +174,6 @@ export class SessionLogWatcher {
       this.emit([this.wrap({ type: "tool_result", toolUseId: id, name: "__thinking__", output: text } as AgentEvent)]);
     }
 
-    const hasToolCall = blocks.some(b => b.type === "toolCall");
-
     for (const block of blocks) {
       if (block.type === "toolCall") {
         const name = block.name ?? "unknown";

@@ -2,9 +2,10 @@
  * Reads steward session JSONL files and extracts user/assistant text messages.
  * Supports cross-session aggregation: reads from multiple sessions sorted by time.
  */
-import { readFileSync, readdirSync, existsSync, statSync, openSync, closeSync, fstatSync, readSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "./paths.js";
+import { estimateTokens } from "./token-estimate.js";
 
 const TOWN_AGENT_ID = "town-steward";
 const MAX_SESSIONS = 100;
@@ -65,6 +66,46 @@ function listArchivedSessions(
         updatedAt: parseResetTimestamp(f.resetTs),
         filePath: f.path,
       }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Find unindexed session files in the sessions directory.
+ * These are regular .jsonl files (not .trajectory.jsonl, not .reset. archives)
+ * that are not referenced in sessions.json. The OpenClaw runtime may create
+ * new sessions (e.g. on context compaction) without updating the index, so
+ * we need to discover them by scanning the directory.
+ *
+ * Returns sessions sorted by modification time (newest first).
+ */
+function listUnindexedSessions(
+  dirPath: string,
+  excludeSessionIds: Set<string>,
+  maxFiles: number = MAX_ARCHIVED_SESSIONS,
+): SessionEntry[] {
+  try {
+    const files = readdirSync(dirPath);
+    const sessions: SessionEntry[] = [];
+    for (const f of files) {
+      // Only regular session transcripts (exclude trajectory files and reset archives)
+      if (!f.endsWith(".jsonl")) continue;
+      if (f.includes(".trajectory.") || f.includes(".reset.")) continue;
+      const sessionId = f.replace(/\.jsonl$/, "");
+      if (excludeSessionIds.has(sessionId)) continue;
+      const filePath = join(dirPath, f);
+      try {
+        const st = statSync(filePath);
+        sessions.push({
+          sessionId,
+          updatedAt: st.mtimeMs,
+          filePath,
+        });
+      } catch { /* skip */ }
+    }
+    sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+    return sessions.slice(0, maxFiles);
   } catch {
     return [];
   }
@@ -200,7 +241,15 @@ function readSessionMessages(filePath: string): ChatHistoryMessage[] {
         const entry = JSON.parse(trimmed);
         if (entry.type !== "message") continue;
         const msg = entry.message;
-        if (!msg || !Array.isArray(msg.content)) continue;
+        if (!msg) continue;
+        // Normalize content: user messages may be a plain string (citizen sessions)
+        if (Array.isArray(msg.content)) {
+          // already blocks
+        } else if (typeof msg.content === "string") {
+          msg.content = [{ type: "text", text: msg.content }];
+        } else {
+          continue;
+        }
 
         const role = msg.role;
         if (role === "toolResult" && msg.toolName === "sessions_spawn") {
@@ -488,7 +537,7 @@ export function loadCitizenHistory(
 // ────────────────────────────────────────────────────────────────
 
 import type { ChatItem, ChatItemHistoryResult } from "../contracts/chat.js";
-import { resolveAsset, detectMediaType, resolveMimeType } from "./chat-asset-resolver.js";
+import { resolveAsset } from "./chat-asset-resolver.js";
 
 function stripUserMeta(text: string): string {
   const marker = '```\n\n';
@@ -503,6 +552,54 @@ function stripReasoning(text: string): string {
   const finalMatch = text.match(/<final\b[^>]*>([\s\S]*?)<\/final>/i);
   if (finalMatch) return finalMatch[1].trim();
   return text.replace(/<\/?(?:final|think(?:ing)?|thought|antthinking)\b[^<>]*>/gi, "").trim();
+}
+
+/** Extract reasoning/thinking text from assistant message content.
+ * Returns the reasoning text (without tags), or undefined if no reasoning tags found.
+ * Also returns the cleaned final text. */
+function extractReasoning(text: string): { reasoning?: string; final: string } {
+  // Check for <final> tag — reasoning is everything outside <final>
+  const finalMatch = text.match(/<final\b[^>]*>([\s\S]*?)<\/final>/i);
+  if (finalMatch) {
+    const finalText = finalMatch[1].trim();
+    // Extract reasoning from before <final> tag
+    const beforeFinal = text.slice(0, text.indexOf("<final"));
+    const reasoningTags = beforeFinal.match(/<think(?:ing)?\b[^>]*>([\s\S]*?)<\/think(?:ing)?>/gi);
+    if (reasoningTags) {
+      const reasoning = reasoningTags
+        .map(t => t.replace(/<\/?think(?:ing)?\b[^>]*>/gi, "").trim())
+        .filter(t => t.length > 0)
+        .join("\n\n");
+      if (reasoning) return { reasoning, final: finalText };
+    }
+    // Check for <thought> tags
+    const thoughtTags = beforeFinal.match(/<thought\b[^>]*>([\s\S]*?)<\/thought>/gi);
+    if (thoughtTags) {
+      const reasoning = thoughtTags
+        .map(t => t.replace(/<\/?thought\b[^>]*>/gi, "").trim())
+        .filter(t => t.length > 0)
+        .join("\n\n");
+      if (reasoning) return { reasoning, final: finalText };
+    }
+    return { final: finalText };
+  }
+
+  // No <final> tag — check for <thinking>/<thought> tags
+  const thinkMatch = text.match(/<think(?:ing)?\b[^>]*>([\s\S]*?)<\/think(?:ing)?>/i);
+  if (thinkMatch) {
+    const reasoning = thinkMatch[1].trim();
+    const final = text.replace(/<\/?think(?:ing)?\b[^>]*>/gi, "").trim();
+    if (reasoning) return { reasoning, final };
+  }
+
+  const thoughtMatch = text.match(/<thought\b[^>]*>([\s\S]*?)<\/thought>/i);
+  if (thoughtMatch) {
+    const reasoning = thoughtMatch[1].trim();
+    const final = text.replace(/<\/?thought\b[^>]*>/gi, "").trim();
+    if (reasoning) return { reasoning, final };
+  }
+
+  return { final: stripReasoning(text) };
 }
 
 function isSysText(text: string): boolean {
@@ -534,6 +631,8 @@ function stripUserAttachmentHints(text: string): string {
  */
 export interface TranscriptParserState {
   pendingToolCalls: Map<string, { name: string; args: Record<string, unknown> }>;
+  /** Tracks the last user message text for input token estimation fallback. */
+  lastUserText?: string;
 }
 
 export function createParserState(): TranscriptParserState {
@@ -568,12 +667,23 @@ export function parseTranscriptEntry(
 
   if (entry.type !== "message") return items;
   const msg = (entry as any).message as Record<string, any> | undefined;
-  if (!msg || !Array.isArray(msg.content)) return items;
+  if (!msg) return items;
+
+  // Normalize content: OpenClaw stores assistant content as an array of blocks,
+  // but user content may be a plain string (especially for citizen sessions).
+  // Coerce string content into a single text block so the parser is uniform.
+  let blocks: any[];
+  if (Array.isArray(msg.content)) {
+    blocks = msg.content;
+  } else if (typeof msg.content === "string") {
+    blocks = [{ type: "text", text: msg.content }];
+  } else {
+    return items;
+  }
 
   const entryId = String((entry as any).id ?? "");
   const role = String(msg.role ?? "");
   const ts = typeof msg.timestamp === "number" ? msg.timestamp : (typeof entry.timestamp === "string" ? Date.parse(entry.timestamp as string) : 0);
-  const blocks: any[] = msg.content;
 
   if (role === "user") {
     let blockIdx = 0;
@@ -591,6 +701,7 @@ export function parseTranscriptEntry(
         }
         const text = stripUserAttachmentHints(stripUserMeta(rawText));
         if (text) {
+          state.lastUserText = text;
           items.push({ id: `msg:${entryId}:text:${blockIdx}`, agentId, timestamp: ts, kind: "text", role: "user", text, source: "user_input" });
         }
       } else if (b.type === "image" && b.data) {
@@ -620,18 +731,32 @@ export function parseTranscriptEntry(
           toolUseId: toolId, toolName, input: args,
         });
       } else if (b.type === "text" && typeof b.text === "string") {
-        const text = stripReasoning(b.text.trim());
-        if (text && !isSysText(text)) {
+        const { reasoning, final } = extractReasoning(b.text.trim());
+        if (final && !isSysText(final)) {
           // Extract token usage from assistant message (if present)
-          const rawUsage = msg.usage as { input?: number; output?: number; totalTokens?: number } | undefined;
+          const rawUsage = msg.usage as { input?: number; output?: number; totalTokens?: number; reasoningTokens?: number; cacheRead?: number; cacheWrite?: number } | undefined;
+          // Extract model id from assistant message (if present)
+          const rawModel = typeof msg.model === "string" ? msg.model : undefined;
+          // Fallback: estimate tokens when API returned 0
+          const apiInput = rawUsage?.input ?? 0;
+          const apiOutput = rawUsage?.output ?? 0;
+          const needsEstimate = apiInput === 0 && apiOutput === 0;
+          const estInput = needsEstimate ? estimateTokens(state.lastUserText ?? "") : apiInput;
+          const estOutput = needsEstimate ? estimateTokens(final) : apiOutput;
+          const hasUsage = !!rawUsage || needsEstimate;
           items.push({
             id: `msg:${entryId}:text:${blockIdx}`, agentId, timestamp: ts,
-            kind: "text", role: "assistant", text, source: "llm",
-            ...(rawUsage ? { usage: {
-              input: rawUsage.input ?? 0,
-              output: rawUsage.output ?? 0,
-              totalTokens: rawUsage.totalTokens,
+            kind: "text", role: "assistant", text: final, source: "llm",
+            ...(hasUsage ? { usage: {
+              input: estInput,
+              output: estOutput,
+              totalTokens: rawUsage?.totalTokens,
+              reasoningTokens: rawUsage?.reasoningTokens,
+              ...(typeof rawUsage?.cacheRead === "number" ? { cacheRead: rawUsage.cacheRead } : {}),
+              ...(typeof rawUsage?.cacheWrite === "number" ? { cacheWrite: rawUsage.cacheWrite } : {}),
             } } : {}),
+            ...(rawModel ? { model: rawModel } : {}),
+            ...(reasoning ? { reasoning } : {}),
           });
         }
       } else if (b.type === "image" && b.data) {
@@ -762,7 +887,7 @@ export function loadChatItemHistory(
 
   const allItems: ChatItem[] = [];
   let lastIdx = startIdx;
-  const countVisible = () => allItems.filter(it => it.kind === "text" || it.kind === "media").length;
+  const countVisible = () => allItems.filter(it => it.kind === "text" || it.kind === "media" || it.kind === "tool" || it.kind === "status").length;
 
   for (let i = startIdx; i < sessions.length && countVisible() < limit + 10; i++) {
     allItems.push(...readSessionItems(sessions[i].filePath, "steward"));
@@ -770,7 +895,7 @@ export function loadChatItemHistory(
   }
 
   allItems.sort((a, b) => a.timestamp - b.timestamp);
-  const visibleItems = allItems.filter(it => it.kind === "text" || it.kind === "media");
+  const visibleItems = allItems.filter(it => it.kind === "text" || it.kind === "media" || it.kind === "tool" || it.kind === "status");
   const latest = visibleItems.slice(-limit);
   const hasMore = visibleItems.length > limit || lastIdx + 1 < sessions.length;
   const cursor = JSON.stringify({ sessionIdx: cursorStr ? lastIdx + 1 : Math.min(1, sessions.length) });
@@ -811,8 +936,14 @@ export function loadCitizenItemHistory(
       allItems.push(...readSessionItems(arc.filePath, agentId));
     }
 
+    // Also include unindexed sessions (created by runtime without updating sessions.json)
+    const unindexed = listUnindexedSessions(sessDir, indexedIds);
+    for (const u of unindexed) {
+      allItems.push(...readSessionItems(u.filePath, agentId));
+    }
+
     allItems.sort((a, b) => a.timestamp - b.timestamp);
-    const visibleItems = allItems.filter(it => it.kind === "text" || it.kind === "media");
+    const visibleItems = allItems.filter(it => it.kind === "text" || it.kind === "media" || it.kind === "tool" || it.kind === "status");
     const latest = visibleItems.slice(-limit);
     return { items: latest, hasMore: visibleItems.length > limit, cursor: "" };
   } catch {
@@ -834,16 +965,31 @@ export function loadCitizenNewMessages(agentId: string): ChatHistoryMessage[] {
     const index = JSON.parse(readFileSync(indexPath, "utf-8"));
     const prefix = `agent:${agentId}:`;
     let latest: any = null;
+    const indexedIds = new Set<string>();
     for (const [key, value] of Object.entries(index)) {
       if (!key.startsWith(prefix)) continue;
       // Skip group chat sessions to keep single-chat context isolated
       if (key.includes(":group:")) continue;
       const entry = value as any;
       if (!entry?.sessionId) continue;
+      indexedIds.add(entry.sessionId);
       if (!latest || (entry.updatedAt ?? 0) > (latest.updatedAt ?? 0)) {
         latest = entry;
       }
     }
+
+    // Also check unindexed sessions (runtime may create new sessions without updating index)
+    const unindexed = listUnindexedSessions(sessDir, indexedIds);
+    if (unindexed.length > 0) {
+      // Compare the newest unindexed session with the latest indexed one
+      const newestUnindexed = unindexed[0];
+      if (!latest || newestUnindexed.updatedAt > (latest.updatedAt ?? 0)) {
+        if (existsSync(newestUnindexed.filePath)) {
+          return readSessionMessages(newestUnindexed.filePath);
+        }
+      }
+    }
+
     if (!latest) return [];
     const filePath = join(sessDir, `${latest.sessionId}.jsonl`);
     if (!existsSync(filePath)) return [];

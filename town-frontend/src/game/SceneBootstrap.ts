@@ -33,7 +33,6 @@ export interface AgentConfigEntry {
 }
 
 export class SceneBootstrap {
-  private townInitLoading = false
   private flowStarted = false
   private deps: SceneBootstrapDeps
   private _agentConfigMap = new Map<string, AgentConfigEntry>()
@@ -159,7 +158,7 @@ export class SceneBootstrap {
   }
 
   async playReturnAnimation(config: TownConfig): Promise<void> {
-    const { cameraCtrl, npcManager, ui } = this.deps
+    const { cameraCtrl, npcManager } = this.deps
 
     cameraCtrl.setAutoPilot(false)
     cameraCtrl.follow(null)
@@ -168,15 +167,15 @@ export class SceneBootstrap {
     const stewardNpc = npcManager.get('steward')
 
     if (userNpc) userNpc.setVisible(true)
-    cameraCtrl.moveTo({ x: 17, z: 17 })
+    cameraCtrl.moveTo({ x: 39, z: 32 })
 
     await Promise.all([
-      userNpc?.moveTo({ x: 17, z: 18 }, 2.5),
-      stewardNpc?.moveTo({ x: 17, z: 15.8 }, 3),
+      userNpc?.moveTo({ x: 40, z: 34 }, 2.5),
+      stewardNpc?.moveTo({ x: 38, z: 34 }, 3),
     ])
 
-    if (stewardNpc) stewardNpc.lookAtTarget?.({ x: 17, z: 18 })
-    if (userNpc) userNpc.lookAtTarget?.({ x: 17, z: 15.8 })
+    if (stewardNpc) stewardNpc.lookAtTarget?.({ x: 40, z: 34 })
+    if (userNpc) userNpc.lookAtTarget?.({ x: 38, z: 34 })
 
     await this.delay(200)
 
@@ -215,13 +214,11 @@ export class SceneBootstrap {
   }
 
   showTownInitLoading(): void {
-    this.townInitLoading = true
     const el = document.getElementById('town-init-loading')
     if (el) el.classList.add('visible')
   }
 
   hideTownInitLoading(): void {
-    this.townInitLoading = false
     const el = document.getElementById('town-init-loading')
     if (el) el.classList.remove('visible')
   }

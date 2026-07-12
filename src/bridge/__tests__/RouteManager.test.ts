@@ -28,7 +28,7 @@ describe('RouteManager', () => {
 
   beforeEach(() => {
     emitFn = vi.fn()
-    rm = new RouteManager(emitFn)
+    rm = new RouteManager(emitFn as any)
   })
 
   describe('distance2D', () => {

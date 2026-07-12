@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { TownMapConfig, PropPlacement, LightPointDef } from './TownMapConfig'
+import type { TownMapConfig } from './TownMapConfig'
 import { EditorAssetLoader } from './EditorAssetLoader'
 
 interface ActiveVehicle {

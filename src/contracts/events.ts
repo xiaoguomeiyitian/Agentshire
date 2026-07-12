@@ -47,6 +47,8 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   thinkingTokens?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 export interface ASRSegment {
@@ -78,7 +80,7 @@ export type AgentEvent =
   // Context & turn
   | { type: 'context_update'; tokens: { used: number; limit: number; percent: number };
       usage?: TokenUsage; messagesCount: number; iteration: number; maxIterations: number }
-  | { type: 'turn_end'; usage: TokenUsage; toolCalls: number; durationMs: number }
+  | { type: 'turn_end'; usage: TokenUsage; toolCalls: number; durationMs: number; compactionCount?: number }
 
   // Sub-agents
   | { type: 'sub_agent'; subtype: 'started'; agentId: string; agentType: string;
@@ -165,6 +167,24 @@ export type AgentEvent =
   // World control (time & weather)
   | { type: 'world_control'; target: 'time'; action: 'set' | 'pause' | 'resume'; hour?: number }
   | { type: 'world_control'; target: 'weather'; action: 'set' | 'reset'; weather?: string }
+  // World control (scene editing — steward only)
+  | { type: 'world_control'; target: 'scene'; action: 'place';
+      objectId: string; category: 'building' | 'prop' | 'road';
+      modelKey: string; modelUrl?: string; gridX: number; gridZ: number;
+      rotationY: number; scale: number;
+      widthCells?: number; depthCells?: number;
+      fixRotationX?: number; fixRotationY?: number; fixRotationZ?: number }
+  | { type: 'world_control'; target: 'scene'; action: 'move';
+      objectId: string; gridX: number; gridZ: number }
+  | { type: 'world_control'; target: 'scene'; action: 'transform';
+      objectId: string; rotationY?: number; scale?: number;
+      flipX?: boolean; flipZ?: boolean }
+  | { type: 'world_control'; target: 'scene'; action: 'delete';
+      objectId: string }
+  | { type: 'world_control'; target: 'scene'; action: 'set_terrain';
+      cells: Array<{ col: number; row: number; type: string }> }
+  | { type: 'world_control'; target: 'scene'; action: 'expand';
+      newCols: number; newRows: number }
 
   // Error
   | { type: 'error'; message: string; recoverable: boolean };

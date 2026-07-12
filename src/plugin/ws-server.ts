@@ -1,14 +1,15 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { AgentEvent } from "../contracts/events.js";
 import { sanitizeTownSessionId } from "./town-session.js";
-import { getActivityLogForAgent, type ActivityLogEntry } from "./subagent-tracker.js";
+import { getActivityLogForAgent } from "./subagent-tracker.js";
 import type { CustomAssetManager } from "./custom-asset-manager.js";
-import { loadChatHistory, loadNewMessages, getCurrentSessionId, invalidateSessionCache, loadCitizenHistory, loadCitizenNewMessages, loadSubagentFinalMessage, loadChatItemHistory, loadCitizenItemHistory } from "./session-history.js";
+import { loadChatHistory, loadNewMessages, invalidateSessionCache, loadCitizenHistory, loadCitizenNewMessages, loadSubagentFinalMessage, loadChatItemHistory, loadCitizenItemHistory } from "./session-history.js";
 import { ChatSessionWatcher } from "./chat-session-watcher.js";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stateDir } from "./paths.js";
+import { getTownRuntime } from "./runtime.js";
 import { parseSessionToken, isValidSession, isPasswordAuthEnabled } from "./auth.js";
 
 export interface TownWsServerOptions {
@@ -284,6 +285,35 @@ function handleCustomAssetMessage(ws: WebSocket, msg: any): boolean {
   }
 }
 
+/**
+ * Find the newest .jsonl session file in a sessions directory, excluding
+ * trajectory files, reset archives, and optionally a specific session ID.
+ * Used as a fallback when sessions.json index is stale (runtime created a
+ * new session without updating the index).
+ */
+function findLatestSessionFile(storeDir: string, excludeSessionId?: string): string | null {
+  try {
+    const files = readdirSync(storeDir);
+    let best: { path: string; mtime: number } | null = null;
+    for (const f of files) {
+      if (!f.endsWith(".jsonl")) continue;
+      if (f.includes(".trajectory.") || f.includes(".reset.")) continue;
+      const sessionId = f.replace(/\.jsonl$/, "");
+      if (excludeSessionId && sessionId === excludeSessionId) continue;
+      const fp = join(storeDir, f);
+      try {
+        const st = statSync(fp);
+        if (!best || st.mtimeMs > best.mtime) {
+          best = { path: fp, mtime: st.mtimeMs };
+        }
+      } catch { /* skip */ }
+    }
+    return best?.path ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveChatTranscriptPath(townSessionId: string, agentId: string): string | null {
   try {
     if (agentId === "steward") {
@@ -294,9 +324,12 @@ function resolveChatTranscriptPath(townSessionId: string, agentId: string): stri
       const newKey = `agent:town-steward:town:default:${townSessionId}`;
       const legacyKey = `town:default:${townSessionId}`;
       const entry = (index[newKey] ?? index[legacyKey]) as any;
-      if (!entry?.sessionId) return null;
-      const fp = join(storeDir, `${entry.sessionId}.jsonl`);
-      return existsSync(fp) ? fp : null;
+      if (entry?.sessionId) {
+        const fp = join(storeDir, `${entry.sessionId}.jsonl`);
+        if (existsSync(fp)) return fp;
+      }
+      // Fallback: find the newest unindexed .jsonl session file
+      return findLatestSessionFile(storeDir, entry?.sessionId);
     }
     const storeDir = join(stateDir(), "agents", agentId, "sessions");
     const indexPath = join(storeDir, "sessions.json");
@@ -308,7 +341,8 @@ function resolveChatTranscriptPath(townSessionId: string, agentId: string): stri
       const fp = join(storeDir, `${exactEntry.sessionId}.jsonl`);
       if (existsSync(fp)) return fp;
     }
-    return null;
+    // Fallback: find the newest unindexed .jsonl session file
+    return findLatestSessionFile(storeDir, exactEntry?.sessionId);
   } catch {
     return null;
   }
@@ -348,11 +382,46 @@ function tryStartChatWatcher(ws: WebSocket, townSessionId: string, agentId: stri
   coldStartBindings.delete(ws);
   const existing = clientChatWatchers.get(ws);
   if (existing) existing.stop();
-  const watcher = new ChatSessionWatcher(transcriptPath, agentId, (items) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "chat_delta", agentId, items }));
-    }
-  });
+  const storeDir = agentId === "steward"
+    ? join(stateDir(), "agents", "town-steward", "sessions")
+    : join(stateDir(), "agents", agentId, "sessions");
+  const watcher = new ChatSessionWatcher(
+    transcriptPath,
+    agentId,
+    (items) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "chat_delta", agentId, items }));
+      }
+    },
+    // resolveLatestFile: re-resolve the transcript path to detect session switches
+    () => {
+      try {
+        const indexPath = join(storeDir, "sessions.json");
+        if (!existsSync(indexPath)) return null;
+        const index = JSON.parse(readFileSync(indexPath, "utf-8"));
+        if (agentId === "steward") {
+          const newKey = `agent:town-steward:town:default:${townSessionId}`;
+          const legacyKey = `town:default:${townSessionId}`;
+          const entry = (index[newKey] ?? index[legacyKey]) as any;
+          if (entry?.sessionId) {
+            const fp = join(storeDir, `${entry.sessionId}.jsonl`);
+            if (existsSync(fp)) return fp;
+          }
+        } else {
+          const exactKey = `agent:${agentId}:${townSessionId}`;
+          const exactEntry = index[exactKey] as any;
+          if (exactEntry?.sessionId) {
+            const fp = join(storeDir, `${exactEntry.sessionId}.jsonl`);
+            if (existsSync(fp)) return fp;
+          }
+        }
+        // Fallback to newest unindexed file
+        return findLatestSessionFile(storeDir);
+      } catch {
+        return null;
+      }
+    },
+  );
   clientChatWatchers.set(ws, watcher);
   watcher.start(isColdStart);
   console.log(`${sessionLogPrefix(townSessionId)} Chat watcher started for ${agentId} (coldStart=${isColdStart})`);
@@ -409,7 +478,6 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           if (ws.readyState === WebSocket.OPEN) {
             let modelName: string | undefined;
             try {
-              const { getTownRuntime } = require("./runtime.js") as typeof import("./runtime.js");
               const rt = getTownRuntime();
               const cfg = typeof (rt.config as any)?.current === "function"
                 ? (rt.config as any).current()
@@ -542,6 +610,7 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
                 items: result.items,
                 hasMore: result.hasMore,
                 cursor: result.cursor,
+                agentActive: isAgentTurnActive(agentId ?? "steward"),
               }));
             }
           } else {
@@ -555,13 +624,18 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
                 messages: result.messages,
                 hasMore: result.hasMore,
                 cursor: result.cursor,
+                agentActive: isAgentTurnActive(agentId ?? "steward"),
               }));
             }
           }
         } else if (msg.type === "command" && typeof msg.command === "string") {
           const townSessionId = getClientSessionId(ws);
-          const slashText = `/${msg.command}${msg.args ? " " + msg.args : ""}`;
-          console.log(`${sessionLogPrefix(townSessionId)} WS ← command "${slashText}"`);
+          // Map /clear → /new: OpenClaw's DEFAULT_RESET_TRIGGERS are /new and /reset.
+          // /clear is not recognised and would be treated as a normal text message,
+          // wasting a model call. /new is OpenClaw's native session-reset command.
+          const effectiveCommand = msg.command === "clear" ? "new" : msg.command;
+          const slashText = `/${effectiveCommand}${msg.args ? " " + msg.args : ""}`;
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← command "${slashText}"${effectiveCommand !== msg.command ? ` (mapped from /${msg.command})` : ""}`);
           // Route to the currently bound agent: if a citizen is selected, route via onCitizenChat
           // so /clear and other slash commands target the citizen's session, not steward's.
           const binding = clientChatBindings.get(ws);
@@ -575,9 +649,11 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           }
         } else if (msg.type === "abort") {
           const townSessionId = getClientSessionId(ws);
-          console.log(`${sessionLogPrefix(townSessionId)} WS ← abort`);
+          const agentId = typeof msg.agentId === "string" ? msg.agentId : undefined;
+          const npcId = typeof msg.npcId === "string" ? msg.npcId : undefined;
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← abort${agentId ? ` agentId=${agentId}` : ""}${npcId ? ` npcId=${npcId}` : ""}`);
           opts.onAction?.({
-            action: { type: "abort_requested" },
+            action: { type: "abort_requested", ...(agentId ? { agentId } : {}), ...(npcId ? { npcId } : {}) },
             townSessionId,
           });
         } else {
@@ -624,12 +700,35 @@ export function stopTownWsServer(): void {
 }
 
 /**
+ * Track which agents currently have an active turn (between before_agent_start
+ * and agent_end). Used to restore the thinking indicator after a page refresh.
+ * Key: agentId (or "steward"), Value: true if turn is in progress.
+ */
+const activeAgentTurns = new Map<string, boolean>();
+
+export function isAgentTurnActive(agentId: string): boolean {
+  return activeAgentTurns.get(agentId) === true;
+}
+
+/**
  * Broadcast an AgentEvent to all connected town frontends.
  * Wraps in `{ type: 'agent_event', event }` for the frontend WS protocol.
  */
 export function broadcastAgentEvent(event: AgentEvent, townSessionId?: string): void {
   if (townSessionId) {
     updateWorkSnapshot(townSessionId, event);
+    // Track active agent turns for thinking indicator restoration
+    const agentId = (event as any).npcId as string | undefined;
+    const routingKey = agentId ?? "steward";
+    if (event.type === "system" && (event as any).subtype === "init") {
+      activeAgentTurns.set(routingKey, true);
+    } else if (event.type === "turn_end") {
+      activeAgentTurns.delete(routingKey);
+    } else if (event.type === "system" && (event as any).subtype === "done") {
+      activeAgentTurns.delete(routingKey);
+    } else if (event.type === "error") {
+      activeAgentTurns.delete(routingKey);
+    }
     console.log(
       `${sessionLogPrefix(townSessionId)} WS → agent_event type=${event.type}${"subtype" in event ? `/${String((event as { subtype: string }).subtype)}` : ""}`,
     );
@@ -719,6 +818,7 @@ export function pushGroupChatMessage(townSessionId: string, payload: {
   mentions: string[];
   usage?: { input: number; output: number; totalTokens?: number };
   contextBudget?: number;
+  model?: string;
 }): void {
   const msg = JSON.stringify({
     type: "group_chat_message",
@@ -746,7 +846,7 @@ export function pushGroupChatHistory(townSessionId: string, payload: {
     text: string;
     mentions: string[];
     groupId: string;
-    usage?: { input: number; output: number; totalTokens?: number };
+    usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number };
     contextBudget?: number;
   }>;
 }): void {
@@ -772,10 +872,52 @@ export function pushGroupChatInfo(townSessionId: string, info: {
   participants: Array<{ npcId: string; name: string; specialty?: string }>;
   topic?: string;
   messageCount: number;
+  compactionCount?: number;
 }): void {
   const msg = JSON.stringify({
     type: "group_chat_info",
     ...info,
+  });
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {
+      ws.send(msg);
+    }
+  }
+}
+
+/**
+ * Broadcast a group chat typing indicator to frontends.
+ * Sent when a citizen starts composing a reply (dispatched) so the UI can show
+ * the citizen's avatar with an animated "..." bubble.
+ */
+export function pushGroupChatTyping(townSessionId: string, payload: {
+  groupId: string;
+  npcId: string;
+  speakerName: string;
+  avatarUrl?: string;
+}): void {
+  const msg = JSON.stringify({
+    type: "group_chat_typing",
+    ...payload,
+  });
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {
+      ws.send(msg);
+    }
+  }
+}
+
+/**
+ * Broadcast a group chat typing-done indicator to frontends.
+ * Sent when a citizen finishes its turn (response delivered or skipped/timeout).
+ */
+export function pushGroupChatTypingDone(townSessionId: string, payload: {
+  groupId: string;
+  npcId: string;
+}): void {
+  const msg = JSON.stringify({
+    type: "group_chat_typing_done",
+    ...payload,
   });
   for (const ws of clients) {
     if (ws.readyState === WebSocket.OPEN && getClientSessionId(ws) === townSessionId) {

@@ -80,7 +80,7 @@ export class SceneSwitcher {
 
   private async doSwitchScene(sceneType: SceneType): Promise<void> {
     const {
-      engine, ui, npcManager, bubbles, cameraCtrl, vfx, officeBuilder,
+      engine, ui, npcManager, bubbles, cameraCtrl, vfx,
       modeManager, townScene, officeScene, museumScene, gameClock,
     } = this.deps
     const modeIndicator = this.deps.getModeIndicator()

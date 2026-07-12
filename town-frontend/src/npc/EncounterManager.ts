@@ -63,7 +63,6 @@ const BUBBLE_MS_PER_CHAR = 120
 const BUBBLE_MIN_MS = 2000
 
 export class EncounterManager {
-  private gameClock: GameClock
   private activeDialogues: ActiveDialogue[] = []
   private cooldowns = new Map<string, CooldownState>()
   private excludedNpcs = new Set<string>()
@@ -77,8 +76,7 @@ export class EncounterManager {
   private getBehavior: ((npcId: string) => DailyBehavior | undefined) | null = null
   private onDialogueComplete: ((initiatorId: string, responderId: string, turns: Array<{ speaker: string; text: string }>, summary: string) => void) | null = null
 
-  constructor(gameClock: GameClock) {
-    this.gameClock = gameClock
+  constructor(_gameClock: GameClock) {
   }
 
   setDialogueProvider(provider: DialogueProvider): void {
@@ -325,7 +323,6 @@ export class EncounterManager {
 
     if (this.dialogueProvider) {
       try {
-        const transcript = turns.map(t => `${t.speaker}: ${t.text}`).join('\n')
         const raw = await Promise.race([
           this.dialogueProvider({
             scene: 'dialogue_summary',

@@ -10,7 +10,7 @@ export type CharacterModel = {
 const MODEL_LIST: CharacterModel[] = (catalog.models ?? []) as CharacterModel[]
 
 export function getCharacterKeyForNpc(
-  npcId: string,
+  _npcId: string,
   explicitCharacterKey?: string,
 ): string {
   if (explicitCharacterKey) return explicitCharacterKey

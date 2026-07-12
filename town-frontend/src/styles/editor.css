@@ -1575,6 +1575,7 @@ html, body {
   padding: 0 8px;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none;
+  scroll-behavior: smooth;
 }
 .palette-tabs::-webkit-scrollbar { display: none; }
 .palette-tab {
@@ -1592,6 +1593,39 @@ html, body {
   height: 2px; background: var(--gradient-primary); 
   border-radius: 2px 2px 0 0;
   box-shadow: 0 -2px 8px rgba(212, 165, 116, 0.4);
+}
+
+/* Tab scroll indicator arrows */
+.tab-scroll-arrow {
+  display: none;
+  position: absolute;
+  top: calc(var(--toolbar-h) + 12px + 44px); /* align with palette-tabs row */
+  width: 18px; height: 28px;
+  z-index: 31;
+  background: var(--bg-card);
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  align-items: center; justify-content: center;
+  transition: opacity var(--transition), color var(--transition);
+  font-family: inherit;
+}
+.tab-scroll-arrow.left {
+  left: 12px;
+  border-right: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+.tab-scroll-arrow.right {
+  right: 12px;
+  border-left: 1px solid var(--border-subtle);
+  border-radius: 0;
+}
+.tab-scroll-arrow.visible {
+  display: flex;
+}
+.tab-scroll-arrow:hover {
+  color: var(--text-primary);
+  background: var(--btn-bg-hover);
 }
 
 .palette-list {

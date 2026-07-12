@@ -19,16 +19,24 @@ export class ChatSessionWatcher {
   private filePath: string;
   private agentId: string;
   private emit: (items: ChatItem[]) => void;
+  private resolveLatestFile?: () => string | null;
   private offset = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private stopped = false;
   private partial = "";
   private state: TranscriptParserState;
+  private switchCheckCounter = 0;
 
-  constructor(filePath: string, agentId: string, emit: (items: ChatItem[]) => void) {
+  constructor(
+    filePath: string,
+    agentId: string,
+    emit: (items: ChatItem[]) => void,
+    resolveLatestFile?: () => string | null,
+  ) {
     this.filePath = filePath;
     this.agentId = agentId;
     this.emit = emit;
+    this.resolveLatestFile = resolveLatestFile;
     this.state = createParserState();
   }
 
@@ -58,6 +66,23 @@ export class ChatSessionWatcher {
 
   private poll(): void {
     if (this.stopped) return;
+
+    // Periodically check if the session file has switched (e.g. runtime created
+    // a new session due to context compaction). Check every ~3s (10 polls).
+    if (this.resolveLatestFile && ++this.switchCheckCounter >= 10) {
+      this.switchCheckCounter = 0;
+      try {
+        const latest = this.resolveLatestFile();
+        if (latest && latest !== this.filePath) {
+          console.log(`[ChatSessionWatcher] Session file switched for ${this.agentId}: ${this.filePath} → ${latest}`);
+          this.filePath = latest;
+          this.offset = 0;
+          this.partial = "";
+          this.state = createParserState();
+        }
+      } catch { /* ignore */ }
+    }
+
     if (!existsSync(this.filePath)) return;
 
     let fd: number | null = null;

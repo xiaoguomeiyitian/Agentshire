@@ -104,7 +104,7 @@ export class CitizenRoster {
     }
   }
 
-  private showItemMenu(btn: HTMLElement, citizenId: string, citizenName: string): void {
+  private showItemMenu(btn: HTMLElement, citizenId: string, _citizenName: string): void {
     this.closeActiveMenu()
 
     const menu = document.createElement('div')
@@ -125,7 +125,6 @@ export class CitizenRoster {
     menu.appendChild(delItem)
 
     const rect = btn.getBoundingClientRect()
-    const rosterRect = this.el.closest('.cw-roster')!.getBoundingClientRect()
     menu.style.position = 'fixed'
     menu.style.left = `${rect.right + 4}px`
     menu.style.top = `${rect.top - 4}px`

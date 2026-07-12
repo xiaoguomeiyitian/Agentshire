@@ -333,6 +333,25 @@ export class AssetLoader {
     return this.animations.get(cacheKey) ?? []
   }
 
+  /**
+   * Load an arbitrary GLTF/GLB model by URL (for scene editing — buildings, props, roads
+   * from the asset catalog that are not in the preloaded MANIFEST).
+   * Returns a clone of the cached model. Caches by URL for subsequent calls.
+   */
+  async loadModelByUrl(url: string): Promise<THREE.Group | null> {
+    const cacheKey = `url:${url}`
+    if (!this.cache.has(cacheKey)) {
+      if (!this.loadingPromises.has(cacheKey)) {
+        const promise = (async () => {
+          await this.loadGltfToCache(cacheKey, url)
+        })()
+        this.loadingPromises.set(cacheKey, promise)
+      }
+      await this.loadingPromises.get(cacheKey)
+    }
+    return this.getModelFromCache(cacheKey)
+  }
+
   private getModelFromCache(cacheKey: string): THREE.Group | null {
     const cached = this.cache.get(cacheKey)
     if (!cached) return null

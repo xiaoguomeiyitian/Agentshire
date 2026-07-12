@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { MoreHorizontal, Users, Palette, Star, Settings, X, ChevronLeft, Cpu } from 'lucide-react'
+import { MoreHorizontal, Users, Palette, Star, Settings, X, ChevronLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AgentInfo } from '@/hooks/useAgents'
 import logoTitleUrl from '@/assets/logo-title.png'
 import logoUrl from '@/assets/logo.png'
 import { t } from '@/i18n'
 
-export type AppTab = 'town' | 'chat'
+export type AppTab = 'town' | 'chat' | 'claw'
 
 interface TopNavProps {
   activeTab: AppTab
@@ -21,12 +21,11 @@ function getMenuItems() {
     { icon: Users, label: t('topnav.citizens'), action: 'citizen-editor' as const },
     { icon: Palette, label: t('topnav.town_editor'), action: 'town-editor' as const },
     { icon: Star, label: t('topnav.skill_store'), action: 'skill-store' as const },
-    { icon: Cpu, label: t('topnav.model_manager'), action: 'model-manager' as const },
     { icon: Settings, label: t('topnav.settings'), action: 'settings' as const },
   ]
 }
 
-export function TopNav({ activeTab, onTabChange, chatAgent, chatConnected, onChatBack }: TopNavProps) {
+export function TopNav({ activeTab, onTabChange, chatAgent, onChatBack }: TopNavProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -46,7 +45,6 @@ export function TopNav({ activeTab, onTabChange, chatAgent, chatConnected, onCha
     if (action === 'citizen-editor') window.open('citizen-editor.html', '_blank')
     else if (action === 'town-editor') window.open('editor.html', '_blank')
     else if (action === 'skill-store') window.open('https://clawhub.ai/', '_blank', 'noopener,noreferrer')
-    else if (action === 'model-manager') window.open('model-manager.html', '_blank')
     else if (action === 'settings') {
       import('@/ui/SettingsPanel').then(({ showSettingsPanel }) => {
         showSettingsPanel({
@@ -108,8 +106,8 @@ export function TopNav({ activeTab, onTabChange, chatAgent, chatConnected, onCha
         'absolute left-1/2 -translate-x-1/2 items-center gap-1',
         inMobileChat ? 'hidden md:flex' : 'flex',
       )}>
-        {(['town', 'chat'] as const).map((tab) => {
-          const label = tab === 'town' ? 'Town' : 'Chat'
+        {(['town', 'chat', 'claw'] as const).map((tab) => {
+          const label = tab === 'town' ? 'Town' : tab === 'chat' ? 'Chat' : 'Claw'
           return (
             <button
               key={tab}

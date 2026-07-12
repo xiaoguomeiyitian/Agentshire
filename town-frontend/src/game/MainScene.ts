@@ -29,7 +29,7 @@ import { WeatherSystem } from './WeatherSystem'
 import { TimeHUD } from '../ui/TimeHUD'
 import { ModeIndicator } from '../ui/ModeIndicator'
 import { ModeManager } from './workflow/ModeManager'
-import { WAYPOINTS, type SceneType, type NPCConfig, type WorkSubState } from '../types'
+import { WAYPOINTS, updateWaypointsFromMapConfig, BUILDING_REGISTRY, type SceneType, type NPCConfig, type WorkSubState } from '../types'
 import type { IWorldDataSource } from '../data/IWorldDataSource'
 import type { GameEvent, GameNPCRole } from '../data/GameProtocol'
 import { t } from '../i18n'
@@ -43,6 +43,8 @@ import { WorkflowHandler } from './workflow/WorkflowHandler'
 import type { PlatformBridge } from '../platform/Bridge'
 import { Choreographer } from './workflow/Choreographer'
 import { CitizenChatManager } from '../npc/CitizenChatManager'
+import type { TownMapConfig, TerrainType } from '../editor/TownMapConfig'
+import { createDefaultConfig } from '../editor/TownMapConfig'
 import { installDebugBindings, removeDebugBindings } from './DebugBindings'
 import { detectProfile } from '../engine/Performance'
 import type { MinigameSlot } from './minigame/MinigameSlot'
@@ -158,6 +160,8 @@ export class MainScene implements GameScene {
 
     this.townBuilder = new TownBuilder(this.townScene)
     this.townBuilder.build(this.assets)
+    // Async: load saved TownMapConfig and switch to config-driven mode if available
+    this.loadMapConfigAsync()
 
     this.officeBuilder = new OfficeBuilder(this.officeScene)
     this.officeBuilder.build(this.assets)
@@ -654,6 +658,7 @@ export class MainScene implements GameScene {
           this.weatherSystem.resetToAutomatic()
         }
       },
+      onSceneEdit: (event) => this.handleSceneEdit(event),
       onWorkflowIntent: (event) => this.choreographer.handleIntent(event),
     })
   }
@@ -923,8 +928,18 @@ __workflow 演出测试指令:
   testCelebrate()                       — 庆祝（= testPublish 别名）
   testBanwei(['citizen_1'])             — 启动班味小游戏测试
   testBanweiStop()                      — 停止班味小游戏
+  getCamera()                          — 读取相机 lookAt + panBounds
   help()                                — 显示本帮助
           `)
+        },
+        getCamera: () => {
+          const c = this.cameraCtrl as any
+          return {
+            targetLookAt: { x: c.targetLookAt?.x, y: c.targetLookAt?.y, z: c.targetLookAt?.z },
+            currentLookAt: { x: c.currentLookAt?.x, y: c.currentLookAt?.y, z: c.currentLookAt?.z },
+            panBounds: c.panBounds,
+            patrolPoints: c.patrolPoints,
+          }
         },
       },
     })
@@ -1074,6 +1089,159 @@ __workflow 演出测试指令:
     this.dispatcher.dispatch(event)
   }
 
+  // ── Map config loading (async, after hardcoded build) ──
+
+  private _persistTimer: ReturnType<typeof setTimeout> | null = null
+  private _mapConfigLoading = false
+
+  private async loadMapConfigAsync(): Promise<void> {
+    if (this._mapConfigLoading) return
+    this._mapConfigLoading = true
+    try {
+      const res = await fetch('/town-map/_api/load')
+      if (!res.ok) return
+      const data = await res.json()
+      const config = data.config as TownMapConfig | null
+      if (!config) return
+      // Switch townBuilder to config-driven mode: clear hardcoded scene and rebuild from config
+      this.townBuilder.clear()
+      this.townBuilder.buildFromConfig(config, this.assets)
+      // Update vehicle road network to match the loaded map
+      this.vehicleManager.loadRoadNetwork(config)
+      // Update NPC waypoints/building registry so NPCs roam across the entire map
+      updateWaypointsFromMapConfig(config)
+      // Update camera pan bounds to match the (possibly resized) map grid.
+      this.cameraCtrl.setMapBounds(config.grid.cols, config.grid.rows)
+      console.log('[MainScene] Loaded TownMapConfig:', config.grid.cols, '×', config.grid.rows,
+        `(${config.buildings.length} buildings, ${config.props.length} props, ${config.roads.length} roads)`)
+    } catch (e) {
+      console.warn('[MainScene] Failed to load TownMapConfig:', e)
+    } finally {
+      this._mapConfigLoading = false
+    }
+  }
+
+  private persistMapConfig(): void {
+    const config = this.townBuilder.getMapConfig()
+    if (!config) return
+    if (this._persistTimer) clearTimeout(this._persistTimer)
+    this._persistTimer = setTimeout(() => {
+      fetch('/town-map/_api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config }),
+      }).catch(() => {})
+    }, 1000)
+  }
+
+  // ── Scene edit handler (AI steward tools → world_control → scene_edit) ──
+
+  handleSceneEdit(event: GameEvent & { type: 'scene_edit' }): void {
+    const builder = this.townBuilder
+    let config = builder.getMapConfig()
+    if (!config) {
+      // No saved map config — initialize a fresh config and switch to config-driven mode.
+      // This happens when the town was built from hardcoded BUILDINGS and no town-map.json exists yet.
+      config = createDefaultConfig()
+      builder.initFromConfig(config, this.assets)
+      console.log('[MainScene] handleSceneEdit: initialized fresh TownMapConfig (no saved config found)')
+    }
+
+    switch (event.action) {
+      case 'place': {
+        const id = event.objectId!
+        if (event.category === 'building') {
+          const b = {
+            id, modelKey: event.modelKey!, modelUrl: event.modelUrl,
+            gridX: event.gridX!, gridZ: event.gridZ!,
+            widthCells: (event as any).widthCells ?? 1, depthCells: (event as any).depthCells ?? 1,
+            rotationY: (event.rotationY ?? 0) as any, scale: event.scale ?? 1,
+            doorSide: 'south' as const,
+            fixRotationX: (event as any).fixRotationX,
+            fixRotationY: (event as any).fixRotationY,
+            fixRotationZ: (event as any).fixRotationZ,
+          }
+          config.buildings.push(b)
+          builder.addBuilding(b, this.assets)
+        } else if (event.category === 'prop') {
+          const p = {
+            id, modelKey: event.modelKey!, modelUrl: event.modelUrl,
+            gridX: event.gridX!, gridZ: event.gridZ!,
+            rotationY: event.rotationY ?? 0, scale: event.scale ?? 1,
+            fixRotationX: (event as any).fixRotationX,
+            fixRotationY: (event as any).fixRotationY,
+            fixRotationZ: (event as any).fixRotationZ,
+          }
+          config.props.push(p)
+          builder.addProp(p, this.assets)
+        } else {
+          const r = {
+            id, modelKey: event.modelKey!, modelUrl: event.modelUrl,
+            gridX: event.gridX!, gridZ: event.gridZ!,
+            rotationY: (event.rotationY ?? 0) as any,
+            fixRotationX: (event as any).fixRotationX,
+            fixRotationY: (event as any).fixRotationY,
+            fixRotationZ: (event as any).fixRotationZ,
+          }
+          config.roads.push(r)
+          builder.addRoad(r, this.assets)
+        }
+        this.persistMapConfig()
+        break
+      }
+      case 'move': {
+        const item = builder.findObjectById(event.objectId!)
+        if (item) {
+          ;(item.data as any).gridX = event.gridX!
+          ;(item.data as any).gridZ = event.gridZ!
+          builder.updateObjectTransform(item)
+          this.persistMapConfig()
+        }
+        break
+      }
+      case 'transform': {
+        const item = builder.findObjectById(event.objectId!)
+        if (item) {
+          const d = item.data as any
+          if (event.rotationY != null) d.rotationY = event.rotationY
+          if (event.scale != null) d.scale = event.scale
+          if (event.flipX != null) d.flipX = event.flipX
+          if (event.flipZ != null) d.flipZ = event.flipZ
+          builder.updateObjectTransform(item)
+          this.persistMapConfig()
+        }
+        break
+      }
+      case 'delete': {
+        const item = builder.findObjectById(event.objectId!)
+        if (item) {
+          const arr = item.kind === 'building' ? config.buildings
+                     : item.kind === 'prop' ? config.props : config.roads
+          const idx = arr.findIndex((x: any) => x.id === event.objectId)
+          if (idx >= 0) arr.splice(idx, 1)
+          builder.removeObject(event.objectId!)
+          this.persistMapConfig()
+        }
+        break
+      }
+      case 'set_terrain': {
+        for (const cell of event.cells ?? []) {
+          if (config.terrain[cell.row]?.[cell.col]) {
+            config.terrain[cell.row][cell.col] = { type: cell.type as TerrainType }
+            builder.updateTerrainCell(cell.col, cell.row, cell.type as TerrainType)
+          }
+        }
+        this.persistMapConfig()
+        break
+      }
+      case 'expand': {
+        builder.expandGrid(event.newCols!, event.newRows!)
+        this.persistMapConfig()
+        break
+      }
+    }
+  }
+
   // ── GameEvent handlers ──
 
   private onNpcSpawn(event: GameEvent & { type: 'npc_spawn' }): void {
@@ -1098,8 +1266,18 @@ __workflow 演出测试指令:
 
     const homeKeys = ['house_a_door', 'house_b_door', 'house_c_door']
     const citizenIndex = parseInt(event.npcId.replace(/\D/g, ''), 10) || 0
-    const homeKey = homeKeys[citizenIndex % homeKeys.length]
-    const homeWp = WAYPOINTS[homeKey]
+    // Try to pick a home from the dynamic BUILDING_REGISTRY (residential buildings)
+    const residentialBuildings = BUILDING_REGISTRY.filter(b => b.category === 'residential')
+    let homeKey: string
+    let homeWp: { x: number; z: number } | undefined
+    if (residentialBuildings.length > 0) {
+      const chosen = residentialBuildings[citizenIndex % residentialBuildings.length]
+      homeKey = chosen.key
+      homeWp = WAYPOINTS[homeKey]
+    } else {
+      homeKey = homeKeys[citizenIndex % homeKeys.length]
+      homeWp = WAYPOINTS[homeKey]
+    }
 
     let spawn: { x: number; y: number; z: number }
     let startHidden = false
@@ -1217,7 +1395,6 @@ __workflow 演出测试指令:
     const audio = getAudioSystem()
 
     const stationId = this.workflow.officeNpcStations.get(npcId)
-    const isTrackedWorkingCitizen = this.workflow.workingCitizens.has(npcId)
 
     if (phase === 'working') {
       if (!isWalking) { npc.playAnim('typing'); this.vfx.workingStream(npc.mesh); audio.play('typing') }
@@ -1334,7 +1511,7 @@ __workflow 演出测试指令:
     npc.playAnim(anim as 'idle' | 'walk' | 'typing' | 'wave' | 'cheer')
   }
 
-  private onCameraMove(target?: { x: number; y: number; z: number }, follow?: string, durationMs?: number): void {
+  private onCameraMove(target?: { x: number; y: number; z: number }, follow?: string, _durationMs?: number): void {
     if (follow) {
       const npc = this.npcManager.get(follow)
       if (npc) this.cameraCtrl.follow(npc.mesh)
@@ -1641,27 +1818,6 @@ __workflow 演出测试指令:
     }
   }
 
-  private restoreSnapshot(): boolean {
-    try {
-      const raw = localStorage.getItem(this.configStore.getScopedKey('agentshire_snapshot'))
-      if (!raw) return false
-      const snapshot = JSON.parse(raw)
-      if (snapshot.townJournal) this.townJournal.restore(snapshot.townJournal)
-      if (snapshot.activityJournals) {
-        for (const [id, data] of snapshot.activityJournals) {
-          const journal = this.dailyScheduler.getActivityJournals().get(id)
-          if (journal) journal.restore(data)
-        }
-      }
-      if (snapshot.gameClockState?.hour != null) {
-        this.gameClock.setTime(snapshot.gameClockState.hour)
-      }
-      return true
-    } catch {
-      return false
-    }
-  }
-
   // ── Update loop ──
 
   update(deltaTime: number): void {
@@ -1774,10 +1930,6 @@ __workflow 演出测试指令:
     scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
   }) => Promise<{ text: string; fallback: boolean }>) | null): void {
     this.dailyScheduler.setImplicitChatFn(fn)
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(r => setTimeout(r, ms))
   }
 
   destroy(): void {

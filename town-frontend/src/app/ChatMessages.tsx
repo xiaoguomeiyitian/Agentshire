@@ -1,6 +1,7 @@
-import { useRef, useEffect, useCallback, useState, memo } from 'react'
+import React, { useRef, useEffect, useCallback, useState, memo } from 'react'
 import { cn } from '@/lib/utils'
-import { Bot, User, Loader2, X } from 'lucide-react'
+import { Bot, User, Loader2, X, Copy, RotateCcw, ChevronRight, Wrench, Brain, CheckCircle2, AlertCircle, Pencil, Check } from 'lucide-react'
+import { t } from '../i18n'
 
 function formatClockTime(ts: number): string {
   const d = new Date(ts)
@@ -26,6 +27,8 @@ interface ChatMessagesProps {
   agentSpecialty?: string
   agentAvatarUrl?: string
   agentThinking?: boolean
+  /** Live reasoning/thinking text being streamed (shown while agent is thinking) */
+  liveThinkingText?: string
   connected?: boolean
   visible?: boolean
   historyLoading?: boolean
@@ -34,6 +37,12 @@ interface ChatMessagesProps {
   onLoadMore?: () => void
   className?: string
   contextInfo?: { used: number; limit: number; percent: number }
+  /** Retry: re-send a user message to the agent. Receives the text of the user message. */
+  onRetry?: (text: string) => void
+  /** Edit: replace a user message with new text and re-send. Receives message id, old text, and new text. */
+  onEdit?: (msgId: string, oldText: string, newText: string) => void
+  /** Whether the agent is currently thinking (disables retry/edit buttons) */
+  retryDisabled?: boolean
 }
 
 interface DerivedAttachment {
@@ -120,12 +129,66 @@ function extractAttachmentsFromText(text: string, existingUrls: Set<string>): De
   return results
 }
 
-const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }) {
+/** Highlight @mention patterns in string children by wrapping them in a styled span. */
+function highlightMentionsInChildren(
+  children: React.ReactNode,
+  mentions: string[],
+  participants: Array<{ npcId: string; name: string }>,
+): React.ReactNode {
+  if (!mentions || mentions.length === 0) return children
+  // Build a set of mention names to highlight
+  const namesToHighlight = new Set<string>()
+  if (mentions.includes('all')) {
+    namesToHighlight.add('所有人')
+    namesToHighlight.add('all')
+    namesToHighlight.add('全体')
+  }
+  for (const npcId of mentions) {
+    if (npcId === 'all') continue
+    const p = participants.find(pp => pp.npcId === npcId)
+    if (p) namesToHighlight.add(p.name)
+  }
+  if (namesToHighlight.size === 0) return children
+
+  // Build regex pattern: @name for each name
+  const escapedNames = [...namesToHighlight].map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = new RegExp(`@(${escapedNames.join('|')})(?=\\s|$|[,，。.!！?？])`, 'g')
+
+  return React.Children.map(children, (child) => {
+    if (typeof child !== 'string') return child
+    const parts: React.ReactNode[] = []
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+    pattern.lastIndex = 0
+    let key = 0
+    while ((match = pattern.exec(child)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(child.slice(lastIndex, match.index))
+      }
+      parts.push(
+        <span key={`mention-${key++}`} style={{ color: '#D4A574', fontWeight: 600 }}>{match[0]}</span>
+      )
+      lastIndex = match.index + match[0].length
+    }
+    if (lastIndex === 0) return child
+    if (lastIndex < child.length) parts.push(child.slice(lastIndex))
+    return <>{parts}</>
+  })
+}
+
+export const MarkdownContent = memo(function MarkdownContent({ text, mentionHighlight }: { text: string; mentionHighlight?: { mentions: string[]; participants: Array<{ npcId: string; name: string }> } }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+        p: ({ children }) => {
+          // Highlight @mentions in paragraph text nodes
+          let processedChildren = children
+          if (mentionHighlight && mentionHighlight.mentions.length > 0) {
+            processedChildren = highlightMentionsInChildren(children, mentionHighlight.mentions, mentionHighlight.participants)
+          }
+          return <p className="mb-2 last:mb-0">{processedChildren}</p>
+        },
         a: ({ href, children }) => (
           <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent-cyan hover:underline">{children}</a>
         ),
@@ -169,21 +232,236 @@ const MarkdownContent = memo(function MarkdownContent({ text }: { text: string }
   )
 })
 
-function ThinkingIndicator({ avatarUrl }: { avatarUrl?: string }) {
+/** Collapsible tool call item — styled like VS Code Copilot Chat tool invocations. */
+function ToolCallItem({ item }: { item: ChatItem }) {
+  const [expanded, setExpanded] = useState(false)
+  if (item.kind !== 'tool') return null
+  const isStart = item.phase === 'start'
+  const isError = item.isError
+  const icon = isStart
+    ? (isError ? <AlertCircle size={12} strokeWidth={1.8} className="text-status-error shrink-0" /> : <Wrench size={12} strokeWidth={1.8} className="text-text-quaternary shrink-0" />)
+    : <CheckCircle2 size={12} strokeWidth={1.8} className="text-status-success shrink-0" />
+  const label = isStart ? item.toolName : `${item.toolName} →`
+  const detail = isStart
+    ? (item.input ? JSON.stringify(item.input, null, 2) : '')
+    : (item.outputText ?? '')
   return (
-    <div className="flex gap-3 max-w-[85%]">
-      <div className="w-7 h-7 rounded-full shrink-0 mt-0.5 overflow-hidden">
-        {avatarUrl
-          ? <img src={avatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
-          : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-quaternary" /></div>
-        }
-      </div>
-      <div className="rounded-2xl rounded-tl-md px-4 py-3 bg-bg-elevated border border-border-subtle">
-        <div className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '0ms' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '150ms' }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '300ms' }} />
+    <div className="text-[11px]">
+      <button
+        onClick={() => detail && setExpanded(e => !e)}
+        className={cn(
+          'flex items-center gap-1.5 px-2 py-1 rounded-lg w-full text-left',
+          'transition-colors duration-150',
+          detail ? 'cursor-pointer hover:bg-bg-elevated/40' : 'cursor-default',
+        )}
+      >
+        {detail && <ChevronRight size={10} strokeWidth={1.8} className={cn('shrink-0 transition-transform duration-150', expanded && 'rotate-90')} />}
+        {!detail && <span className="w-2.5 shrink-0" />}
+        {icon}
+        <span className="text-text-tertiary font-medium truncate">{label}</span>
+      </button>
+      {expanded && detail && (
+        <div className="mt-1 ml-6 mr-2 p-2 rounded-lg bg-bg-base/60 border border-border-subtle overflow-x-auto">
+          <pre className="text-[10px] text-text-quaternary whitespace-pre-wrap break-all font-mono leading-relaxed">{detail}</pre>
         </div>
+      )}
+    </div>
+  )
+}
+
+/** Collapsible reasoning/thinking box — styled like VS Code Copilot Chat thinking process. */
+function ReasoningBox({ reasoning, reasoningTokens }: { reasoning?: string; reasoningTokens?: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const hasText = reasoning && reasoning.length > 0
+  return (
+    <div className="mb-1.5">
+      <button
+        onClick={() => hasText && setExpanded(e => !e)}
+        className={cn(
+          'flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] text-text-quaternary',
+          'transition-colors duration-150',
+          hasText && 'cursor-pointer hover:bg-bg-elevated/40',
+        )}
+      >
+        <ChevronRight size={10} strokeWidth={1.8} className={cn('shrink-0 transition-transform duration-150', expanded && 'rotate-90')} />
+        <Brain size={12} strokeWidth={1.8} className="shrink-0 text-brand-primary/50" />
+        <span className="font-medium">思考过程</span>
+        {reasoningTokens && reasoningTokens > 0 && (
+          <span className="text-text-quaternary/50 tabular-nums">· {reasoningTokens} tokens</span>
+        )}
+      </button>
+      {expanded && hasText && (
+        <div className="mt-1 ml-6 mr-2 p-2.5 rounded-lg bg-bg-base/40 border border-border-subtle/60 overflow-x-auto">
+          <div className="text-[11px] text-text-tertiary leading-relaxed whitespace-pre-wrap break-words">{reasoning}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Live thinking box — shows reasoning text as it streams in (like Copilot's thinking process). */
+function LiveThinkingBox({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Auto-scroll to bottom when text grows
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+  }, [text])
+  return (
+    <div className="rounded-2xl rounded-tl-md bg-bg-elevated border border-border-subtle overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-1.5 w-full px-3 py-2 text-[11px] text-text-quaternary transition-colors duration-150 cursor-pointer hover:bg-bg-base/40"
+      >
+        <ChevronRight size={10} strokeWidth={1.8} className={cn('shrink-0 transition-transform duration-150', expanded && 'rotate-90')} />
+        <Brain size={12} strokeWidth={1.8} className="shrink-0 text-brand-primary/50" />
+        <span className="font-medium">思考中</span>
+        <span className="w-1.5 h-1.5 rounded-full bg-brand-primary/60 animate-pulse ml-0.5" />
+      </button>
+      {expanded && text && (
+        <div ref={scrollRef} className="px-3 pb-2.5 max-h-[200px] overflow-y-auto styled-scrollbar">
+          <div className="text-[11px] text-text-tertiary leading-relaxed whitespace-pre-wrap break-words">{text}</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Hover action buttons for message bubbles (copy + optional retry/edit + model badge). */
+function MessageActions({ text, onRetry, onEdit, retryDisabled, model, isError }: { text: string; onRetry?: () => void; onEdit?: () => void; retryDisabled?: boolean; model?: string; isError?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Fallback for older browsers
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch {}
+      document.body.removeChild(ta)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+  }, [text])
+
+  return (
+    <div className="flex items-center gap-1 mt-0.5 px-1 transition-opacity duration-150">
+      <button
+        onClick={handleCopy}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-quaternary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
+        title={t('chat.copy')}
+      >
+        {copied ? <span className="text-status-success">{t('chat.copied')}</span> : <Copy size={11} strokeWidth={1.5} />}
+      </button>
+      {model && (
+        <span className="text-[10px] text-text-quaternary/60 tabular-nums px-1 max-w-[160px] truncate" title={`模型: ${model}`}>
+          {model}
+        </span>
+      )}
+      {onEdit && (
+        <button
+          onClick={onEdit}
+          disabled={retryDisabled}
+          className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors duration-150',
+            'text-text-quaternary hover:text-brand-secondary hover:bg-bg-elevated/60',
+            retryDisabled && 'opacity-40 cursor-default',
+          )}
+          title={t('chat.edit')}
+        >
+          <Pencil size={11} strokeWidth={1.5} />
+        </button>
+      )}
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          disabled={retryDisabled}
+          className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors duration-150',
+            isError
+              ? 'text-status-error hover:text-status-error hover:bg-status-error/10'
+              : 'text-text-quaternary hover:text-brand-secondary hover:bg-bg-elevated/60',
+            retryDisabled && 'opacity-40 cursor-default',
+          )}
+          title={isError ? t('chat.retry_error') : t('chat.retry')}
+        >
+          <RotateCcw size={11} strokeWidth={1.5} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Inline editor for user messages — styled like VS Code Copilot Chat edit mode. */
+function EditableUserMessage({ text, onSave, onCancel }: { text: string; onSave: (newText: string) => void; onCancel: () => void }) {
+  const [editText, setEditText] = useState(text)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const ta = textareaRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
+    ta.focus()
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+  }, [])
+
+  const handleSubmit = useCallback(() => {
+    const trimmed = editText.trim()
+    if (!trimmed || trimmed === text) { onCancel(); return }
+    onSave(trimmed)
+  }, [editText, text, onSave, onCancel])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+    }
+  }, [handleSubmit, onCancel])
+
+  return (
+    <div className="ml-auto flex flex-col gap-1.5 max-w-[85%]">
+      <textarea
+        ref={textareaRef}
+        value={editText}
+        onChange={(e) => {
+          setEditText(e.target.value)
+          const ta = e.target
+          ta.style.height = 'auto'
+          ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`
+        }}
+        onKeyDown={handleKeyDown}
+        className="w-full rounded-2xl rounded-tr-md px-3.5 py-2.5 text-[13px] leading-relaxed bg-bg-elevated text-text-primary border border-brand-primary/40 outline-none resize-none styled-scrollbar focus:border-brand-primary/60 transition-colors"
+        rows={1}
+      />
+      <div className="flex items-center justify-end gap-1.5">
+        <button
+          onClick={onCancel}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
+        >
+          {t('chat.cancel_edit')}
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={!editText.trim() || editText.trim() === text}
+          className={cn(
+            'flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] cursor-pointer transition-colors duration-150',
+            'bg-brand-primary/15 text-brand-primary hover:bg-brand-primary/25',
+            (!editText.trim() || editText.trim() === text) && 'opacity-40 cursor-default',
+          )}
+        >
+          <Check size={12} strokeWidth={2} />
+          {t('chat.save_edit')}
+        </button>
       </div>
     </div>
   )
@@ -221,12 +499,13 @@ function LoadingSpinner({ text }: { text: string }) {
 }
 
 export function ChatMessages({
-  items, agentName, agentSpecialty, agentAvatarUrl, agentThinking, connected, visible,
-  historyLoading, loadingMore, hasMore, onLoadMore, className, contextInfo,
+  items, agentName, agentSpecialty, agentAvatarUrl, agentThinking, liveThinkingText,
+  historyLoading, loadingMore, hasMore, onLoadMore, className, onRetry, onEdit, retryDisabled,
 }: ChatMessagesProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const onLoadMoreRef = useRef(onLoadMore)
   const hasMoreRef = useRef(hasMore)
   const loadingMoreRef = useRef(loadingMore)
@@ -234,7 +513,7 @@ export function ChatMessages({
   hasMoreRef.current = hasMore
   loadingMoreRef.current = loadingMore
 
-  const messages = items.filter(it => it.kind === 'text' || it.kind === 'media')
+  const messages = items.filter(it => it.kind === 'text' || it.kind === 'media' || it.kind === 'tool' || it.kind === 'status')
   const existingMediaUrls = new Set(
     messages
       .filter((it) => it.kind === 'media' && it.fileUrl)
@@ -282,20 +561,42 @@ export function ChatMessages({
       ref={scrollRef}
       onScroll={handleScroll}
       className={cn(
-        'flex-1 overflow-y-auto px-4 py-4 styled-scrollbar',
+        'flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 styled-scrollbar',
         'flex flex-col-reverse',
         'transition-opacity duration-150',
         className,
       )}
       style={{ opacity: ready ? 1 : 0 }}
     >
-      <div className="max-w-3xl mx-auto w-full">
+      <div className="w-full">
         <div className="space-y-4">
-          {messages.map((msg) => (
+          {messages.map((msg) => {
+            // Tool calls and status items render as compact inline items (no avatar/bubble)
+            if (msg.kind === 'tool') {
+              return (
+                <div key={msg.id} className="flex gap-3 max-w-[85%]">
+                  <div className="w-7 shrink-0" />
+                  <div className="min-w-0">
+                    <ToolCallItem item={msg} />
+                  </div>
+                </div>
+              )
+            }
+            if (msg.kind === 'status') {
+              return (
+                <div key={msg.id} className="flex gap-3 max-w-[85%]">
+                  <div className="w-7 shrink-0" />
+                  <div className="min-w-0 text-[11px] text-text-quaternary/60 px-2 py-0.5">
+                    {msg.text}
+                  </div>
+                </div>
+              )
+            }
+            return (
             <div
               key={msg.id}
               className={cn(
-                'flex gap-3 max-w-[85%]',
+                'group flex gap-3 max-w-[85%]',
                 msg.role === 'user' ? 'ml-auto flex-row-reverse' : '',
               )}
             >
@@ -337,26 +638,57 @@ export function ChatMessages({
                       <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary mb-1 px-0.5 flex-wrap">
                         <span>{agentName}{agentSpecialty && <span className="text-text-quaternary/70">（{agentSpecialty}）</span>}</span>
                         {msg.timestamp > 0 && <span className="text-text-quaternary/60 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
-                        {msg.usage && (
+                        {msg.usage && (msg.usage.input > 0 || msg.usage.output > 0) && (
                           <span className="text-text-quaternary/50 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
                             ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
-                          </span>
-                        )}
-                        {msg.usage && contextInfo && contextInfo.limit > 0 && (
-                          <span className="text-text-quaternary/50 tabular-nums" title={`上下文 ${formatTokens(contextInfo.used)}/${formatTokens(contextInfo.limit)}`}>
-                            ctx {formatTokens(contextInfo.used)}/{formatTokens(contextInfo.limit)}
+                            {(() => {
+                              const cr = msg.usage!.cacheRead ?? 0
+                              const inp = msg.usage!.input ?? 0
+                              if (cr <= 0) return null
+                              const total = cr + inp
+                              const pct = total > 0 ? Math.round((cr / total) * 100) : 0
+                              return (
+                                <span className="ml-1" title={`缓存命中 ${cr} tokens (${pct}%)`}>
+                                  · cache {pct}% ({formatTokens(cr)})
+                                </span>
+                              )
+                            })()}
                           </span>
                         )}
                       </div>
                     )}
+                    {msg.role === 'assistant' && msg.kind === 'text' && !!(msg.reasoning || (msg.usage?.reasoningTokens && msg.usage.reasoningTokens > 0)) && (
+                      <ReasoningBox reasoning={msg.reasoning} reasoningTokens={msg.usage?.reasoningTokens} />
+                    )}
+                    {msg.role === 'user' && msg.kind === 'text' && editingId === msg.id ? (
+                      <EditableUserMessage
+                        text={msg.text ?? ''}
+                        onSave={(newText) => {
+                          setEditingId(null)
+                          onEdit?.(msg.id, msg.text ?? '', newText)
+                        }}
+                        onCancel={() => setEditingId(null)}
+                      />
+                    ) : (
+                    <>
                     <div className={cn(
                       'rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed min-w-0 w-fit',
                       msg.role === 'user'
                         ? 'bg-[rgba(212,165,116,0.12)] text-text-primary rounded-tr-md border border-[rgba(212,165,116,0.20)]'
-                        : 'bg-bg-elevated text-text-secondary rounded-tl-md border border-border-subtle',
+                        : msg.isError
+                          ? 'bg-[rgba(248,113,113,0.06)] text-text-secondary rounded-tl-md border border-status-error/30'
+                          : 'bg-bg-elevated text-text-secondary rounded-tl-md border border-border-subtle',
                     )}>
+                      {msg.role === 'assistant' && msg.isError && (
+                        <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-status-error">
+                          <AlertCircle size={12} strokeWidth={1.8} className="shrink-0" />
+                          <span className="font-medium">{t('chat.error_occurred')}</span>
+                        </div>
+                      )}
                       {msg.role === 'user' ? (
-                        <div className="whitespace-pre-wrap break-words">{msg.text ?? ''}</div>
+                        <div className="markdown-body break-words">
+                          <MarkdownContent text={msg.text ?? ''} />
+                        </div>
                       ) : (
                         <div className="markdown-body break-words">
                           <MarkdownContent text={msg.text ?? ''} />
@@ -365,6 +697,37 @@ export function ChatMessages({
                     </div>
                     {msg.role === 'user' && msg.timestamp > 0 && (
                       <div className="text-[10px] text-text-quaternary/60 mt-0.5 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
+                    )}
+                    {msg.role === 'user' && msg.kind === 'text' && (
+                      <div className="flex justify-end">
+                        <MessageActions
+                          text={msg.text ?? ''}
+                          onRetry={onRetry ? () => onRetry(msg.text ?? '') : undefined}
+                          onEdit={onEdit ? () => setEditingId(msg.id) : undefined}
+                          retryDisabled={retryDisabled}
+                        />
+                      </div>
+                    )}
+                    </>
+                    )}
+                    {msg.role === 'assistant' && msg.kind === 'text' && (
+                      <MessageActions
+                        text={msg.text ?? ''}
+                        model={msg.model}
+                        isError={msg.isError}
+                        onRetry={msg.isError && onRetry ? (() => {
+                          // Find the last user text message before this error message
+                          const msgIdx = messages.findIndex(m => m.id === msg.id)
+                          if (msgIdx < 0) return
+                          for (let i = msgIdx - 1; i >= 0; i--) {
+                            if (messages[i].role === 'user' && messages[i].kind === 'text' && messages[i].text) {
+                              onRetry(messages[i].text!)
+                              return
+                            }
+                          }
+                        }) : undefined}
+                        retryDisabled={retryDisabled}
+                      />
                     )}
                     {msg.kind === 'text' && msg.role === 'assistant' && (
                       (() => {
@@ -400,15 +763,38 @@ export function ChatMessages({
                 )}
               </div>
             </div>
-          ))}
+            )
+          })}
 
-          {agentThinking && <ThinkingIndicator avatarUrl={agentAvatarUrl} />}
+          {agentThinking && (
+            <div className="flex gap-3 max-w-[85%]">
+              <div className="w-7 h-7 rounded-full shrink-0 mt-0.5 overflow-hidden">
+                {agentAvatarUrl
+                  ? <img src={agentAvatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
+                  : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-quaternary" /></div>
+                }
+              </div>
+              <div className="flex-1 min-w-0">
+                {liveThinkingText ? (
+                  <LiveThinkingBox text={liveThinkingText} />
+                ) : (
+                  <div className="rounded-2xl rounded-tl-md px-4 py-3 bg-bg-elevated border border-border-subtle">
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* In column-reverse, this div appears at visual top (oldest messages) */}
       {hasMore ? (
-        <div className="max-w-3xl mx-auto w-full pt-2 pb-4">
+        <div className="w-full pt-2 pb-4">
           {loadingMore ? (
             <LoadingSpinner text="加载更多..." />
           ) : (
@@ -423,7 +809,7 @@ export function ChatMessages({
           )}
         </div>
       ) : messages.length > 0 ? (
-        <div className="max-w-3xl mx-auto w-full pt-2 pb-4">
+        <div className="w-full pt-2 pb-4">
           <div className="text-center text-[11px] text-text-quaternary select-none">只展示最近 100 条 session 记录</div>
         </div>
       ) : null}

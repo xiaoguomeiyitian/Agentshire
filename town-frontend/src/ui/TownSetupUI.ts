@@ -11,11 +11,9 @@ type ActionEmitter = (action: GameAction) => void
 export class TownSetupUI {
   private overlay: HTMLElement
   private card: HTMLElement
-  private emit: ActionEmitter
   private townConfig: TownConfig
 
-  constructor(emitter: ActionEmitter) {
-    this.emit = emitter
+  constructor(_emitter: ActionEmitter) {
     this.overlay = document.getElementById('town-setup-overlay')!
     this.card = document.getElementById('ts-card')!
     this.townConfig = createDefaultTownConfig()
@@ -33,7 +31,7 @@ export class TownSetupUI {
     if (config) this.townConfig = config
     const citizens = this.townConfig.citizens
 
-    const rows = citizens.map((c, i) => {
+    const rows = citizens.map((c) => {
       return `
         <div class="ts-citizen-row">
           <div class="ts-citizen-avatar">👤</div>

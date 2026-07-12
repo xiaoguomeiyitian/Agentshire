@@ -1,10 +1,8 @@
-import * as THREE from 'three'
 import type { NPC } from '../../npc/NPC'
 import type { ModeManager } from './ModeManager'
 import type { DailyBehavior } from '../../npc/DailyBehavior'
 import type { EncounterManager } from '../../npc/EncounterManager'
 import type { ActivityJournal } from '../../npc/ActivityJournal'
-import { WAYPOINTS } from '../../types'
 import { BaseOrchestrator } from './BaseOrchestrator'
 import { getLocale } from '../../i18n'
 
@@ -116,7 +114,7 @@ export class SummonOrchestrator extends BaseOrchestrator<SummonConfig> {
 
   // ── NPC reaction animations (staggered) ──
 
-  private async playNpcReactions(npcs: NPC[], cfg: SummonConfig): Promise<void> {
+  private async playNpcReactions(npcs: NPC[], _cfg: SummonConfig): Promise<void> {
     const stagger = 200
     for (let i = 0; i < npcs.length; i++) {
       const npc = npcs[i]

@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { cn } from '@/lib/utils'
-import { Users, AtSign, SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, Film, Music, Trash2 } from 'lucide-react'
+import { Users, AtSign, SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, Film, Music, Trash2, Archive, Copy, RotateCcw } from 'lucide-react'
 import type { AgentInfo } from '@/hooks/useAgents'
 import type { GroupChatMessageItem, GroupChatInfo } from '@/hooks/useWebSocket'
-import { stripTags } from '../ui/ui-utils'
+import { MarkdownContent } from './ChatMessages'
 
 function formatClockTime(ts: number): string {
   const d = new Date(ts)
@@ -25,7 +25,12 @@ interface GroupChatViewProps {
   messages: GroupChatMessageItem[]
   onSend: (text: string, mentions: string[]) => void
   onClear?: () => void
+  onCompact?: () => void
+  compacting?: boolean
   thinking?: boolean
+  typingCitizens?: Map<string, string>
+  /** Retry: re-send a user message to the group. */
+  onRetry?: (text: string, mentions: string[]) => void
 }
 
 interface MentionableCitizen {
@@ -35,14 +40,66 @@ interface MentionableCitizen {
   avatarUrl?: string
 }
 
-let groupMsgId = 0
+/** Hover action buttons for group message bubbles (copy + optional retry for user messages + model badge). */
+function GroupMessageActions({ text, onRetry, retryDisabled, model }: { text: string; onRetry?: () => void; retryDisabled?: boolean; model?: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch {}
+      document.body.removeChild(ta)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+  }, [text])
 
-export function GroupChatView({ visible, agents, groupInfo, messages, onSend, onClear, thinking }: GroupChatViewProps) {
+  return (
+    <div className="flex items-center gap-1 mt-0.5 px-1 transition-opacity duration-150">
+      <button
+        onClick={handleCopy}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-quaternary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
+        title="复制"
+      >
+        {copied ? <span className="text-status-success">已复制</span> : <Copy size={11} strokeWidth={1.5} />}
+      </button>
+      {model && (
+        <span className="text-[10px] text-text-quaternary/60 tabular-nums px-1 max-w-[160px] truncate" title={`模型: ${model}`}>
+          {model}
+        </span>
+      )}
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          disabled={retryDisabled}
+          className={cn(
+            'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors duration-150',
+            'text-text-quaternary hover:text-brand-secondary hover:bg-bg-elevated/60',
+            retryDisabled && 'opacity-40 cursor-default',
+          )}
+          title="重试"
+        >
+          <RotateCcw size={11} strokeWidth={1.5} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+export function GroupChatView({ visible, agents, groupInfo, messages, onSend, onClear, onCompact, compacting, thinking, typingCitizens, onRetry }: GroupChatViewProps) {
   const [inputText, setInputText] = useState('')
   const [showMentionPicker, setShowMentionPicker] = useState(false)
   const [mentionFilter, setMentionFilter] = useState('')
-  const [activeMentions, setActiveMentions] = useState<string[]>([])
   const [mentionIndex, setMentionIndex] = useState(0)
+  const [activeMentions, setActiveMentions] = useState<string[]>([])
   const [attachments, setAttachments] = useState<Array<{ file: File; preview?: string }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -214,9 +271,12 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
+      // Block sending while the group is thinking — the send button is
+      // disabled in this state, so Enter should not trigger a new message.
+      if (thinking) return
       handleSend()
     }
-  }, [showMentionPicker, handleSend, insertMention, getFilteredMentions, mentionIndex])
+  }, [showMentionPicker, handleSend, insertMention, getFilteredMentions, mentionIndex, thinking])
 
   // Reset mention index when filter changes or picker closes
   useEffect(() => {
@@ -261,7 +321,28 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
         <span className="text-[11px] text-text-quaternary shrink-0">
           {groupInfo ? `${groupInfo.participants.length} 位居民` : '加载中...'}
         </span>
+        {groupInfo && typeof groupInfo.compactionCount === 'number' && groupInfo.compactionCount > 0 && (
+          <span className="text-[11px] text-text-quaternary/50 tabular-nums shrink-0" title={`上下文压缩次数 ${groupInfo.compactionCount}`}>
+            · 压缩 {groupInfo.compactionCount}
+          </span>
+        )}
         <div className="flex-1" />
+        {onCompact && (
+          <button
+            onClick={onCompact}
+            disabled={compacting || thinking}
+            className={cn(
+              'flex items-center justify-center w-6 h-6 rounded-lg cursor-pointer',
+              'transition-colors duration-150',
+              'text-text-tertiary hover:text-brand-secondary hover:bg-[rgba(212,165,116,0.08)]',
+              (compacting || thinking) && 'opacity-40 cursor-default',
+            )}
+            aria-label="压缩群聊"
+            title="压缩群聊会话"
+          >
+            <Archive size={12} strokeWidth={1.5} className={compacting ? 'animate-pulse' : ''} />
+          </button>
+        )}
         {onClear && (
           <button
             onClick={onClear}
@@ -281,7 +362,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
       </div>
 
       {/* ── Messages ── */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 styled-scrollbar">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-3 styled-scrollbar">
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-text-quaternary text-[13px]">
             群聊已就绪，发条消息开始对话吧
@@ -306,7 +387,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
           }
 
           return (
-            <div key={msg.sequenceId} className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
+            <div key={msg.sequenceId} className={cn('group flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
               {/* Avatar */}
               {avatarUrl ? (
                 <img src={avatarUrl} alt={msg.speakerName} className="w-8 h-8 rounded-full object-cover shrink-0" />
@@ -320,7 +401,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
               )}
 
               {/* Content */}
-              <div className={cn('flex flex-col gap-1 max-w-[75%]', isUser ? 'items-end' : 'items-start')}>
+              <div className={cn('flex flex-col gap-1 max-w-[75%] min-w-0', isUser ? 'items-end' : 'items-start')}>
                 {!isUser && (
                   <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary px-1 flex-wrap">
                     <span>{msg.speakerName}{participant?.specialty && <span className="text-text-quaternary/70">（{participant.specialty}）</span>}</span>
@@ -328,11 +409,23 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                     {msg.usage && (
                       <span className="text-text-quaternary/50 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
                         ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
+                        {(() => {
+                          const cr = msg.usage!.cacheRead ?? 0
+                          const inp = msg.usage!.input ?? 0
+                          if (cr <= 0) return null
+                          const total = cr + inp
+                          const pct = total > 0 ? Math.round((cr / total) * 100) : 0
+                          return (
+                            <span className="ml-1" title={`缓存命中 ${cr} tokens (${pct}%)`}>
+                              · cache {pct}% ({formatTokens(cr)})
+                            </span>
+                          )
+                        })()}
                       </span>
                     )}
                     {msg.usage && typeof msg.contextBudget === 'number' && msg.contextBudget > 0 && (
                       <span className="text-text-quaternary/50 tabular-nums" title={`上下文 ${formatTokens(msg.usage.input)}/${formatTokens(msg.contextBudget)}`}>
-                        ctx {formatTokens(msg.usage.input)}/{formatTokens(msg.contextBudget)}
+                        ctx {Math.round((msg.usage.input / msg.contextBudget) * 100)}%
                       </span>
                     )}
                   </div>
@@ -344,16 +437,73 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                       ? 'bg-[rgba(212,165,116,0.12)] text-text-primary border border-brand-primary/20'
                       : 'bg-bg-elevated text-text-primary',
                   )}
-                  dangerouslySetInnerHTML={{ __html: formatMentions(msg.text, msg.mentions, groupInfo) }}
-                />
+                >
+                  {isUser ? (
+                    <div className="whitespace-pre-wrap break-words">{msg.text}</div>
+                  ) : (
+                    <div className="markdown-body break-words">
+                      <MarkdownContent
+                        text={msg.text}
+                        mentionHighlight={msg.mentions?.length > 0 ? { mentions: msg.mentions, participants: groupInfo?.participants ?? [] } : undefined}
+                      />
+                    </div>
+                  )}
+                </div>
                 {isUser && msg.timestamp > 0 && (
                   <div className="text-[10px] text-text-quaternary/60 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
+                )}
+                {isUser ? (
+                  <div className="flex justify-end">
+                    <GroupMessageActions
+                      text={msg.text}
+                      onRetry={onRetry ? () => onRetry(msg.text, msg.mentions ?? []) : undefined}
+                      retryDisabled={thinking}
+                    />
+                  </div>
+                ) : (
+                  <GroupMessageActions text={msg.text} model={msg.model} />
                 )}
               </div>
             </div>
           )
         })}
-        {thinking && (
+        {/* Per-citizen typing indicators: show each composing citizen's avatar + animated dots */}
+        {typingCitizens && typingCitizens.size > 0 && (() => {
+          const typingList = Array.from(typingCitizens.entries())
+          return typingList.map(([npcId, speakerName]) => {
+            const agent = agents.find(a => a.id === npcId)
+            const avatarUrl = agent?.avatarUrl
+            const participant = groupInfo?.participants.find(p => p.npcId === npcId)
+            return (
+              <div key={`typing-${npcId}`} className="flex gap-2.5">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={speakerName} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0"
+                    style={{ background: '#4488CC' }}
+                  >
+                    {speakerName[0]}
+                  </div>
+                )}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary px-1 flex-wrap">
+                    <span>{speakerName}{participant?.specialty && <span className="text-text-quaternary/70">（{participant.specialty}）</span>}</span>
+                  </div>
+                  <div className="rounded-2xl rounded-tl-md px-4 py-3 bg-bg-elevated border border-border-subtle">
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        })()}
+        {/* Fallback generic thinking indicator (when no per-citizen typing info available) */}
+        {thinking && (!typingCitizens || typingCitizens.size === 0) && (
           <div className="flex gap-2.5">
             <div className="w-8 h-8 rounded-full bg-bg-elevated flex items-center justify-center text-[11px] text-text-quaternary shrink-0">
               ...
@@ -511,26 +661,6 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
       </div>
     </div>
   )
-}
-
-/** Format message text with @mention highlighting. */
-function formatMentions(text: string, mentions: string[], groupInfo: GroupChatInfo | null): string {
-  const escaped = stripTags(text)
-  if (!mentions || mentions.length === 0) return escaped
-
-  let result = escaped
-  if (mentions.includes('all')) {
-    result = result.replace(/@(所有人|all|全体)/gi, '<span style="color:#D4A574;font-weight:600;">$&</span>')
-  }
-  for (const npcId of mentions) {
-    if (npcId === 'all') continue
-    const participant = groupInfo?.participants.find(p => p.npcId === npcId)
-    if (participant) {
-      const pattern = new RegExp(`@${escapeRegExp(participant.name)}(?=\\s|$|[,，。.!！?？])`, 'g')
-      result = result.replace(pattern, '<span style="color:#D4A574;font-weight:600;">$&</span>')
-    }
-  }
-  return result
 }
 
 function escapeRegExp(str: string): string {

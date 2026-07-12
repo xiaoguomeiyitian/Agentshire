@@ -49,6 +49,7 @@ function createMockHandlers(): EventHandlers {
     onWorkflowIntent: vi.fn(),
     onSetTime: vi.fn(),
     onSetWeather: vi.fn(),
+    onSceneEdit: vi.fn(),
   }
 }
 

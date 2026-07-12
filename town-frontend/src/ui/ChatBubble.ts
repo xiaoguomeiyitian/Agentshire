@@ -19,7 +19,6 @@ interface ActiveBubble {
 
 const LINE_HEIGHT = 18
 const MAX_VISIBLE_LINES = 4
-const MAX_HEIGHT = LINE_HEIGHT * MAX_VISIBLE_LINES + 16
 const CHARS_PER_LINE = 13
 const PAGE_READ_TIME = 1600
 const STREAM_END_LINGER = 2600

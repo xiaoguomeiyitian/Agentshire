@@ -29,7 +29,7 @@ export function isPasswordAuthEnabled(): boolean {
 }
 
 /** 读密码：仅读 env AGENTSHIRE_TOWN_PASSWORD，非空即该值，否则 null（免密模式）。config 参数保留但忽略（不再作为密码来源）。 */
-export function getTownPassword(config?: Record<string, unknown>): string | null {
+export function getTownPassword(_config?: Record<string, unknown>): string | null {
   const fromEnv = process.env.AGENTSHIRE_TOWN_PASSWORD;
   return fromEnv && fromEnv.length > 0 ? fromEnv : null; // 免密模式
 }

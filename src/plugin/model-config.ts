@@ -106,6 +106,20 @@ function saveOpenClawConfig(cfg: any): void {
   writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n", "utf-8");
 }
 
+/**
+ * Exported helpers for the Claw settings panel — read/write the full
+ * openclaw.json so the UI can surface gateway mode, agent defaults, plugin
+ * enabled flag, etc. Kept here to reuse the same path resolution + atomic
+ * write logic as the model CRUD APIs.
+ */
+export function readOpenClawConfig(): any {
+  return loadOpenClawConfig();
+}
+
+export function writeOpenClawConfig(cfg: any): void {
+  saveOpenClawConfig(cfg);
+}
+
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
 }
@@ -114,11 +128,62 @@ function getProviders(cfg: any): ProvidersMap {
   return (cfg?.models?.providers ?? {}) as ProvidersMap;
 }
 
+function getDefaultModel(cfg: any): string | undefined {
+  return cfg?.agents?.defaults?.model?.primary;
+}
+
 // ── Read ──
 
 export function readModelsConfig(): ModelFile {
   const cfg = loadOpenClawConfig();
   return { providers: clone(getProviders(cfg)) };
+}
+
+/**
+ * Read the global default model ref (`agents.defaults.model.primary`).
+ * Returns undefined if not set.
+ */
+export function readDefaultModel(): string | undefined {
+  const cfg = loadOpenClawConfig();
+  const m = getDefaultModel(cfg);
+  return typeof m === "string" && m ? m : undefined;
+}
+
+/**
+ * Write the global default model ref (`agents.defaults.model.primary`).
+ * Pass an empty string / undefined to clear it.
+ * Validates that the modelRef points to an existing provider/model.
+ */
+export function writeDefaultModel(modelRef: string | undefined): string | undefined {
+  const cfg = loadOpenClawConfig();
+  const providers = getProviders(cfg);
+  const ref = (modelRef ?? "").trim();
+  if (ref) {
+    // Validate: ref must be "providerId/modelId" (modelId may contain slashes)
+    const slashIdx = ref.indexOf("/");
+    if (slashIdx <= 0) {
+      throw new ModelConfigError("EMPTY_MODEL_ID", `Default model ref must be "providerId/modelId", got "${ref}"`);
+    }
+    const providerId = ref.slice(0, slashIdx);
+    const modelId = ref.slice(slashIdx + 1);
+    const provider = providers[providerId];
+    if (!provider) {
+      throw new ModelConfigError("PROVIDER_NOT_FOUND", `Provider "${providerId}" not found`);
+    }
+    const exists = (provider.models ?? []).some((m) => m.id === modelId);
+    if (!exists) {
+      throw new ModelConfigError("MODEL_NOT_FOUND", `Model "${modelId}" not found in provider "${providerId}"`);
+    }
+  }
+  cfg.agents = cfg.agents ?? {};
+  cfg.agents.defaults = cfg.agents.defaults ?? {};
+  if (ref) {
+    cfg.agents.defaults.model = { primary: ref };
+  } else {
+    delete cfg.agents.defaults.model;
+  }
+  saveOpenClawConfig(cfg);
+  return ref || undefined;
 }
 
 // ── Write (whole file) ──

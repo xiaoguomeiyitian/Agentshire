@@ -45,9 +45,18 @@
       "town_status",
       "register_project",
       "create_project",
+      "create_task",
       "create_plan",
       "next_step",
-      "project_complete"
+      "mission_complete",
+      "town_list_assets",
+      "town_list_objects",
+      "town_place_object",
+      "town_move_object",
+      "town_transform_object",
+      "town_delete_object",
+      "town_set_terrain",
+      "town_expand_map"
     ]
   },
   "configSchema": {

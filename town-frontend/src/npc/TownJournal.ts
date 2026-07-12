@@ -183,10 +183,7 @@ export class TownJournal {
 
     const dayEvents = this.currentDayEvents.length > 0
       ? this.currentDayEvents
-      : this.events.filter(e => {
-          const state = this.gameClock.getState()
-          return true
-        }).slice(-50)
+      : this.events.slice(-50)
 
     const eventLog = dayEvents
       .filter(e => e.type !== 'encounter_message' && e.type !== 'time_change')

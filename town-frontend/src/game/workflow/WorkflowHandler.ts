@@ -15,7 +15,6 @@ import type { DailyBehavior } from '../../npc/DailyBehavior'
 import type { ActivityJournal } from '../../npc/ActivityJournal'
 import type { EncounterManager } from '../../npc/EncounterManager'
 import type { IWorldDataSource } from '../../data/IWorldDataSource'
-import type { ScreenState } from '../../data/GameProtocol'
 import { SummonOrchestrator } from './SummonOrchestrator'
 import { BriefingOrchestrator } from './BriefingOrchestrator'
 import { getAudioSystem } from '../../audio/AudioSystem'
@@ -430,7 +429,7 @@ export class WorkflowHandler {
   }
 
   async handleNpcWorkDone(npcId: string, status: string, stationId?: string, isTempWorker?: boolean): Promise<void> {
-    const { npcManager, bubbles, officeBuilder, dataSource, vfx } = this.deps
+    const { npcManager, bubbles, officeBuilder, vfx } = this.deps
     const npc = npcManager.get(npcId)
     if (!npc) return
 

@@ -10,7 +10,7 @@
     "rootDir": ".",
     "declaration": true,
     "paths": {
-      "openclaw/plugin-sdk/*": ["../../src/plugin-sdk/*"]
+      "openclaw/plugin-sdk/*": ["/home/node/lib/node_modules/openclaw/dist/plugin-sdk/*"]
     }
   },
   "include": ["index.ts", "src/**/*.ts"],

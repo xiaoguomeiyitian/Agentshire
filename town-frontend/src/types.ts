@@ -1,4 +1,4 @@
-import type * as THREE from 'three'
+import type { TownMapConfig } from './editor/TownMapConfig'
 
 export interface Vec3 { x: number; y: number; z: number }
 
@@ -53,10 +53,10 @@ export type GlowColor = 'none' | 'gold' | 'cyan' | 'yellow' | 'green' | 'red' | 
 export interface Waypoint { x: number; z: number }
 
 export const WAYPOINTS: Record<string, Waypoint> = {
-  road_entrance: { x: 20, z: 23 },
+  road_entrance: { x: 40, z: 34 },
   plaza_center: { x: 18, z: 13 },
   plaza_fountain: { x: 18, z: 13 },
-  plaza_side: { x: 22, z: 13 },
+  plaza_side: { x: 38, z: 34 },
   office_door: { x: 17, z: 8 },
   house_a_door: { x: 6, z: 7 },
   house_b_door: { x: 6, z: 12 },
@@ -115,6 +115,128 @@ const BUILDING_NAMES_EN: Record<string, string> = {
 export function getBuildingName(key: string): string {
   if (getLocale() === 'en') return BUILDING_NAMES_EN[key] ?? key
   return BUILDING_REGISTRY.find(b => b.key === key)?.name ?? key
+}
+
+// ── Dynamic building registration from TownMapConfig ──
+// Maps building modelKey to (category, tag, scene, name) for NPC behavior.
+const MODEL_KEY_TO_ROLE: Record<string, {
+  category: BuildingCategory
+  tag: string
+  scene: SceneType
+  name: string
+  nameEn: string
+  stayRange: [number, number]
+  capacity: number
+}> = {
+  building_A: { category: 'workspace',   tag: 'office',   scene: 'office',    name: '办公室',  nameEn: 'Office',      stayRange: [5000, 12000], capacity: 4 },
+  building_B: { category: 'residential',  tag: 'home',     scene: 'house_a',  name: '住宅',    nameEn: 'House',      stayRange: [6000, 15000], capacity: 2 },
+  building_C: { category: 'residential',  tag: 'home',     scene: 'house_b',  name: '住宅',    nameEn: 'House',      stayRange: [6000, 15000], capacity: 2 },
+  building_D: { category: 'residential',  tag: 'home',     scene: 'house_c',  name: '住宅',    nameEn: 'House',      stayRange: [6000, 15000], capacity: 2 },
+  building_E: { category: 'commercial',   tag: 'market',   scene: 'market',   name: '市场',    nameEn: 'Market',     stayRange: [4000, 10000], capacity: 6 },
+  building_F: { category: 'commercial',   tag: 'cafe',     scene: 'cafe',     name: '咖啡店',  nameEn: 'Café',       stayRange: [5000, 12000], capacity: 4 },
+  building_G: { category: 'residential',  tag: 'userHome', scene: 'user_home',name: '玩家家',  nameEn: 'Player Home',stayRange: [3000, 8000],  capacity: 1 },
+  building_H: { category: 'public',       tag: 'museum',   scene: 'museum',   name: '博物馆',  nameEn: 'Museum',     stayRange: [5000, 12000], capacity: 5 },
+}
+
+/**
+ * Update WAYPOINTS and BUILDING_REGISTRY from a loaded TownMapConfig.
+ * This allows NPCs to roam across the entire map instead of being confined
+ * to the hardcoded 40×24 region. Buildings are keyed by their placement id
+ * (e.g. "bobj_xxx") so each building on the map becomes a unique destination.
+ *
+ * Called from MainScene.loadMapConfigAsync() after the map is loaded.
+ */
+export function updateWaypointsFromMapConfig(config: TownMapConfig): void {
+  // Keep the original special waypoints (plaza, road_entrance, gathering_point, park)
+  // but clear building-door waypoints that will be regenerated.
+  const preservedKeys = new Set([
+    'road_entrance', 'plaza_center', 'plaza_fountain', 'plaza_side',
+    'park_bench_1', 'park_bench_2', 'park_center', 'gathering_point',
+  ])
+  // Remove old building-door waypoints (house_a_door, office_door, etc.)
+  for (const key of Object.keys(WAYPOINTS)) {
+    if (!preservedKeys.has(key)) delete WAYPOINTS[key]
+  }
+
+  // Clear BUILDING_REGISTRY and rebuild from config
+  BUILDING_REGISTRY.length = 0
+
+  // Track modelKey occurrence to generate unique names
+  const modelKeyCount: Record<string, number> = {}
+  // Map standard keys (office_door, house_a_door, etc.) to the first building of each type
+  // for backward compatibility with workflow code.
+  const standardKeyMap: Record<string, string> = {
+    building_A: 'office_door',
+    building_B: 'house_a_door',
+    building_C: 'house_b_door',
+    building_D: 'house_c_door',
+    building_E: 'market_door',
+    building_F: 'cafe_door',
+    building_G: 'user_home_door',
+    building_H: 'museum_door',
+  }
+  const standardKeyAssigned: Record<string, boolean> = {}
+
+  for (const b of config.buildings) {
+    const role = MODEL_KEY_TO_ROLE[b.modelKey]
+    if (!role) continue // unknown model — skip
+
+    // World position of the building's door (south side, center x, front of building)
+    const doorX = b.gridX + b.widthCells / 2
+    const doorZ = b.gridZ + b.depthCells + 0.5
+
+    // Use the building placement id as the unique key
+    const key = b.id
+    WAYPOINTS[key] = { x: doorX, z: doorZ }
+
+    // Also assign the standard key (office_door, house_a_door, etc.) to the first
+    // building of each model type for backward compatibility with workflow code.
+    const stdKey = standardKeyMap[b.modelKey]
+    if (stdKey && !standardKeyAssigned[stdKey]) {
+      WAYPOINTS[stdKey] = { x: doorX, z: doorZ }
+      standardKeyAssigned[stdKey] = true
+    }
+
+    // Generate a unique display name based on modelKey
+    modelKeyCount[b.modelKey] = (modelKeyCount[b.modelKey] ?? 0) + 1
+    const idx = modelKeyCount[b.modelKey]
+    const name = idx > 1 ? `${role.name}${idx}` : role.name
+    const nameEn = idx > 1 ? `${role.nameEn} ${idx}` : role.nameEn
+
+    BUILDING_REGISTRY.push({
+      key,
+      name,
+      scene: role.scene,
+      category: role.category,
+      tag: role.tag,
+      stayRange: role.stayRange,
+      capacity: role.capacity,
+    })
+    BUILDING_NAMES_EN[key] = nameEn
+    // Also map the standard key name for backward compatibility
+    if (stdKey && !standardKeyAssigned[stdKey + '_name']) {
+      BUILDING_NAMES_EN[stdKey] = role.nameEn
+      standardKeyAssigned[stdKey + '_name'] = true
+    }
+  }
+
+  // If no buildings were registered (empty map), keep the original registry
+  // so NPCs still have somewhere to go.
+  if (BUILDING_REGISTRY.length === 0) {
+    // Restore original registry
+    BUILDING_REGISTRY.push(
+      { key: 'office_door',    name: '办公室',  scene: 'office',    category: 'workspace',    tag: 'office',   stayRange: [5000, 12000],   capacity: 4 },
+      { key: 'house_a_door',   name: '住宅A',   scene: 'house_a',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
+      { key: 'house_b_door',   name: '住宅B',   scene: 'house_b',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
+      { key: 'house_c_door',   name: '住宅C',   scene: 'house_c',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
+      { key: 'market_door',    name: '市场',    scene: 'market',    category: 'commercial',   tag: 'market',   stayRange: [4000, 10000],   capacity: 6 },
+      { key: 'cafe_door',      name: '咖啡店',  scene: 'cafe',      category: 'commercial',   tag: 'cafe',     stayRange: [5000, 12000],   capacity: 4 },
+      { key: 'user_home_door', name: '玩家家',  scene: 'user_home', category: 'residential',  tag: 'userHome', stayRange: [3000, 8000],    capacity: 1 },
+      { key: 'museum_door',    name: '博物馆',  scene: 'museum',    category: 'public',       tag: 'museum',   stayRange: [5000, 12000],   capacity: 5 },
+    )
+  }
+
+  console.log(`[types] Updated waypoints from map config: ${Object.keys(WAYPOINTS).length} waypoints, ${BUILDING_REGISTRY.length} buildings`)
 }
 
 export interface NPCRouteProfile {

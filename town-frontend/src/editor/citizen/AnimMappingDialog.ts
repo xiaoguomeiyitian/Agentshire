@@ -45,7 +45,6 @@ export class AnimMappingDialog {
   private sources: AnimSource[] = []
   private mapping: AnimMapping = {}
   private activeSlot: AnimSlot | null = null
-  private meshUrl = ''
 
   private resolve: ((result: AnimDialogOutput | null) => void) | null = null
 
@@ -65,7 +64,6 @@ export class AnimMappingDialog {
       this.sources = []
       this.allClips = []
       this.activeSlot = null
-      this.meshUrl = input.meshUrl
 
       this.overlay.classList.add('open')
       this.buildUI()

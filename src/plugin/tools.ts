@@ -1,13 +1,19 @@
 import type { OpenClawPluginToolFactory } from "openclaw/plugin-sdk/core";
+import { textResult } from "openclaw/plugin-sdk/agent-runtime";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { broadcastAgentEvent } from "./ws-server.js";
-import { createPlan, getNextStepInstruction, getActivePlan, isPlanFullyComplete, hasActiveTasks, clearTasks, completePlan } from "./plan-manager.js";
+import { createPlan, getNextStepInstruction, isPlanFullyComplete, clearTasks, completePlan } from "./plan-manager.js";
 import type { CitizenRosterEntry } from "./plan-manager.js";
 import { hasRunningSubagents } from "./subagent-tracker.js";
 import { resolveFileData } from "./outbound-adapter.js";
 import { stateDir } from "./paths.js";
+
+/** Wrap a plain string into an AgentToolResult for the SDK execute() contract. */
+function ok(text: string) {
+  return textResult(text, {} as Record<string, never>);
+}
 
 function repairJson(s: string): string {
   let trimmed = s.trim()
@@ -27,6 +33,42 @@ function repairJson(s: string): string {
   }
   while (stack.length) trimmed += stack.pop()
   return trimmed
+}
+
+/** Check if a new placement overlaps with existing objects in the map config. */
+function checkPlacementOverlap(
+  config: any,
+  category: string,
+  gridX: number,
+  gridZ: number,
+  widthCells: number,
+  depthCells: number,
+): { id: string; modelKey: string } | null {
+  const newRect = {
+    x: gridX, z: gridZ,
+    w: category === "building" ? widthCells : 1,
+    d: category === "building" ? depthCells : 1,
+  };
+  const allObjects: Array<{ id: string; modelKey: string; gridX: number; gridZ: number; widthCells?: number; depthCells?: number }> = [
+    ...(config.buildings ?? []).map((b: any) => ({ id: b.id, modelKey: b.modelKey, gridX: b.gridX, gridZ: b.gridZ, widthCells: b.widthCells, depthCells: b.depthCells })),
+    ...(config.props ?? []).map((p: any) => ({ id: p.id, modelKey: p.modelKey, gridX: p.gridX, gridZ: p.gridZ })),
+    ...(config.roads ?? []).map((r: any) => ({ id: r.id, modelKey: r.modelKey, gridX: r.gridX, gridZ: r.gridZ })),
+  ];
+  for (const obj of allObjects) {
+    const objRect = {
+      x: obj.gridX, z: obj.gridZ,
+      w: obj.widthCells ?? 1, d: obj.depthCells ?? 1,
+    };
+    if (
+      newRect.x < objRect.x + objRect.w &&
+      newRect.x + newRect.w > objRect.x &&
+      newRect.z < objRect.z + objRect.d &&
+      newRect.z + newRect.d > objRect.z
+    ) {
+      return { id: obj.id, modelKey: obj.modelKey };
+    }
+  }
+  return null;
 }
 
 function getPluginDir(): string {
@@ -62,7 +104,7 @@ function loadCitizenRoster(): Map<string, CitizenRosterEntry> {
  * Tools registered to the LLM agent, allowing AI to control the 3D town.
  */
 export function createTownTools(): OpenClawPluginToolFactory {
-  return () => [
+  return () => ([
     {
       name: "town_announce",
       description:
@@ -79,7 +121,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
           type: "text",
           content: message,
         });
-        return `Announced in town: "${message}"`;
+        return ok(`Announced in town: "${message}"`);
       },
     },
     {
@@ -109,7 +151,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
           model: "unknown",
           displayName: name,
         });
-        return `NPC "${name}" (${npcId}) spawned in town`;
+        return ok(`NPC "${name}" (${npcId}) spawned in town`);
       },
     },
     {
@@ -133,7 +175,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
           effect,
           params: { intensity: 1.0 },
         } as any);
-        return `Effect "${effect}" triggered in town`;
+        return ok(`Effect "${effect}" triggered in town`);
       },
     },
     {
@@ -162,9 +204,9 @@ export function createTownTools(): OpenClawPluginToolFactory {
           action,
           hour: action === "set" && hour != null ? Math.max(0, Math.min(23, Math.round(hour))) : undefined,
         } as any);
-        if (action === "set") return `Game time set to ${hour}:00`;
-        if (action === "pause") return `Game time paused`;
-        return `Game time resumed to normal flow`;
+        if (action === "set") return ok(`Game time set to ${hour}:00`);
+        if (action === "pause") return ok(`Game time paused`);
+        return ok(`Game time resumed to normal flow`);
       },
     },
     {
@@ -200,8 +242,8 @@ export function createTownTools(): OpenClawPluginToolFactory {
           action,
           weather: action === "set" ? weather : undefined,
         } as any);
-        if (action === "reset") return `Weather restored to automatic cycle`;
-        return `Weather changed to "${weather}"`;
+        if (action === "reset") return ok(`Weather restored to automatic cycle`);
+        return ok(`Weather changed to "${weather}"`);
       },
     },
     {
@@ -211,7 +253,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
       async execute() {
         const { getConnectedClientCount } = await import("./ws-server.js");
         const count = getConnectedClientCount();
-        return `Town status: ${count} frontend(s) connected`;
+        return ok(`Town status: ${count} frontend(s) connected`);
       },
     },
     {
@@ -232,7 +274,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
         required: ["name", "type"],
       },
       async execute(_id: string, { name, type }: { name: string; type: string }) {
-        return `Project registered: "${name}" (${type})`;
+        return ok(`Project registered: "${name}" (${type})`);
       },
     },
     {
@@ -257,9 +299,9 @@ export function createTownTools(): OpenClawPluginToolFactory {
         try {
           mkdirSync(projectDir, { recursive: true });
         } catch (err) {
-          return `Error: Failed to create project directory: ${(err as Error).message}`;
+          return ok(`Error: Failed to create project directory: ${(err as Error).message}`);
         }
-        return `Project directory created: ${projectDir}\n\nUse this path as projectDir when calling create_plan.`;
+        return ok(`Project directory created: ${projectDir}\n\nUse this path as projectDir when calling create_plan.`);
       },
     },
     {
@@ -285,9 +327,9 @@ export function createTownTools(): OpenClawPluginToolFactory {
         try {
           mkdirSync(taskDir, { recursive: true });
         } catch (err) {
-          return `Error: Failed to create task directory: ${(err as Error).message}`;
+          return ok(`Error: Failed to create task directory: ${(err as Error).message}`);
         }
-        return `Task directory created: ${taskDir}\n\nUse this path as projectDir when calling create_plan.`;
+        return ok(`Task directory created: ${taskDir}\n\nUse this path as projectDir when calling create_plan.`);
       },
     },
     {
@@ -339,7 +381,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
             try {
               steps = JSON.parse(repairJson(rawSteps));
             } catch {
-              return "Error: steps is a malformed JSON string. Pass steps as a JSON array.";
+              return ok("Error: steps is a malformed JSON string. Pass steps as a JSON array.");
             }
           }
         } else {
@@ -353,10 +395,10 @@ export function createTownTools(): OpenClawPluginToolFactory {
           }));
         }
 
-        if (!name) return "Error: name is required.";
-        if (!type) return "Error: type is required.";
-        if (!projectDir) return "Error: projectDir is required. Call create_project first.";
-        if (!Array.isArray(steps) || steps.length === 0) return "Error: at least one step is required.";
+        if (!name) return ok("Error: name is required.");
+        if (!type) return ok("Error: type is required.");
+        if (!projectDir) return ok("Error: projectDir is required. Call create_project first.");
+        if (!Array.isArray(steps) || steps.length === 0) return ok("Error: at least one step is required.");
 
         const roster = loadCitizenRoster();
         const result = createPlan(name, type, projectDir, roster, steps as any);
@@ -442,10 +484,10 @@ export function createTownTools(): OpenClawPluginToolFactory {
         const summary = String(args.summary ?? "").trim();
 
         if (!type || !VALID_TYPES.includes(type)) {
-          return `Error: type must be one of: ${VALID_TYPES.join(", ")}`;
+          return ok(`Error: type must be one of: ${VALID_TYPES.join(", ")}`);
         }
         if (!summary) {
-          return "Error: summary is required.";
+          return ok("Error: summary is required.");
         }
 
         const running = hasRunningSubagents();
@@ -485,13 +527,346 @@ export function createTownTools(): OpenClawPluginToolFactory {
         });
 
         if (routeName === "project_complete") {
-          return `Mission complete — project_complete triggered. (${type}): ${summary}`;
+          return ok(`Mission complete — project_complete triggered. (${type}): ${summary}`);
         }
         const reasons: string[] = [];
         if (running) reasons.push("other agents still running");
         if (!planDone) reasons.push("plan has remaining steps");
-        return `Deliverable sent (${type}): ${summary}. Not yet complete: ${reasons.join(", ")}.`;
+        return ok(`Deliverable sent (${type}): ${summary}. Not yet complete: ${reasons.join(", ")}.`);
       },
     },
-  ];
+    // ═══════════════════════════════════════════════════════
+    //  Scene editing tools (steward only)
+    // ═══════════════════════════════════════════════════════
+    {
+      name: "town_list_assets",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "查询场景工坊资产库中所有可用资产。" +
+        "返回每个资产的 modelKey、名称、类型(building/prop/road/tree/bench...)、占地格数、默认缩放。" +
+        "放置物件前必须先调用此工具获取可用的 modelKey。**只能使用此工具返回的 modelKey,不要使用任何其他来源的 key,否则放置会失败。**" +
+        "可选 category 参数筛选分类: buildings, vehicles, roads, nature, streetProps, " +
+        "tiles, signs, factory, foodProps, roofProps, basketball, other, construction, custom, all(默认)。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          category: {
+            type: "string",
+            description: "资产分类筛选,默认 all(全部)",
+          },
+        },
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const category = String(args.category ?? "all");
+        try {
+          const res = await fetch("http://localhost:20009/town-map/_api/assets");
+          if (!res.ok) return ok(`Error: 无法获取资产目录 (HTTP ${res.status})`);
+          const data = await res.json() as { builtin: any[]; custom: any[] };
+          let assets = [...(data.builtin ?? []), ...(data.custom ?? [])];
+          if (category !== "all") {
+            assets = assets.filter((a) => a.category === category);
+          }
+          const summary = assets.map((a) => ({
+            modelKey: a.key ?? a.id,
+            name: a.name,
+            assetType: a.assetType,
+            cells: a.cells,
+            defaultScale: a.defaultScale,
+          }));
+          return ok(`共 ${assets.length} 个资产${category !== "all" ? ` (分类: ${category})` : ""}:\n${JSON.stringify(summary, null, 2)}`);
+        } catch (err: any) {
+          return ok(`Error: ${err?.message ?? "获取资产目录失败"}`);
+        }
+      },
+    },
+    {
+      name: "town_list_objects",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "查询当前小镇场景中的所有物件。" +
+        "放置/移动/删除前调用此工具了解当前布局,避免重叠和冲突。" +
+        "返回地图尺寸(cols×rows)和每个物件的 ID、类型、modelKey、坐标、旋转、缩放。" +
+        "可选 category 参数: building, prop, road, all(默认)。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          category: {
+            type: "string",
+            enum: ["building", "prop", "road", "all"],
+            description: "物件类型筛选,默认 all",
+          },
+        },
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const category = String(args.category ?? "all");
+        try {
+          const res = await fetch("http://localhost:20009/town-map/_api/load");
+          if (!res.ok) return ok(`Error: 无法加载地图配置 (HTTP ${res.status})`);
+          const data = await res.json();
+          const config = data.config;
+          if (!config) return ok("当前没有已保存的地图配置,小镇使用默认硬编码布局。");
+          const objects: any[] = [];
+          if (category === "all" || category === "building") {
+            for (const b of config.buildings ?? []) {
+              objects.push({ id: b.id, category: "building", modelKey: b.modelKey, gridX: b.gridX, gridZ: b.gridZ, rotationY: b.rotationY, scale: b.scale, widthCells: b.widthCells, depthCells: b.depthCells });
+            }
+          }
+          if (category === "all" || category === "prop") {
+            for (const p of config.props ?? []) {
+              objects.push({ id: p.id, category: "prop", modelKey: p.modelKey, gridX: p.gridX, gridZ: p.gridZ, rotationY: p.rotationY, scale: p.scale });
+            }
+          }
+          if (category === "all" || category === "road") {
+            for (const r of config.roads ?? []) {
+              objects.push({ id: r.id, category: "road", modelKey: r.modelKey, gridX: r.gridX, gridZ: r.gridZ, rotationY: r.rotationY });
+            }
+          }
+          return ok(`地图: ${config.grid.cols}×${config.grid.rows}, 共 ${objects.length} 个物件:\n${JSON.stringify(objects, null, 2)}`);
+        } catch (err: any) {
+          return ok(`Error: ${err?.message ?? "加载地图配置失败"}`);
+        }
+      },
+    },
+    {
+      name: "town_place_object",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "在小镇 3D 场景中放置一个建筑、物件或道路。" +
+        "放置前请先调用 town_list_assets 获取可用的 modelKey。" +
+        "放置前请先调用 town_list_objects 查看当前场景,避免重叠。" +
+        "网格坐标: X 轴 0~(cols-1), Z 轴 0~(rows-1),左上角为 (0,0)。" +
+        "建筑占地 widthCells×depthCells 格,放置坐标为左上角。" +
+        "必须进行美观性、实用性、合理性评估后再放置。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          modelKey: { type: "string", description: "资产 key(来自 town_list_assets)" },
+          category: { type: "string", enum: ["building", "prop", "road"], description: "物件类型" },
+          gridX: { type: "number", description: "网格 X 坐标(左上角,0~cols-1)" },
+          gridZ: { type: "number", description: "网格 Z 坐标(左上角,0~rows-1)" },
+          rotationY: { type: "number", enum: [0, 90, 180, 270], description: "Y 轴旋转角度(默认 0)" },
+          scale: { type: "number", description: "缩放倍数(默认 1.0)" },
+          widthCells: { type: "number", description: "建筑占地宽度(格),默认 1" },
+          depthCells: { type: "number", description: "建筑占地深度(格),默认 1" },
+        },
+        required: ["modelKey", "category", "gridX", "gridZ"],
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const modelKey = String(args.modelKey ?? "");
+        const category = String(args.category ?? "");
+        const gridX = Number(args.gridX ?? 0);
+        const gridZ = Number(args.gridZ ?? 0);
+        const rotationY = Number(args.rotationY ?? 0);
+        const scale = Number(args.scale ?? 1);
+        const widthCells = Number(args.widthCells ?? 1);
+        const depthCells = Number(args.depthCells ?? 1);
+        if (!modelKey) return ok("Error: modelKey is required.");
+        if (!["building", "prop", "road"].includes(category)) return ok("Error: category must be building, prop, or road.");
+
+        // Resolve modelUrl + defaultScale + fixRotation from asset catalog
+        let modelUrl: string | undefined;
+        let defaultScale = 1;
+        let fixRotationX: number | undefined;
+        let fixRotationY: number | undefined;
+        let fixRotationZ: number | undefined;
+        let catalogCells: [number, number] | undefined;
+        try {
+          const res = await fetch("http://localhost:20009/town-map/_api/assets");
+          if (res.ok) {
+            const data = await res.json() as { builtin: any[]; custom: any[] };
+            const all = [...(data.builtin ?? []), ...(data.custom ?? [])];
+            const found = all.find((a) => (a.key ?? a.id) === modelKey);
+            if (found) {
+              modelUrl = found.url;
+              defaultScale = found.defaultScale ?? 1;
+              fixRotationX = found.fixRotationX;
+              fixRotationY = found.fixRotationY;
+              fixRotationZ = found.fixRotationZ;
+              catalogCells = found.cells;
+            }
+          }
+        } catch {}
+
+        // Reject unknown modelKey — prevents placing invisible/404 assets
+        if (!modelUrl) {
+          return ok(`Error: modelKey "${modelKey}" 不在可用资产目录中。请先调用 town_list_assets 获取可用的 modelKey 列表,只使用目录中存在的资产。`);
+        }
+
+        // Use catalog defaultScale if user didn't specify a custom scale
+        const finalScale = scale !== 1 ? scale : defaultScale;
+        const finalWidth = catalogCells ? catalogCells[0] : widthCells;
+        const finalDepth = catalogCells ? catalogCells[1] : depthCells;
+
+        // Server-side overlap check
+        try {
+          const res = await fetch("http://localhost:20009/town-map/_api/load");
+          if (res.ok) {
+            const data = await res.json();
+            const config = data.config;
+            if (config) {
+              const overlap = checkPlacementOverlap(config, category, gridX, gridZ, finalWidth, finalDepth);
+              if (overlap) return ok(`Error: 放置位置 (${gridX}, ${gridZ}) 与已有物件 "${overlap.id}" (${overlap.modelKey}) 重叠,请选择其他位置。`);
+              const terrain = config.terrain?.[gridZ]?.[gridX];
+              if (terrain?.type === "water" && category === "building") {
+                return ok(`Error: 不能在水域上放置建筑。`);
+              }
+            }
+          }
+        } catch {}
+
+        const objectId = `${category[0]}obj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        broadcastAgentEvent({
+          type: "world_control", target: "scene", action: "place",
+          objectId, category: category as any, modelKey, modelUrl,
+          gridX, gridZ, rotationY, scale: finalScale, widthCells: finalWidth, depthCells: finalDepth,
+          fixRotationX, fixRotationY, fixRotationZ,
+        } as any);
+        return ok(`已放置 ${category} "${modelKey}" 在网格 (${gridX}, ${gridZ}),ID: ${objectId}`);
+      },
+    },
+    {
+      name: "town_move_object",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "移动场景中已有物件的位置。移动前请调用 town_list_objects 确认物件 ID 和当前布局。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          objectId: { type: "string", description: "物件 ID(来自 town_list_objects)" },
+          gridX: { type: "number", description: "新网格 X 坐标" },
+          gridZ: { type: "number", description: "新网格 Z 坐标" },
+        },
+        required: ["objectId", "gridX", "gridZ"],
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const objectId = String(args.objectId ?? "");
+        const gridX = Number(args.gridX ?? 0);
+        const gridZ = Number(args.gridZ ?? 0);
+        if (!objectId) return ok("Error: objectId is required.");
+        broadcastAgentEvent({
+          type: "world_control", target: "scene", action: "move",
+          objectId, gridX, gridZ,
+        } as any);
+        return ok(`已移动物件 ${objectId} 到 (${gridX}, ${gridZ})`);
+      },
+    },
+    {
+      name: "town_transform_object",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "旋转、缩放或翻转场景中的物件。至少提供一个变换参数。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          objectId: { type: "string", description: "物件 ID" },
+          rotationY: { type: "number", enum: [0, 90, 180, 270], description: "Y 轴旋转角度" },
+          scale: { type: "number", description: "缩放倍数" },
+          flipX: { type: "boolean", description: "沿 X 轴翻转" },
+          flipZ: { type: "boolean", description: "沿 Z 轴翻转" },
+        },
+        required: ["objectId"],
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const objectId = String(args.objectId ?? "");
+        if (!objectId) return ok("Error: objectId is required.");
+        broadcastAgentEvent({
+          type: "world_control", target: "scene", action: "transform",
+          objectId,
+          rotationY: args.rotationY != null ? Number(args.rotationY) : undefined,
+          scale: args.scale != null ? Number(args.scale) : undefined,
+          flipX: args.flipX as boolean | undefined,
+          flipZ: args.flipZ as boolean | undefined,
+        } as any);
+        return ok(`已变换物件 ${objectId}`);
+      },
+    },
+    {
+      name: "town_delete_object",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "删除场景中的物件。删除前请确认不会影响居民绑定(如住宅、办公楼等已绑定的建筑不应删除)。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          objectId: { type: "string", description: "要删除的物件 ID" },
+        },
+        required: ["objectId"],
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const objectId = String(args.objectId ?? "");
+        if (!objectId) return ok("Error: objectId is required.");
+        broadcastAgentEvent({
+          type: "world_control", target: "scene", action: "delete",
+          objectId,
+        } as any);
+        return ok(`已删除物件 ${objectId}`);
+      },
+    },
+    {
+      name: "town_set_terrain",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "修改小镇地形。支持批量修改多个格子。" +
+        "地形类型: grass(草地)、sand(沙地)、street(街道)、plaza(广场)、sidewalk(人行道)、water(水域)。" +
+        "水域上不能放置建筑。街道用于道路区域。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          cells: {
+            type: "array",
+            description: "要修改的格子列表",
+            items: {
+              type: "object",
+              properties: {
+                col: { type: "number", description: "X 坐标(列)" },
+                row: { type: "number", description: "Z 坐标(行)" },
+                type: { type: "string", enum: ["grass", "sand", "street", "plaza", "sidewalk", "water"], description: "地形类型" },
+              },
+              required: ["col", "row", "type"],
+            },
+          },
+        },
+        required: ["cells"],
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        const cells = args.cells as Array<{ col: number; row: number; type: string }> | undefined;
+        if (!cells || !Array.isArray(cells) || cells.length === 0) {
+          return ok("Error: cells is required and must be a non-empty array.");
+        }
+        broadcastAgentEvent({
+          type: "world_control", target: "scene", action: "set_terrain",
+          cells,
+        } as any);
+        return ok(`已修改 ${cells.length} 格地形`);
+      },
+    },
+    {
+      name: "town_expand_map",
+      description:
+        "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
+        "扩大小镇地图尺寸,用于小镇扩建。" +
+        "当前地图尺寸可通过 town_list_objects 查询(grid.cols × grid.rows)。" +
+        "最小 20×16,最大 80×60。扩展后新增区域默认为草地地形。" +
+        "扩展方向: 向右增加列(cols),向下增加行(rows)。已有物件位置不变。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          newCols: { type: "number", description: "新的总列数(当前~80)" },
+          newRows: { type: "number", description: "新的总行数(当前~60)" },
+        },
+        required: ["newCols", "newRows"],
+      },
+      async execute(_id: string, args: Record<string, unknown>) {
+        let newCols = Math.round(Number(args.newCols ?? 0));
+        let newRows = Math.round(Number(args.newRows ?? 0));
+        newCols = Math.max(20, Math.min(80, newCols));
+        newRows = Math.max(16, Math.min(60, newRows));
+        broadcastAgentEvent({
+          type: "world_control", target: "scene", action: "expand",
+          newCols, newRows,
+        } as any);
+        return ok(`地图已扩展至 ${newCols}×${newRows}`);
+      },
+    },
+  ] as any);
 }
