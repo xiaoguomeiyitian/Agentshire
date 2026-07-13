@@ -62,9 +62,9 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
 ### Tri-Mode Interface
 
-- **Town Mode** — Low-poly 3D town where you watch NPCs live, work, collaborate, and celebrate in real time
-- **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), commands (`/new` `/help` `/stop` `/clear`), group chat with @mention, and clear-session with confirmation
-- **Claw Settings** — In-app panel for OpenClaw runtime config (gateway mode, subagent timeout, logging, browser, update channel) and live session/token-usage inspection; embeds the LLM Model Manager as a sub-section
+- **Town Mode** — Low-poly 3D town where you watch NPCs live, work, collaborate, and celebrate in real time (lazy-loaded on first visit to save resources)
+- **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), commands (`/new` `/help` `/stop` `/clear`), group chat with @mention, and clear-session with confirmation. Default route on app open.
+- **Claw Settings** — In-app panel for OpenClaw runtime config (gateway mode, subagent timeout, logging, browser, update channel) and live session/token-usage inspection; embeds the LLM Model Manager and per-Agent model proxy management as sub-sections
 - **Top Navigation** — One-click switch between Town / Chat / Claw, with a quick menu (Citizen Workshop / Town Editor / Skill Store / Settings)
 - **Bilingual UI** — Full Chinese and English interface, auto-detected or manually switchable
 
@@ -82,7 +82,7 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **12 Weather Types** — Clear / cloudy / fog / drizzle / rain / storm / snow / blizzard / sandstorm / aurora… daily random theme with smooth transitions
 - **Procedural Ambient Sound** — Rain, wind, birdsong, crickets, traffic, thunder — all synthesized in real time via Web Audio API, zero audio files
 - **4-Track BGM** — Day / dusk / night / work tracks, auto-switching by weather, time period, and scene with 3.5s crossfade
-- **NPC Daily Behavior (Dual Mode)** — Algorithm-driven by default: state machine + 5 behavior templates + 400+ preset dialog lines, zero LLM cost. Enable Soul Mode to switch to AI-driven: AgentBrain 3-tier decisions (L1 daily plan / L2 tactical / L3 dialogue) + deep multi-turn LLM conversations + relationship graph + daily narrative summaries
+- **NPC Daily Behavior (Dual Mode)** — Algorithm-driven by default: state machine + 5 behavior templates + 400+ preset dialog lines, zero LLM cost. Enable Soul Mode to switch to AI-driven: AgentBrain 3-tier decisions (L1 daily plan / L2 tactical / L3 dialogue) + deep multi-turn LLM conversations + relationship graph + daily narrative summaries. Toggle the "Citizen Auto-Walk" setting to pause/resume scheduled walking without removing any NPC from the map.
 - **Citizen Chat** — Click any citizen NPC to start a conversation, routed to that citizen's independent Agent session
 - **Group Chat** — Multi-citizen group conversations with @mention picker, per-citizen role display, JSONL history persistence, and context token budget tracking
 - **Topic Discussion** — Start a group discussion with multiple citizens on a topic, with structured turn-taking and AI-moderated dialogue
@@ -93,8 +93,10 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **Citizen Workshop** — Create and configure citizen characters: select/upload 3D models, edit soul personality (AI generation supported), configure animation mapping (8 slots), assign per-agent LLM model (empty = inherit global default), publish as independent Agents
 - **Town Editor** — Visual drag-and-drop map editing: place buildings/roads/props/lights, with grouping, alignment, undo, and JSON export (runtime integration in progress)
 - **AI Town Editing** — The steward can edit the town through natural language via 7 new tools: list assets/objects, place/move/transform/delete objects, set terrain, and expand the map — all reflected live in the 3D scene
+- **Citizen Spatial Awareness & Movement** — Residents can perceive their 3D world and move through it via 3 AI tools: get own status/position, query nearby citizens within a radius, and walk to a coordinate — powered by a plugin↔frontend NPC query channel
 - **Editor Preview** — One-click game-level preview window (WASD controls + full day/night + weather + vehicle animations + audio)
 - **LLM Model Manager** — Manage `openclaw.json` providers/models CRUD (add/update/delete, import/export, undo/redo) directly inside the Claw Settings panel — no separate page needed
+- **Agent Models Panel** — Per-resident (Agent) LLM model proxy management: primary model + fallbacks, identity (name, emoji), thinking/reasoning defaults, context tokens, subagent timeout, group-chat history limit — all mapped to `openclaw.json` `agents.list[]`
 - **Soul System** — Each NPC has a Markdown personality file defining character traits, speaking style, expertise, and work approach
 
 ### Interaction & Visuals
@@ -104,7 +106,7 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **Rich VFX** — Summon shockwave, completion fireworks, error lightning, persona-transform magic circle, thinking halo, search radar, confetti…
 - **10-Workstation Office** — Each workstation has its own monitor (real-time code animation), full NPC enter/work/leave choreography
 - **Deliverable Preview** — After project completion, deliverable cards pop up with image lightbox, video, audio preview and download; games/websites launch directly in iframe
-- **AI Tool Control** — Agents can control the town via tools (broadcast messages, spawn NPCs, trigger effects, set time/weather, and now edit the map: place/move/transform/delete objects, set terrain, expand map)
+- **AI Tool Control** — Agents can control the town via tools (broadcast messages, spawn NPCs, trigger effects, set time/weather, edit the map: place/move/transform/delete objects, set terrain, expand map, and now perceive/move in 3D space: get status, query nearby citizens, walk to coordinates)
 - **Token Usage Tracking** — Per-turn token usage with cache read/write breakdown and compaction count; heuristic fallback estimation when the LLM API returns zero usage
 - **Reconnection** — WebSocket auto-reconnect with exponential backoff and work state recovery
 

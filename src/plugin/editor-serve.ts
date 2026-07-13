@@ -1328,6 +1328,39 @@ async function handleCitizenWorkshopApi(
     return true;
   }
 
+  if (route === "get-agent-config") {
+    try {
+      const agentId = String(body?.agentId ?? "");
+      if (!agentId) {
+        jsonRes(res, { error: "agentId required" }, 400);
+        return true;
+      }
+      const { getAgentConfig } = await import("./citizen-agent-manager.js");
+      const agent = getAgentConfig(agentId);
+      jsonRes(res, { success: true, agentId, agent: agent ?? null });
+    } catch (err: any) {
+      jsonRes(res, { error: err?.message ?? "Failed to get agent config" }, 500);
+    }
+    return true;
+  }
+
+  if (route === "update-agent-config") {
+    try {
+      const agentId = String(body?.agentId ?? "");
+      const patch = body?.patch ?? {};
+      if (!agentId) {
+        jsonRes(res, { error: "agentId required" }, 400);
+        return true;
+      }
+      const { updateAgentConfig } = await import("./citizen-agent-manager.js");
+      updateAgentConfig(agentId, patch);
+      jsonRes(res, { success: true, agentId });
+    } catch (err: any) {
+      jsonRes(res, { error: err?.message ?? "Failed to update agent config" }, 500);
+    }
+    return true;
+  }
+
   if (route === "models") {
     try {
       const m = await import("./model-config.js");
@@ -1837,6 +1870,52 @@ async function handleClawApi(
           { totalTokens: 0, inputTokens: 0, outputTokens: 0, cacheRead: 0, estimatedCostUsd: 0, count: 0 },
         );
         jsonRes(res, { success: true, sessions, totals });
+        return true;
+      }
+      case "sessions/delete": {
+        // Delete a single session by agentId + sessionKey.
+        // Removes the entry from sessions.json AND deletes the .jsonl session files.
+        const agentId = String(body.agentId ?? "");
+        const sessionKey = String(body.sessionKey ?? "");
+        if (!agentId || !sessionKey) {
+          jsonRes(res, { error: "agentId and sessionKey required" }, 400);
+          return true;
+        }
+        const root = stateDir();
+        const agentDir = join(root, "agents", agentId);
+        const sessionsJsonPath = join(agentDir, "sessions", "sessions.json");
+        if (!existsSync(sessionsJsonPath)) {
+          jsonRes(res, { error: "Session not found" }, 404);
+          return true;
+        }
+        let sessionsMap: any;
+        try {
+          sessionsMap = JSON.parse(readFileSync(sessionsJsonPath, "utf-8"));
+        } catch {
+          jsonRes(res, { error: "Failed to read sessions" }, 500);
+          return true;
+        }
+        if (!sessionsMap || !(sessionKey in sessionsMap)) {
+          jsonRes(res, { error: "Session not found" }, 404);
+          return true;
+        }
+        const meta = sessionsMap[sessionKey] as any;
+        const sessionId = meta?.sessionId;
+        // Delete session files
+        if (sessionId) {
+          const sessionDir = join(agentDir, "sessions");
+          for (const suffix of [".jsonl", ".trajectory.jsonl", ".trajectory-path.json"]) {
+            const fp = join(sessionDir, sessionId + suffix);
+            if (existsSync(fp)) {
+              try { unlinkSync(fp); } catch { /* ignore */ }
+            }
+          }
+        }
+        delete sessionsMap[sessionKey];
+        try {
+          writeFileSync(sessionsJsonPath, JSON.stringify(sessionsMap, null, 2) + "\n", "utf-8");
+        } catch { /* ignore write errors */ }
+        jsonRes(res, { success: true, deleted: sessionKey });
         return true;
       }
       case "sessions/clear": {

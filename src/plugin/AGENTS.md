@@ -9,13 +9,13 @@ src/plugin/
 ├── channel.ts                 # ChannelPlugin 实现（startAccount启动WS/注册回调）
 ├── hook-translator.ts         # 纯函数：OpenClaw Hook名 → AgentEvent
 ├── ws-server.ts               # WebSocket服务器 + 会话绑定 + 消息路由
-├── tools.ts                   # AI工具注册（11个工具）
+├── tools.ts                   # AI工具注册（14个工具）
 ├── auto-config.ts             # 零配置：自动创建town-steward Agent + Binding
 ├── plan-manager.ts            # 多Agent计划状态机（步骤/批次/enriched task）
 ├── citizen-agent-manager.ts   # 独立居民Agent CRUD（写openclaw.json）
 ├── citizen-chat-router.ts     # 用户↔居民Agent消息路由
 ├── citizen-workshop-manager.ts # 居民工坊配置持久化（citizen-config.json）
-├── editor-serve.ts            # 编辑器HTTP API（1176行，资产/工坊/发布）
+├── editor-serve.ts            # 编辑器HTTP API（资产/工坊/发布/agent-config/sessions）
 ├── llm-agent-proxy.ts         # LLM代理（走OpenClaw embedded agent runtime，2并发+10队列）
 ├── session-history.ts         # 跨会话聊天历史加载（管家+居民）
 ├── soul-prompt-template.ts    # 灵魂文件AI生成模板
@@ -81,6 +81,9 @@ Hook事件流：
 | `create_plan` | 创建多Agent计划 | — |
 | `next_step` | 获取下一步指令 | — |
 | `project_complete` | 宣布完成 | `tool_result`(触发publishing) |
+| `town_get_my_status` | 获取自身状态/位置 | —（plugin↔frontend NPC查询通道） |
+| `town_query_nearby_citizens` | 查询半径内居民 | —（plugin↔frontend NPC查询通道） |
+| `town_walk_to` | 行走至坐标 | —（plugin↔frontend NPC查询通道） |
 
 ## plan-manager：多 Agent 计划编排
 
@@ -118,6 +121,9 @@ onAgentCompleted(label, success) → 标记完成 → isCurrentBatchDone()?
 | `/citizen-workshop/_api/agents` | 查询Agent列表 |
 | `/citizen-workshop/_api/buildings` | 查询建筑列表 |
 | `/citizen-workshop/_api/media` | 媒体文件代理 |
+| `/claw-api/get-agent-config` | 查询单个Agent配置（agents.list[]） |
+| `/claw-api/update-agent-config` | 更新单个Agent配置（patch agents.list[]） |
+| `/claw-api/sessions/delete` | 删除会话（sessions.json + .jsonl/.trajectory） |
 
 **发布流程**：
 1. 构建 `PublishedCitizenConfig`（bake所有URL）
@@ -135,6 +141,8 @@ onAgentCompleted(label, success) → 标记完成 → isCurrentBatchDone()?
 | `create` | 创建 `~/.openclaw/workspace-citizen-{id}/` + SOUL.md + 注册到openclaw.json |
 | `disable` | 从 openclaw.json agents.list 中移除 |
 | `update_soul` | 更新 SOUL.md 文件 |
+| `getAgentConfig` | 读取单个 agent 配置（agents.list[]） |
+| `updateAgentConfig` | patch 单个 agent 配置字段 |
 
 `citizen-chat-router.ts` 路由用户消息到居民Agent的独立会话（SessionKey = `agent:{agentId}:main`）。
 

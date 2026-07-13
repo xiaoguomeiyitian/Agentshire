@@ -1,6 +1,5 @@
 // React-native model (LLM provider) management panel embedded in ClawSettingsView.
-// Replaces the iframe-based model-manager.html with a first-class React component.
-// Talks to the same /models/_api/* backend endpoints.
+// Talks to the /models/_api/* backend endpoints.
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
@@ -13,14 +12,14 @@ import { t } from '@/i18n'
 
 // ── Types (mirror editor/model/types.ts) ──
 
-interface ModelCost {
+export interface ModelCost {
   input?: number
   output?: number
   cacheRead?: number
   cacheWrite?: number
 }
 
-interface ModelConfig {
+export interface ModelConfig {
   id: string
   name?: string
   input?: string[]
@@ -30,17 +29,17 @@ interface ModelConfig {
   api?: string
 }
 
-interface ProviderConfig {
+export interface ProviderConfig {
   baseUrl: string
   apiKey?: string
   api?: string
   models?: ModelConfig[]
 }
 
-type ProvidersMap = Record<string, ProviderConfig>
-type ImportMode = 'append' | 'new' | 'replace'
+export type ProvidersMap = Record<string, ProviderConfig>
+export type ImportMode = 'append' | 'new' | 'replace'
 
-interface ApiResult {
+export interface ApiResult {
   success?: boolean
   providers?: ProvidersMap
   defaultModel?: string
@@ -49,9 +48,9 @@ interface ApiResult {
   code?: string
 }
 
-const PROVIDER_ID_PATTERN = /^[a-z0-9_-]+$/
+export const PROVIDER_ID_PATTERN = /^[a-z0-9_-]+$/
 
-const API_TYPES = [
+export const API_TYPES = [
   'openai-completions',
   'openai-responses',
   'openai-chatgpt-responses',
@@ -76,7 +75,7 @@ async function apiPost(route: string, body: unknown): Promise<ApiResult> {
   return (await resp.json()) as ApiResult
 }
 
-function maskKey(key: string): string {
+export function maskKey(key: string): string {
   if (!key) return '—'
   if (key.startsWith('${')) return key
   if (key.length <= 8) return '•'.repeat(key.length)
@@ -257,7 +256,8 @@ export function ModelPanel() {
   return (
     <div className="flex h-full min-h-0">
       {/* ── Left: Provider list (width fits content: title + add button) ── */}
-      <div className="w-fit shrink-0 border-r border-border-subtle flex flex-col bg-bg-canvas">
+      {/* Mobile: hidden, replaced by a top dropdown selector. Desktop: visible sidebar. */}
+      <div className="hidden md:flex w-fit shrink-0 border-r border-border-subtle flex-col bg-bg-canvas">
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border-subtle whitespace-nowrap">
           <span className="text-[13px] font-semibold text-text-primary">{t('claw.mm_provider_list')}</span>
           <button
@@ -299,38 +299,61 @@ export function ModelPanel() {
       </div>
 
       {/* ── Right: Detail ── */}
-      <div className="flex-1 min-w-0 overflow-y-auto styled-scrollbar px-6 py-5">
+      <div className="flex-1 min-w-0 overflow-y-auto styled-scrollbar px-4 md:px-6 py-4 md:py-5">
+        {/* Mobile provider selector (dropdown) — replaces the left sidebar on small screens */}
+        <div className="md:hidden flex items-center gap-2 mb-4">
+          <select
+            value={activeProviderId ?? ''}
+            onChange={(e) => setActiveProviderId(e.target.value || null)}
+            className="flex-1 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary font-mono cursor-pointer outline-none focus:border-brand-primary"
+          >
+            {providerIds.length === 0 && <option value="">{t('claw.mm_no_providers')}</option>}
+            {providerIds.map((id) => (
+              <option key={id} value={id}>{id} ({providers[id].models?.length ?? 0})</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setProviderModal({ open: true, editId: null })}
+            className="flex items-center gap-1 px-2.5 py-2 rounded-md text-[11px] font-semibold bg-gradient-to-br from-[#C4915E] to-[#D4A574] text-black hover:brightness-110 cursor-pointer transition-all whitespace-nowrap shrink-0"
+          >
+            <Plus size={12} strokeWidth={2.5} />
+            {t('claw.mm_add')}
+          </button>
+        </div>
+
         {/* Default model selector + Import/Export buttons in one row */}
-        <div className="flex items-center justify-between gap-4 px-4 py-3 mb-5 bg-bg-surface border border-[rgba(212,165,116,0.3)] rounded-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 mb-5 bg-bg-surface border border-[rgba(212,165,116,0.3)] rounded-xl">
           <div className="flex flex-col gap-0.5">
             <span className="text-[14px] font-semibold text-text-primary">{t('claw.mm_default_model')}</span>
             <span className="text-[11px] text-text-tertiary">{t('claw.mm_default_model_hint')}</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <select
               value={defaultModel ?? ''}
               onChange={(e) => handleSetDefaultModel(e.target.value || undefined)}
-              className="min-w-[240px] bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary font-mono cursor-pointer outline-none focus:border-brand-primary"
+              className="w-full sm:w-auto sm:min-w-[240px] bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary font-mono cursor-pointer outline-none focus:border-brand-primary"
             >
               <option value="">{t('claw.mm_not_set')}</option>
               {getAllModelRefs().map((ref) => (
                 <option key={ref} value={ref}>{ref}</option>
               ))}
             </select>
-            <button
-              onClick={() => setImportModal(true)}
-              title={t('claw.mm_import')}
-              className="flex items-center justify-center px-2.5 py-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
-            >
-              <Upload size={14} strokeWidth={1.8} />
-            </button>
-            <button
-              onClick={handleExport}
-              title={t('claw.mm_export')}
-              className="flex items-center justify-center px-2.5 py-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
-            >
-              <Download size={14} strokeWidth={1.8} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setImportModal(true)}
+                title={t('claw.mm_import')}
+                className="flex items-center justify-center px-2.5 py-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
+              >
+                <Upload size={14} strokeWidth={1.8} />
+              </button>
+              <button
+                onClick={handleExport}
+                title={t('claw.mm_export')}
+                className="flex items-center justify-center px-2.5 py-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
+              >
+                <Download size={14} strokeWidth={1.8} />
+              </button>
+            </div>
           </div>
         </div>
 
@@ -342,7 +365,7 @@ export function ModelPanel() {
         ) : (
           <div>
             {/* Header */}
-            <div className="flex items-start justify-between mb-5">
+            <div className="flex flex-col gap-3 mb-5">
               <div className="flex items-center gap-2.5 flex-wrap">
                 <span className="text-[20px] font-bold text-text-primary">{activeProviderId}</span>
                 <span className="text-[11px] text-text-tertiary font-mono bg-bg-elevated px-2 py-0.5 rounded-md">{activeProviderId}</span>
@@ -350,7 +373,7 @@ export function ModelPanel() {
                   {activeProvider.api || '—'}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => setProviderModal({ open: true, editId: activeProviderId })}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[12px] text-text-primary bg-bg-elevated hover:brightness-110 cursor-pointer transition-colors border border-border-subtle"
@@ -496,7 +519,7 @@ export function ModelPanel() {
 
 // ── Provider modal ──
 
-function ProviderModal({
+export function ProviderModal({
   editId, provider, onClose, onSave,
 }: {
   editId: string | null
@@ -511,7 +534,7 @@ function ProviderModal({
 
   return (
     <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-[1000]">
-      <div className="w-[480px] max-w-[92vw] max-h-[88vh] overflow-y-auto bg-bg-surface border border-border-subtle rounded-2xl shadow-2xl">
+      <div className="w-[480px] max-w-[92vw] max-h-[88vh] overflow-y-auto overflow-x-hidden bg-bg-surface border border-border-subtle rounded-2xl shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
           <span className="text-[15px] font-semibold text-text-primary">
             {editId ? t('claw.mm_edit_provider') : t('claw.mm_add_provider')}
@@ -583,7 +606,7 @@ function ProviderModal({
 
 // ── Model modal ──
 
-function ModelModal({
+export function ModelModal({
   modelId, model, onClose, onSave,
 }: {
   modelId: string | null
@@ -615,7 +638,7 @@ function ModelModal({
             <X size={20} />
           </button>
         </div>
-        <div className="px-5 py-5 flex flex-col gap-4 overflow-y-auto styled-scrollbar">
+        <div className="px-5 py-5 flex flex-col gap-4 overflow-y-auto overflow-x-hidden styled-scrollbar">
           <label className="flex flex-col gap-1.5 text-[13px]">
             <span className="text-text-primary font-medium">{t('claw.mm_model_id')}</span>
             <input
@@ -636,7 +659,7 @@ function ModelModal({
               className="bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary outline-none focus:border-brand-primary"
             />
           </label>
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <label className="flex flex-col gap-1.5 text-[13px] flex-1">
               <span className="text-text-primary font-medium">{t('claw.mm_max_input')}</span>
               <input
@@ -698,7 +721,7 @@ function ModelModal({
                 <div>
                   <span className="text-text-primary font-medium text-[13px]">{t('claw.mm_cost_input')} (Cost)</span>
                   <small className="block text-text-tertiary text-[11px] mb-2">{t('claw.mm_cost_hint')}</small>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label className="flex flex-col gap-1 text-[12px]">
                       <span className="text-text-secondary">{t('claw.mm_cost_input')}</span>
                       <input
@@ -788,7 +811,7 @@ function ModelModal({
 
 // ── Import modal ──
 
-function ImportModal({
+export function ImportModal({
   onClose, onImport,
 }: {
   onClose: () => void
@@ -884,7 +907,7 @@ function ImportModal({
 
 // ── Confirm dialog ──
 
-function ConfirmDialog({
+export function ConfirmDialog({
   title, message, onCancel, onOk,
 }: {
   title: string

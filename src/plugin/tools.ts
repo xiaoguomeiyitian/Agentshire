@@ -3,12 +3,35 @@ import { textResult } from "openclaw/plugin-sdk/agent-runtime";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { broadcastAgentEvent } from "./ws-server.js";
+import { broadcastAgentEvent, requestNpcQuery, findCitizenNpcId } from "./ws-server.js";
 import { createPlan, getNextStepInstruction, isPlanFullyComplete, clearTasks, completePlan } from "./plan-manager.js";
 import type { CitizenRosterEntry } from "./plan-manager.js";
 import { hasRunningSubagents } from "./subagent-tracker.js";
 import { resolveFileData } from "./outbound-adapter.js";
 import { stateDir } from "./paths.js";
+
+// ── Spatial tools: resolve calling agent's npcId from toolUseId ──
+// `getToolCallAgent` is exported from index.ts (populated by before_tool_call hook).
+// We import it lazily to avoid a circular dependency at module load time.
+let _getToolCallAgent: ((toolUseId: string) => string | null) | null = null;
+async function getCallerAgentId(toolUseId: string): Promise<string | null> {
+  if (!_getToolCallAgent) {
+    try {
+      const mod = await import("../../index.js");
+      _getToolCallAgent = (mod as any).getToolCallAgent ?? null;
+    } catch { _getToolCallAgent = null; }
+  }
+  return _getToolCallAgent ? _getToolCallAgent(toolUseId) : null;
+}
+
+/** Resolve the calling agent's npcId from its toolUseId. Steward → 'steward'. */
+async function resolveCallerNpcId(toolUseId: string): Promise<{ agentId: string; npcId: string } | null> {
+  const agentId = await getCallerAgentId(toolUseId);
+  if (!agentId) return null;
+  if (agentId === "town-steward") return { agentId, npcId: "steward" };
+  const npcId = findCitizenNpcId(agentId);
+  return npcId ? { agentId, npcId } : null;
+}
 
 /** Wrap a plain string into an AgentToolResult for the SDK execute() contract. */
 function ok(text: string) {
@@ -866,6 +889,133 @@ export function createTownTools(): OpenClawPluginToolFactory {
           newCols, newRows,
         } as any);
         return ok(`地图已扩展至 ${newCols}×${newRows}`);
+      },
+    },
+    {
+      name: "town_get_my_status",
+      description:
+        "获取你自己（当前居民/管家）在 3D 场景中的实时状态和位置。" +
+        "返回：npcId、名称、状态（idle/walking/working/thinking 等）、世界坐标 (x, y, z)、是否正在移动。" +
+        "所有居民和管家均可使用。",
+      parameters: { type: "object" as const, properties: {} },
+      async execute(toolUseId: string) {
+        const caller = await resolveCallerNpcId(toolUseId);
+        if (!caller) return ok("错误：无法识别调用者身份（toolUseId 未映射到 agent）。请重试。");
+        try {
+          const data = await requestNpcQuery({ kind: "self", npcId: caller.npcId });
+          if (data && typeof data === "object" && "error" in (data as any)) {
+            return ok(`错误：${(data as any).error}`);
+          }
+          const d = data as { npcId: string; name: string; state: string; position: { x: number; y: number; z: number }; isMoving: boolean };
+          return ok(
+            `我的状态：\n` +
+            `  npcId: ${d.npcId}\n` +
+            `  名称: ${d.name}\n` +
+            `  状态: ${d.state}\n` +
+            `  位置: (${d.position.x}, ${d.position.y}, ${d.position.z})\n` +
+            `  正在移动: ${d.isMoving ? "是" : "否"}`
+          );
+        } catch (err) {
+          return ok(`错误：查询状态失败 — ${(err as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "town_query_nearby_citizens",
+      description:
+        "查询以某个坐标为原点、指定半径范围内所有居民的状态和位置。" +
+        "省略 origin 时默认以你自己的当前位置为原点。" +
+        "返回：按距离升序排列的居民列表（npcId、名称、状态、坐标、距离）。排除你自己。" +
+        "所有居民和管家均可使用。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          radius: { type: "number", description: "查询半径（世界坐标单位，建议 5~30）" },
+          origin: {
+            type: "object",
+            description: "查询原点坐标，省略则用你自己的当前位置",
+            properties: {
+              x: { type: "number" },
+              z: { type: "number" },
+            },
+          },
+        },
+        required: ["radius"],
+      },
+      async execute(toolUseId: string, args: { radius: number; origin?: { x: number; z: number } }) {
+        const radius = Math.max(0.1, Math.min(200, Number(args.radius ?? 0)));
+        const caller = await resolveCallerNpcId(toolUseId);
+        if (!caller) return ok("错误：无法识别调用者身份（toolUseId 未映射到 agent）。请重试。");
+        const query: { kind: "nearby"; radius: number; origin?: { x: number; z: number }; callerNpcId?: string } = {
+          kind: "nearby",
+          radius,
+          callerNpcId: caller.npcId,
+        };
+        if (args.origin && typeof args.origin.x === "number" && typeof args.origin.z === "number") {
+          query.origin = { x: args.origin.x, z: args.origin.z };
+        }
+        try {
+          const data = await requestNpcQuery(query);
+          if (data && typeof data === "object" && "error" in (data as any)) {
+            return ok(`错误：${(data as any).error}`);
+          }
+          const citizens = (data as { citizens: Array<{ npcId: string; name: string; state: string; position: { x: number; y: number; z: number }; distance: number }> }).citizens ?? [];
+          if (citizens.length === 0) {
+            return ok(`半径 ${radius} 范围内没有其他居民。`);
+          }
+          const lines = citizens.map((c, i) =>
+            `  ${i + 1}. ${c.name} (${c.npcId}) — 状态:${c.state} 位置:(${c.position.x}, ${c.position.z}) 距离:${c.distance}`
+          );
+          return ok(`半径 ${radius} 范围内发现 ${citizens.length} 位居民：\n${lines.join("\n")}`);
+        } catch (err) {
+          return ok(`错误：查询附近居民失败 — ${(err as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "town_walk_to",
+      description:
+        "让你在 3D 场景中的角色行走至指定世界坐标 (x, z)。" +
+        "立即返回'已发出移动指令'，角色会在后台异步移动。" +
+        "注意：处于 working（工作）状态时无法移动，请先完成或暂停工作。" +
+        "坐标范围：x ∈ [0, 80], z ∈ [0, 60]（城镇地图范围）。" +
+        "所有居民和管家均可使用。",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          x: { type: "number", description: "目标 X 坐标（世界坐标）" },
+          z: { type: "number", description: "目标 Z 坐标（世界坐标）" },
+          speed: { type: "number", description: "移动速度（可选，默认 3，建议 2~5）" },
+        },
+        required: ["x", "z"],
+      },
+      async execute(toolUseId: string, args: { x: number; z: number; speed?: number }) {
+        const x = Math.max(0, Math.min(80, Number(args.x ?? 0)));
+        const z = Math.max(0, Math.min(60, Number(args.z ?? 0)));
+        const speed = Math.max(0.5, Math.min(10, Number(args.speed ?? 3)));
+        const caller = await resolveCallerNpcId(toolUseId);
+        if (!caller) return ok("错误：无法识别调用者身份（toolUseId 未映射到 agent）。请重试。");
+        // Check current state — reject if working
+        try {
+          const statusData = await requestNpcQuery({ kind: "self", npcId: caller.npcId });
+          const status = statusData as { state?: string; error?: string };
+          if (status && typeof status === "object" && "error" in status) {
+            return ok(`错误：${status.error}`);
+          }
+          if (status.state === "working") {
+            return ok("错误：你正在工作中，无法移动。请先完成或暂停当前工作。");
+          }
+        } catch (err) {
+          return ok(`错误：无法确认当前状态 — ${(err as Error).message}`);
+        }
+        // Emit move command (frontend MainScene.onNpcMoveTo handles it)
+        broadcastAgentEvent({
+          type: "npc_move_to",
+          npcId: caller.npcId,
+          target: { x, y: 0, z },
+          speed,
+        } as any);
+        return ok(`已发出移动指令：前往坐标 (${x}, ${z})，速度 ${speed}。角色正在移动中。`);
       },
     },
   ] as any);

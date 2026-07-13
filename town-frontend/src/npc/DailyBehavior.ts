@@ -98,6 +98,7 @@ export class DailyBehavior {
   private currentBuilding: string | null = null
   private microTimer = 0
   private microInterval = 0
+  private _autoWalkEnabled = true
   private periodListenerId: string
   private pendingWake = false
   private pendingHome = false
@@ -162,6 +163,23 @@ export class DailyBehavior {
 
   setJournal(journal: ActivityJournal): void {
     this.journal = journal
+  }
+
+  setAutoWalkEnabled(enabled: boolean): void {
+    this._autoWalkEnabled = enabled
+    // When auto-walk is disabled, wake any sleeping NPC so it stays visible on the map.
+    // The NPC will remain at its current position without scheduling new walks.
+    if (!enabled && this.state === 'sleeping') {
+      this.pendingWake = false
+      this.npc.setVisible(true)
+      this.transitionTo('roaming')
+    }
+    // When re-enabled, resume roaming from current position if idle.
+    if (enabled && (this.state === 'roaming' || this.state === 'at_building')) {
+      this.leaveCurrentBuilding()
+      this.transitionTo('roaming')
+      this.selectNextDestination()
+    }
   }
 
   setAgentBrain(brain: AgentBrain): void {
@@ -240,6 +258,10 @@ export class DailyBehavior {
     if (!this.active || this._inDialogue) return
     if (!this.isLifeState()) return
     const dtMs = deltaTime * 1000
+
+    // When auto-walk is disabled, skip all scheduled walking decisions so the NPC
+    // stays at its current position on the map. Visibility/state are still maintained.
+    if (!this._autoWalkEnabled) return
 
     if (this.pendingWake) {
       this.wakeTimer -= dtMs

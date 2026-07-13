@@ -68,6 +68,8 @@ export type GameEvent =
   // NPC state
   | { type: 'npc_phase'; npcId: string; phase: NPCPhase; message?: string }
   | { type: 'npc_move_to'; npcId: string; target: Vec3; speed?: number; requestId?: string }
+  // NPC spatial query (plugin tools → frontend → result back via GameAction)
+  | { type: 'npc_query'; requestId: string; query: { kind: 'self'; npcId: string } | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string } }
   | { type: 'npc_daily_behavior_ready'; npcId: string }
   | { type: 'npc_emote'; npcId: string; emote: string }
   | { type: 'npc_emoji'; npcId: string; emoji: string | null }
@@ -217,6 +219,7 @@ export type GameAction =
   | { type: 'town_setup_complete' }
   | { type: 'npc_change_model'; npcId: string; characterKey: string }
   | { type: 'npc_move_completed'; npcId: string; requestId?: string; status: 'arrived' | 'interrupted' }
+  | { type: 'npc_query_result'; requestId: string; data: unknown }
   | { type: 'workstation_released'; npcId: string; stationId?: string }
   | { type: 'workflow_phase_complete'; phase: string }
 

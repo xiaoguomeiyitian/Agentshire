@@ -100,7 +100,7 @@ update(deltaTime):
   5. timeHUD
   6. 音频：ambientSound(仅town) + bgm(天气/时段/场景)
   7. npcManager.update()
-  8. 仅town: DailyBehavior.update + encounterManager + casualEncounter
+  8. 仅town: DailyBehavior.update（受 autoWalk 开关控制：关闭时跳过行走决策但保持可见）+ encounterManager + casualEncounter
   9. vfx + bubbles + officeBuilder.updateScreens + minigame
 ```
 

@@ -70,3 +70,13 @@ function getLabels() {
 ### Settings panel
 
 Settings UI is in `src/ui/SettingsPanel.ts`. Language switch requires Save button click → `location.reload()`. No immediate application of changes.
+
+The Settings panel also includes a **Citizen Auto-Walk** toggle (`autoWalk: boolean`, default `true`). When toggled, a `CustomEvent('town-auto-walk-change', { detail: { enabled } })` is dispatched (and posted to the town iframe via `postMessage`); `main.ts` listens and calls `scene.setAutoWalkEnabled(enabled)`, which iterates all `DailyBehavior` instances calling `behavior.setAutoWalkEnabled()`. When disabled, NPCs stop scheduling new walks but **stay visible** at their current positions; sleeping NPCs are woken immediately. Toggling does not remove any NPC from the map.
+
+### Town lazy-loading
+
+The app defaults to the `#chat` route on open (`App.tsx` `getTabFromHash()`). The Town 3D scene iframe (`TownView.tsx`) only loads `town.html` (setting `iframe.src`) on the **first** time the Town tab becomes visible; a `loaded` state then locks the iframe mounted so subsequent tab switches are instant. This avoids initializing the 3D engine / WebSocket / assets when the user only wants to chat.
+
+### Agent Models Panel
+
+Per-agent LLM model proxy management UI is in `src/app/AgentModelsPanel.tsx` (React, rendered inside the Claw Settings view). It manages each resident's `agents.list[]` entry: primary model + fallbacks, identity (name, emoji), thinking/reasoning defaults, context tokens, subagent timeout, group-chat history limit. Reads/writes via `get-agent-config` / `update-agent-config` Claw API routes in `editor-serve.ts`.

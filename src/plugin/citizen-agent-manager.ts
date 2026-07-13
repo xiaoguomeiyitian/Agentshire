@@ -153,6 +153,50 @@ export function getAgentModelRef(agentId: string): string | undefined {
   }
 }
 
+/**
+ * Read an agent's full config from openclaw.json.
+ * Returns the agent object or undefined if not found.
+ */
+export function getAgentConfig(agentId: string): any | undefined {
+  try {
+    const cfg = loadOpenClawConfig();
+    const agents: any[] = cfg.agents?.list ?? [];
+    return agents.find((a: any) => a.id === agentId);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Update an agent's config fields in openclaw.json.
+ * Accepts a partial patch object and deep-merges it into the agent entry.
+ * Setting a field to null deletes it from the config.
+ */
+export function updateAgentConfig(agentId: string, patch: Record<string, any>): void {
+  const cfg = loadOpenClawConfig();
+  const agents: any[] = cfg.agents?.list ?? [];
+  const agent = agents.find((a: any) => a.id === agentId);
+  if (!agent) return;
+  let changed = false;
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      if (key in agent) { delete agent[key]; changed = true; }
+    } else {
+      // Deep merge for objects (e.g. identity, subagents, model)
+      if (value && typeof value === "object" && !Array.isArray(value) && agent[key] && typeof agent[key] === "object" && !Array.isArray(agent[key])) {
+        agent[key] = { ...agent[key], ...value };
+      } else {
+        agent[key] = value;
+      }
+      changed = true;
+    }
+  }
+  if (changed) {
+    saveOpenClawConfig(cfg);
+    console.log(`[citizen-agent-manager] Updated agent ${agentId} config: ${Object.keys(patch).join(", ")}`);
+  }
+}
+
 function removeAgentFromConfig(agentId: string): void {
   const cfg = loadOpenClawConfig();
   const agents: any[] = cfg.agents?.list ?? [];

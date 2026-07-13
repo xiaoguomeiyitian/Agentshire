@@ -289,4 +289,57 @@ describe('EventTranslator', () => {
       expect(result).toEqual([])
     })
   })
+
+  describe('world_control.query_npc', () => {
+    it('should translate self query to npc_query GameEvent', () => {
+      const event: AgentEvent = {
+        type: 'world_control',
+        target: 'query_npc',
+        requestId: 'q-self-1',
+        query: { kind: 'self', npcId: 'citizen_1' },
+      }
+      const result = translator.translate(event)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({
+        type: 'npc_query',
+        requestId: 'q-self-1',
+        query: { kind: 'self', npcId: 'citizen_1' },
+      })
+    })
+
+    it('should translate nearby query (with origin) to npc_query GameEvent', () => {
+      const event: AgentEvent = {
+        type: 'world_control',
+        target: 'query_npc',
+        requestId: 'q-near-1',
+        query: { kind: 'nearby', radius: 15, origin: { x: 10, z: 5 }, callerNpcId: 'citizen_2' },
+      }
+      const result = translator.translate(event)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({
+        type: 'npc_query',
+        requestId: 'q-near-1',
+        query: { kind: 'nearby', radius: 15, origin: { x: 10, z: 5 }, callerNpcId: 'citizen_2' },
+      })
+    })
+
+    it('should translate nearby query (no origin) to npc_query GameEvent', () => {
+      const event: AgentEvent = {
+        type: 'world_control',
+        target: 'query_npc',
+        requestId: 'q-near-2',
+        query: { kind: 'nearby', radius: 8, callerNpcId: 'steward' },
+      }
+      const result = translator.translate(event)
+
+      expect(result).toHaveLength(1)
+      expect(result[0]).toMatchObject({
+        type: 'npc_query',
+        requestId: 'q-near-2',
+        query: { kind: 'nearby', radius: 8, callerNpcId: 'steward' },
+      })
+    })
+  })
 })

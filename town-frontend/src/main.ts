@@ -196,8 +196,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
           const evt = data.event
           if (evt.type === 'deliverable_card' || evt.type === 'media_preview') {
             if (sceneRef) sceneRef.handleGameEvent(evt)
-          } else if (evt.type === 'world_control' && (evt as any).target === 'scene') {
-            // Scene editing events → DirectorBridge → EventTranslator → MainScene.handleSceneEdit
+          } else if (evt.type === 'world_control' && ((evt as any).target === 'scene' || (evt as any).target === 'query_npc')) {
+            // Scene editing + NPC spatial query events → DirectorBridge → EventTranslator → MainScene
             director.processAgentEvent(evt)
           } else if (evt.npcId && evt.npcId !== 'steward') {
             director.processCitizenEvent(evt.npcId, evt)
@@ -297,6 +297,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
           }
         } else if (action.type === 'abort_requested') {
           wsSend({ type: 'abort' })
+        } else if (action.type === 'npc_query_result') {
+          // NPC spatial query result → backend (bypasses DirectorBridge)
+          wsSend({ type: 'npc_query_result', requestId: action.requestId, data: action.data })
         } else {
           const wsMsg = director.processWorldAction(action)
           if (wsMsg) wsSend(wsMsg)
@@ -597,6 +600,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
   // Apply saved music setting on startup
   const savedSettings = loadSettings()
   if (!savedSettings.music) scene.setMusicEnabled(false)
+  if (!savedSettings.autoWalk) scene.setAutoWalkEnabled(false)
 
   document.addEventListener('agentshire:music', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail
@@ -605,6 +609,10 @@ const syncTownSessionUrl = (townSessionId: string) => {
   document.addEventListener('agentshire:soulmode', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail
     scene.setSoulModeEnabled(enabled)
+  })
+  document.addEventListener('agentshire:autowalk', (e: Event) => {
+    const { enabled } = (e as CustomEvent).detail
+    scene.setAutoWalkEnabled(enabled)
   })
 
   // Listen for cross-iframe messages from parent React App (settings changes)
@@ -615,6 +623,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
       scene.setMusicEnabled(!!data.enabled)
     } else if (data.type === 'agentshire:soulmode') {
       scene.setSoulModeEnabled(!!data.enabled)
+    } else if (data.type === 'agentshire:autowalk') {
+      scene.setAutoWalkEnabled(!!data.enabled)
     }
   })
 

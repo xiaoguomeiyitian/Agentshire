@@ -185,6 +185,12 @@ export type AgentEvent =
       cells: Array<{ col: number; row: number; type: string }> }
   | { type: 'world_control'; target: 'scene'; action: 'expand';
       newCols: number; newRows: number }
+  // World control (NPC spatial query — plugin tools → frontend)
+  | { type: 'world_control'; target: 'query_npc';
+      requestId: string;
+      query:
+        | { kind: 'self'; npcId: string }
+        | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string } }
 
   // Error
   | { type: 'error'; message: string; recoverable: boolean };

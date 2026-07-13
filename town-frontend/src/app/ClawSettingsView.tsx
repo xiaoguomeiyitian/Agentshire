@@ -3,11 +3,13 @@ import {
   RefreshCw, Save, Settings, MessageSquare, Cpu, Info,
   ChevronDown, ChevronRight, Plug, SlidersHorizontal,
   Trash2, Globe, Monitor, Download, Bug, ShieldAlert,
+  Menu, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
 import { apiUrl } from '@/utils/api-base'
 import { ModelPanel } from './ModelPanel'
+import { AgentModelsPanel } from './AgentModelsPanel'
 
 interface ClawSettingsViewProps {
   visible: boolean
@@ -96,7 +98,7 @@ interface SessionTotals {
   count: number
 }
 
-type NavSection = 'general' | 'models' | 'plugin' | 'sessions' | 'advanced' | 'about'
+type NavSection = 'general' | 'providers' | 'models' | 'plugin' | 'sessions' | 'advanced' | 'about'
 
 // ── Helpers ──
 
@@ -347,11 +349,29 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     return acc
   }, {})
 
-  if (!visible) return null
+  // Delete a single session
+  const handleDeleteSession = useCallback(async (agentId: string, sessionKey: string) => {
+    try {
+      const resp = await fetch(apiUrl('/claw/_api/sessions/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, sessionKey }),
+      })
+      const data = await resp.json()
+      if (data.success) {
+        await loadSessions()
+      } else {
+        setError(data.error ?? 'Delete failed')
+      }
+    } catch (err: any) {
+      setError(err?.message ?? 'Network error')
+    }
+  }, [loadSessions])
 
   // ── Nav items ──
   const navItems: Array<{ key: NavSection; label: string; icon: any }> = [
     { key: 'general', label: t('claw.nav_general'), icon: SlidersHorizontal },
+    { key: 'providers', label: t('claw.nav_providers'), icon: Cpu },
     { key: 'models', label: t('claw.nav_models'), icon: Cpu },
     { key: 'plugin', label: t('claw.nav_plugin'), icon: Plug },
     { key: 'sessions', label: t('claw.nav_sessions'), icon: MessageSquare },
@@ -359,14 +379,51 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     { key: 'about', label: t('claw.nav_about'), icon: Info },
   ]
 
+  // Mobile nav drawer open state
+  const [navOpen, setNavOpen] = useState(false)
+
+  // Sections that have their own save / are read-only — disable the global save button.
+  const noSaveSections: NavSection[] = ['sessions', 'about', 'models', 'providers']
+
   return (
-    <div className="absolute inset-0 flex bg-bg-base">
+    <div className="absolute inset-0 flex bg-bg-base" style={{ display: visible ? undefined : 'none' }}>
+      {/* ── Mobile nav toggle (visible only on mobile) ── */}
+      <button
+        onClick={() => setNavOpen(true)}
+        className="md:hidden absolute top-3 left-3 z-30 flex items-center justify-center w-9 h-9 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors"
+        aria-label="menu"
+      >
+        <Menu size={18} strokeWidth={1.8} />
+      </button>
+
+      {/* ── Mobile nav backdrop ── */}
+      {navOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/55 z-40"
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+
       {/* ── Left: Nav tree ── */}
-      <div className="w-[140px] shrink-0 border-r border-border-subtle flex flex-col bg-bg-canvas">
+      <div className={cn(
+        'w-[160px] shrink-0 border-r border-border-subtle flex flex-col bg-bg-canvas',
+        // Mobile: slide-in drawer; Desktop: always visible
+        'fixed md:relative inset-y-0 left-0 z-50 transition-transform duration-200',
+        navOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+      )}>
         {/* Header */}
-        <div className="flex items-center gap-2 px-3 py-4 border-b border-border-subtle whitespace-nowrap">
-          <Settings size={16} className="text-brand-secondary shrink-0" strokeWidth={1.8} />
-          <span className="text-[13px] font-semibold text-text-primary">{t('claw.title')}</span>
+        <div className="flex items-center justify-between gap-2 px-3 py-4 border-b border-border-subtle whitespace-nowrap">
+          <div className="flex items-center gap-2">
+            <Settings size={16} className="text-brand-secondary shrink-0" strokeWidth={1.8} />
+            <span className="text-[13px] font-semibold text-text-primary">{t('claw.title')}</span>
+          </div>
+          {/* Close button (mobile only) */}
+          <button
+            onClick={() => setNavOpen(false)}
+            className="md:hidden text-text-tertiary hover:text-text-primary cursor-pointer shrink-0"
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Nav items */}
@@ -374,7 +431,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
           {navItems.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => setActiveSection(key)}
+              onClick={() => { setActiveSection(key); setNavOpen(false) }}
               className={cn(
                 'flex items-center gap-2 w-full px-3 py-2.5 text-[13px] cursor-pointer whitespace-nowrap',
                 'transition-colors duration-150 border-l-2',
@@ -393,24 +450,24 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
       {/* ── Right: Detail panel ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* ── Top toolbar: refresh + save ── */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border-subtle bg-bg-canvas">
-          <div className="flex items-center gap-2">
-            <h2 className="text-[15px] font-semibold text-text-primary">
+        <div className="flex items-center justify-between px-5 py-3 pl-14 md:pl-5 border-b border-border-subtle bg-bg-canvas">
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-[15px] font-semibold text-text-primary truncate">
               {navItems.find((n) => n.key === activeSection)?.label}
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => { loadConfig(); loadSessions() }}
               disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors duration-150 disabled:opacity-50"
             >
               <RefreshCw size={13} strokeWidth={1.8} className={loading ? 'animate-spin' : ''} />
-              {t('claw.refresh')}
+              <span className="hidden sm:inline">{t('claw.refresh')}</span>
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || activeSection === 'sessions' || activeSection === 'about' || activeSection === 'models'}
+              disabled={saving || noSaveSections.includes(activeSection)}
               className={cn(
                 'flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-[12px] font-semibold cursor-pointer',
                 'transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed',
@@ -442,6 +499,10 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
         {activeSection === 'models' ? (
           <div className="flex-1 min-h-0">
             <ModelPanel />
+          </div>
+        ) : activeSection === 'providers' ? (
+          <div className="flex-1 min-h-0 overflow-y-auto styled-scrollbar">
+            <AgentModelsPanel />
           </div>
         ) : (
         <div className="flex-1 overflow-y-auto styled-scrollbar">
@@ -486,6 +547,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
               setClearConfirm={setClearConfirm}
               onClear={handleClearSessions}
               clearResult={clearResult}
+              onDeleteSession={handleDeleteSession}
             />
           )}
           {activeSection === 'advanced' && (
@@ -520,12 +582,12 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
 
 function PanelWrapper({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
-    <div className="max-w-2xl mx-auto px-6 py-6">
-      <div className="flex items-center gap-2 mb-5">
+    <div>
+      <div className="flex items-center gap-2 mb-3">
         <span className="text-brand-secondary">{icon}</span>
         <h3 className="text-[15px] font-semibold text-text-primary">{title}</h3>
       </div>
-      <div className="rounded-2xl bg-bg-surface border border-border-subtle p-5">
+      <div className="rounded-2xl bg-bg-surface border border-border-subtle p-4 md:p-5">
         {children}
       </div>
     </div>
@@ -534,8 +596,8 @@ function PanelWrapper({ icon, title, children }: { icon: React.ReactNode; title:
 
 function SettingRow({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3">
-      <div className="flex-1 min-w-0 pr-4">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-0 py-3">
+      <div className="flex-1 min-w-0 sm:pr-4">
         <div className="text-[13px] text-text-secondary">{label}</div>
         {desc && <div className="text-[11px] text-text-tertiary mt-0.5">{desc}</div>}
       </div>
@@ -597,7 +659,7 @@ function GeneralPanel({
     return <div className="py-20 text-center text-[13px] text-text-tertiary">{t('claw.loading')}</div>
   }
   return (
-    <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-5 md:py-6 space-y-6">
       <PanelWrapper icon={<Cpu size={16} />} title={t('claw.section_settings')}>
         <div className="space-y-1">
           <SettingRow label={t('claw.gateway_mode')}>
@@ -720,6 +782,7 @@ function PluginPanel({
     return <div className="py-20 text-center text-[13px] text-text-tertiary">{t('claw.loading')}</div>
   }
   return (
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-5 md:py-6">
     <PanelWrapper icon={<Plug size={16} />} title={t('claw.nav_plugin')}>
       <div className="space-y-1">
         <SettingRow label={t('claw.plugin_enabled')} desc={t('claw.plugin_enabled_desc')}>
@@ -735,6 +798,7 @@ function PluginPanel({
         </SettingRow>
       </div>
     </PanelWrapper>
+    </div>
   )
 }
 
@@ -742,7 +806,7 @@ function PluginPanel({
 
 function SessionsPanel({
   sessions, totals, sessionsByAgent, expandedAgents, toggleAgent,
-  clearing, clearConfirm, setClearConfirm, onClear, clearResult,
+  clearing, clearConfirm, setClearConfirm, onClear, clearResult, onDeleteSession,
 }: {
   sessions: SessionSummary[]
   totals: SessionTotals | null
@@ -754,9 +818,10 @@ function SessionsPanel({
   setClearConfirm: (v: boolean) => void
   onClear: () => void
   clearResult: number | null
+  onDeleteSession: (agentId: string, sessionKey: string) => void
 }) {
   return (
-    <div className="max-w-3xl mx-auto px-6 py-6">
+    <div className="max-w-3xl mx-auto px-4 md:px-6 py-5 md:py-6">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           <span className="text-brand-secondary"><MessageSquare size={16} /></span>
@@ -838,7 +903,7 @@ function SessionsPanel({
                 {expanded && (
                   <div className="border-t border-border-subtle">
                     {agentSessions.map((s) => (
-                      <SessionRow key={s.sessionKey} session={s} />
+                      <SessionRow key={s.sessionKey} session={s} onDelete={() => onDeleteSession(agentId, s.sessionKey)} />
                     ))}
                   </div>
                 )}
@@ -860,8 +925,10 @@ function StatCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-function SessionRow({ session }: { session: SessionSummary }) {
+function SessionRow({ session, onDelete }: { session: SessionSummary; onDelete: () => void }) {
   const [expanded, setExpanded] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDel, setConfirmDel] = useState(false)
 
   const statusColor = session.status === 'done' ? 'text-status-success'
     : session.status === 'error' || session.status === 'failed' ? 'text-red-400'
@@ -873,18 +940,56 @@ function SessionRow({ session }: { session: SessionSummary }) {
     : session.status === 'running' ? 'bg-brand-primary'
     : 'bg-text-quaternary'
 
+  const handleDelete = useCallback(async () => {
+    setDeleting(true)
+    try {
+      onDelete()
+    } finally {
+      setDeleting(false)
+      setConfirmDel(false)
+    }
+  }, [onDelete])
+
   return (
     <div className="border-b border-border-subtle last:border-b-0">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-3 w-full px-4 py-2.5 hover:bg-bg-elevated/30 transition-colors duration-100 cursor-pointer text-left"
-      >
-        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotColor)} />
-        <span className="text-[12px] text-text-secondary truncate flex-1 font-mono">{session.sessionId.slice(0, 8)}</span>
-        <span className={cn('text-[11px] shrink-0', statusColor)}>{session.status}</span>
-        <span className="text-[11px] text-text-tertiary shrink-0 hidden md:inline">{formatTime(session.updatedAt)}</span>
-        <span className="text-[12px] text-brand-secondary font-mono shrink-0">{formatTokens(session.totalTokens)}</span>
-      </button>
+      <div className="flex items-center gap-3 w-full px-4 py-2.5 hover:bg-bg-elevated/30 transition-colors duration-100 text-left">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer text-left"
+        >
+          <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dotColor)} />
+          <span className="text-[12px] text-text-secondary truncate flex-1 font-mono">{session.sessionId.slice(0, 8)}</span>
+          <span className={cn('text-[11px] shrink-0', statusColor)}>{session.status}</span>
+          <span className="text-[11px] text-text-tertiary shrink-0 hidden md:inline">{formatTime(session.updatedAt)}</span>
+          <span className="text-[12px] text-brand-secondary font-mono shrink-0">{formatTokens(session.totalTokens)}</span>
+        </button>
+        {/* Delete single session */}
+        {confirmDel ? (
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-[11px] text-red-400 hover:text-red-300 cursor-pointer px-1.5 py-0.5 rounded border border-red-500/30 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            >
+              {deleting ? '...' : t('claw.mm_confirm')}
+            </button>
+            <button
+              onClick={() => setConfirmDel(false)}
+              className="text-[11px] text-text-tertiary hover:text-text-primary cursor-pointer px-1.5 py-0.5 rounded transition-colors"
+            >
+              {t('claw.mm_cancel')}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirmDel(true)}
+            className="shrink-0 w-6 h-6 flex items-center justify-center rounded-md text-text-tertiary hover:text-red-400 hover:bg-red-500/10 cursor-pointer transition-colors"
+            title={t('claw.delete_session')}
+          >
+            <Trash2 size={12} strokeWidth={1.8} />
+          </button>
+        )}
+      </div>
 
       {expanded && (
         <div className="px-4 pb-3 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5 text-[11px]">
@@ -922,6 +1027,7 @@ function AboutPanel({ config, loading }: { config: ClawConfig | null; loading: b
     return <div className="py-20 text-center text-[13px] text-text-tertiary">{t('claw.loading')}</div>
   }
   return (
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-5 md:py-6">
     <PanelWrapper icon={<Info size={16} />} title={t('claw.nav_about')}>
       <div className="space-y-1">
         <SettingRow label={t('claw.version')}>
@@ -948,6 +1054,7 @@ function AboutPanel({ config, loading }: { config: ClawConfig | null; loading: b
         </div>
       </div>
     </PanelWrapper>
+    </div>
   )
 }
 
@@ -971,7 +1078,7 @@ function AdvancedPanel(props: {
     return <div className="py-20 text-center text-[13px] text-text-tertiary">{t('claw.loading')}</div>
   }
   return (
-    <div className="max-w-2xl mx-auto px-6 py-6 space-y-6">
+    <div className="max-w-2xl mx-auto px-4 md:px-6 py-5 md:py-6 space-y-6">
       {/* Browser */}
       <AdvancedSection icon={<Monitor size={16} />} title={t('claw.adv_browser')}>
         <SettingRow label={t('claw.adv_browser_enabled')} desc={t('claw.adv_browser_enabled_desc')}>

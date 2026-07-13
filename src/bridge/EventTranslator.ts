@@ -85,6 +85,10 @@ export class EventTranslator {
             newRows: (e as any).newRows,
           }]
         }
+        if (event.target === 'query_npc') {
+          const e = event as Extract<AgentEvent, { type: 'world_control'; target: 'query_npc' }>
+          return [{ type: 'npc_query' as const, requestId: e.requestId, query: e.query }]
+        }
         return []
       }
       case 'error':

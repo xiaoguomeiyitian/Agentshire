@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026.7.13
+
+### New Features
+- **Citizen Spatial Awareness & Movement (3 tools)** — Residents can now perceive their 3D world and move through it via 3 new AI tools: `town_get_my_status` (get own state + position), `town_query_nearby_citizens` (query citizens within a radius, sorted by distance), and `town_walk_to` (walk to a coordinate). A new plugin↔frontend request-response channel (`world_control.query_npc` → `npc_query` GameEvent → `npc_query_result` GameAction) lets plugin-layer tools read live NPC positions/states that only exist in the browser. Tool caller identity is resolved via a `before_tool_call` hook mapping (`toolCallId → agentId → npcId`).
+- **Citizen Auto-Walk Toggle** — New "居民自动行走" (Citizen Auto-Walk) switch in the Settings panel controls `DailyBehavior` scheduled walking (leaving home / roaming / going home). Default ON; when OFF, NPCs stay visible at their current positions and stop scheduling new walks, but still respond to `town_walk_to` tool moves and user dialogue. Toggling does not remove any NPC — all citizens remain on the map at all times.
+- **Town 3D Scene Lazy-Loading** — The app now defaults to the `#chat` route on open. The Town 3D scene (iframe loading `town.html` → Engine/MainScene/WebSocket) is only initialized when the user first clicks the Town tab, avoiding the full 3D engine/asset/WebSocket initialization cost when the user just wants to chat. Once loaded, the Town iframe stays mounted for instant switching.
+- **Agent Models Panel** — New `AgentModelsPanel` React component in the Claw Settings view ("代理管理" / Agent Models): manage each resident (Agent) and its LLM model proxy — primary model + fallbacks, identity (name, emoji), thinking/reasoning defaults, context tokens, subagent timeout, group-chat history limit. All fields map to `openclaw.json` `agents.list[]` entries via new `get-agent-config` / `update-agent-config` backend APIs.
+- **Session Deletion** — The Claw Settings → Sessions panel now supports deleting individual sessions (per agent + sessionKey), removing both the `sessions.json` entry and the `.jsonl` / `.trajectory` files.
+
+### Improvements
+- **Claw Settings Navigation** — Added a dedicated "代理管理" (Providers) nav section in the Claw Settings panel, separating provider/agent-model management from the models list.
+- **Mobile Chat Back-Button Fix** — `ChatView` now watches an `exitNonce` signal from `App` to correctly reset internal group-chat state when the mobile back button is pressed while in group chat (where `selectedAgent` is already null, so the existing effect couldn't detect the back press).
+- **DailyBehavior Auto-Walk Granularity** — Auto-walk toggle only affects scheduled walking decisions; AgentBrain L1/L2 decisions, casual encounters, and tool-triggered moves are unaffected.
+
+### Chores
+- Updated `openclaw.plugin.json` `contracts.tools` with the 3 new spatial tools (`town_get_my_status`, `town_query_nearby_citizens`, `town_walk_to`).
+- Added `getAgentConfig` / `updateAgentConfig` helpers in `citizen-agent-manager.ts` for reading/patching agent entries in `openclaw.json`.
+- Added `sessions/delete` route in `editor-serve.ts` Claw API.
+
 ## 2026.7.12
 
 ### New Features

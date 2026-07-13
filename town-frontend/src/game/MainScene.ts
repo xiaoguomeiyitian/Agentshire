@@ -82,6 +82,7 @@ export class MainScene implements GameScene {
   private ambientSound = new AmbientSoundManager()
   private bgm = new BGMManager()
   private musicEnabled = true
+  private autoWalkEnabled = true
   private timeHUD!: TimeHUD
   private modeManager = new ModeManager()
   private modeIndicator!: ModeIndicator
@@ -486,6 +487,7 @@ export class MainScene implements GameScene {
       onNpcDespawn: (npcId) => this.onNpcDespawn(npcId),
       onNpcPhase: (npcId, phase) => this.onNpcPhase(npcId, phase),
       onNpcMoveTo: (npcId, target, speed, requestId) => this.onNpcMoveTo(npcId, target, speed, requestId),
+      onNpcQuery: (requestId, query) => this.onNpcQuery(requestId, query),
       onNpcDailyBehaviorReady: (npcId) => this.onNpcDailyBehaviorReady(npcId),
       onNpcEmote: (e) => {
         const npc = this.npcManager.get(e.npcId)
@@ -999,6 +1001,15 @@ __workflow 演出测试指令:
     }
   }
 
+  setAutoWalkEnabled(enabled: boolean): void {
+    this.autoWalkEnabled = enabled
+    // Toggle walking on each existing behavior without removing any NPC.
+    // This keeps all citizens visible on the map at all times.
+    for (const behavior of this.dailyScheduler.getDailyBehaviors().values()) {
+      behavior.setAutoWalkEnabled(enabled)
+    }
+  }
+
   // ── Topic mode (group discussion) ──
 
   private topicNpcIds: string[] = []
@@ -1487,6 +1498,68 @@ __workflow 演出测试指令:
       if (!requestId) return
       this.dataSource.sendAction({ type: 'npc_move_completed', npcId, requestId, status })
     })
+  }
+
+  /** Handle a spatial query from plugin tools (town_get_my_status / town_query_nearby_citizens). */
+  private onNpcQuery(
+    requestId: string,
+    query: { kind: 'self'; npcId: string } | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string },
+  ): void {
+    if (query.kind === 'self') {
+      const npc = this.npcManager.get(query.npcId)
+      if (!npc) {
+        this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { error: `NPC "${query.npcId}" not found` } })
+        return
+      }
+      const pos = npc.getPosition()
+      this.dataSource.sendAction({
+        type: 'npc_query_result',
+        requestId,
+        data: {
+          npcId: npc.id,
+          name: npc.name,
+          state: npc.state,
+          npcState: npc.npcState,
+          position: { x: Number(pos.x.toFixed(2)), y: Number(pos.y.toFixed(2)), z: Number(pos.z.toFixed(2)) },
+          isMoving: npc.state === 'walking',
+          isInActiveScene: npc.isInActiveScene,
+        },
+      })
+      return
+    }
+
+    // nearby query
+    let origin: { x: number; z: number }
+    if (query.origin) {
+      origin = query.origin
+    } else if (query.callerNpcId) {
+      const caller = this.npcManager.get(query.callerNpcId)
+      const cp = caller?.getPosition()
+      origin = cp ? { x: cp.x, z: cp.z } : { x: 0, z: 0 }
+    } else {
+      origin = { x: 0, z: 0 }
+    }
+    const radius = query.radius
+    const results: Array<{ npcId: string; name: string; state: string; position: { x: number; y: number; z: number }; distance: number }> = []
+    for (const npc of this.npcManager.getAll()) {
+      if (query.callerNpcId && npc.id === query.callerNpcId) continue
+      if (!npc.mesh.visible) continue
+      const pos = npc.getPosition()
+      const dx = pos.x - origin.x
+      const dz = pos.z - origin.z
+      const distance = Math.sqrt(dx * dx + dz * dz)
+      if (distance <= radius) {
+        results.push({
+          npcId: npc.id,
+          name: npc.name,
+          state: npc.state,
+          position: { x: Number(pos.x.toFixed(2)), y: Number(pos.y.toFixed(2)), z: Number(pos.z.toFixed(2)) },
+          distance: Number(distance.toFixed(2)),
+        })
+      }
+    }
+    results.sort((a, b) => a.distance - b.distance)
+    this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { citizens: results } })
   }
 
   private onNpcDailyBehaviorReady(npcId: string): void {

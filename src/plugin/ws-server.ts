@@ -656,6 +656,12 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
             action: { type: "abort_requested", ...(agentId ? { agentId } : {}), ...(npcId ? { npcId } : {}) },
             townSessionId,
           });
+        } else if (msg.type === "npc_query_result" && typeof msg.requestId === "string") {
+          const townSessionId = getClientSessionId(ws);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← npc_query_result requestId=${msg.requestId}`,
+          );
+          resolveNpcQuery(msg.requestId, msg.data);
         } else {
           const townSessionId = getClientSessionId(ws);
           console.log(
@@ -746,6 +752,56 @@ export function broadcastAgentEvent(event: AgentEvent, townSessionId?: string): 
 
 export function getConnectedClientCount(): number {
   return clients.size;
+}
+
+// ── NPC spatial query: plugin tools → frontend → result back ──
+
+interface PendingNpcQuery {
+  resolve: (data: unknown) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const pendingNpcQueries = new Map<string, PendingNpcQuery>();
+const NPC_QUERY_TIMEOUT_MS = 5000;
+
+/** Resolve a pending NPC query by requestId (called when frontend sends npc_query_result). */
+function resolveNpcQuery(requestId: string, data: unknown): void {
+  const pending = pendingNpcQueries.get(requestId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingNpcQueries.delete(requestId);
+  pending.resolve(data);
+}
+
+/**
+ * Send a spatial query to all connected frontends and return a Promise that
+ * resolves with the first frontend's response (or rejects after timeout).
+ * `query` shape matches the `world_control.target='query_npc'` AgentEvent variant.
+ */
+export function requestNpcQuery(
+  query:
+    | { kind: "self"; npcId: string }
+    | { kind: "nearby"; radius: number; origin?: { x: number; z: number }; callerNpcId?: string },
+): Promise<unknown> {
+  const requestId = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  return new Promise<unknown>((resolve, reject) => {
+    if (clients.size === 0) {
+      reject(new Error("前端未连接，无法查询 NPC 状态"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      pendingNpcQueries.delete(requestId);
+      reject(new Error("前端响应超时"));
+    }, NPC_QUERY_TIMEOUT_MS);
+    pendingNpcQueries.set(requestId, { resolve, reject, timer });
+    broadcastAgentEvent({
+      type: "world_control",
+      target: "query_npc",
+      requestId,
+      query,
+    } as any);
+  });
 }
 
 let lastPushHash = "";

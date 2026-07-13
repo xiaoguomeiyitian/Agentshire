@@ -76,6 +76,11 @@ interface ChatViewProps {
   onAgentChange?: (agent: AgentInfo | null) => void
   onConnectedChange?: (connected: boolean) => void
   onGroupChatActiveChange?: (active: boolean) => void
+  /** Incremented by App when the mobile back button is pressed. ChatView
+   * watches this nonce to reset its internal groupChatActive state, because
+   * selectedAgent is already null in group chat so the selectedAgent-based
+   * effect cannot detect the back press. */
+  exitNonce?: number
 }
 
 let globalMsgId = 0
@@ -127,7 +132,7 @@ function getAgentRoutingKey(agent: AgentInfo | null): string {
   return agent.agentId ?? agent.id
 }
 
-export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedChange, onGroupChatActiveChange }: ChatViewProps) {
+export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedChange, onGroupChatActiveChange, exitNonce }: ChatViewProps) {
   const { agents, loading } = useAgents()
   const [items, setItems] = useState<Map<string, ChatItem[]>>(new Map())
   const [historyLoadedSet, setHistoryLoadedSet] = useState<Set<string>>(new Set())
@@ -263,6 +268,23 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     }
     internalAgentClearRef.current = false
   }, [selectedAgent, groupChatActive])
+
+  // Watch the exitNonce signal from App. When the user presses the mobile back
+  // button while in group chat, selectedAgent is already null, so the effect
+  // above cannot detect the back press. App bumps exitNonce instead, and we
+  // reset the internal groupChatActive state here. Skip the initial mount
+  // (exitNonce === 0) so we don't clobber a persisted 'group' view mode.
+  const lastExitNonceRef = useRef(exitNonce ?? 0)
+  useEffect(() => {
+    const nonce = exitNonce ?? 0
+    if (nonce === lastExitNonceRef.current) return
+    lastExitNonceRef.current = nonce
+    if (nonce === 0) return
+    // External back press — exit group chat and show the agent list on mobile.
+    userNavigatedRef.current = true
+    setGroupChatActive(false)
+    try { localStorage.setItem(CHAT_VIEW_MODE_STORAGE_KEY, 'agent') } catch { /* ignore */ }
+  }, [exitNonce])
 
   const wsUrl = useMemo(() => {
     const param = new URLSearchParams(window.location.search).get('ws')
@@ -1322,13 +1344,13 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
           />
         ) : selectedAgent ? (
           <>
-            <div className="hidden md:flex items-center gap-2 px-4 py-1 select-none shrink-0">
-              <span className="text-[13px] font-semibold text-brand-secondary">{selectedAgent.name}</span>
+            <div className="flex items-center gap-2 px-4 py-1 select-none shrink-0">
+              <span className="hidden md:inline text-[13px] font-semibold text-brand-secondary">{selectedAgent.name}</span>
               {selectedAgent.specialty && (
-                <span className="text-[11px] text-text-quaternary/70">（{selectedAgent.specialty}）</span>
+                <span className="hidden md:inline text-[11px] text-text-quaternary/70">（{selectedAgent.specialty}）</span>
               )}
               <span className={cn(
-                'w-1.5 h-1.5 rounded-full shrink-0',
+                'hidden md:block w-1.5 h-1.5 rounded-full shrink-0',
                 agentOnline ? 'bg-status-success' : 'bg-text-quaternary',
               )} />
               {/* Agent model selector */}

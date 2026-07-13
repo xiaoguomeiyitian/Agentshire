@@ -10,6 +10,7 @@ function createMockHandlers(): EventHandlers {
     onNpcPhase: vi.fn(),
     onNpcMoveTo: vi.fn(),
     onNpcDailyBehaviorReady: vi.fn(),
+    onNpcQuery: vi.fn(),
     onNpcEmote: vi.fn(),
     onNpcEmoji: vi.fn(),
     onNpcGlow: vi.fn(),
@@ -193,5 +194,29 @@ describe('EventDispatcher', () => {
 
     expect(handlers.onProgress).toHaveBeenCalledOnce()
     expect(handlers.onProgress).toHaveBeenCalledWith(3, 10, 'Loading...')
+  })
+
+  it('npc_query (self) → calls onNpcQuery with requestId and self query', () => {
+    const event: GameEvent = {
+      type: 'npc_query',
+      requestId: 'q-1',
+      query: { kind: 'self', npcId: 'citizen_1' },
+    }
+    dispatcher.dispatch(event)
+
+    expect(handlers.onNpcQuery).toHaveBeenCalledOnce()
+    expect(handlers.onNpcQuery).toHaveBeenCalledWith('q-1', { kind: 'self', npcId: 'citizen_1' })
+  })
+
+  it('npc_query (nearby) → calls onNpcQuery with requestId and nearby query', () => {
+    const event: GameEvent = {
+      type: 'npc_query',
+      requestId: 'q-2',
+      query: { kind: 'nearby', radius: 10, callerNpcId: 'citizen_1' },
+    }
+    dispatcher.dispatch(event)
+
+    expect(handlers.onNpcQuery).toHaveBeenCalledOnce()
+    expect(handlers.onNpcQuery).toHaveBeenCalledWith('q-2', { kind: 'nearby', radius: 10, callerNpcId: 'citizen_1' })
   })
 })

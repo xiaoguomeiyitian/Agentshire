@@ -1,7 +1,7 @@
 {
   "id": "agentshire",
   "name": "Agentshire",
-  "description": "OpenClaw plugin for building a living 3D town with social NPCs, a map editor, and a character workshop.",
+  "description": "OpenClaw plugin for building a living 3D town with social NPCs, a map editor, a character workshop, and citizen spatial-aware AI tools.",
   "channels": ["agentshire"],
   "channelConfigs": {
     "agentshire": {
@@ -56,7 +56,10 @@
       "town_transform_object",
       "town_delete_object",
       "town_set_terrain",
-      "town_expand_map"
+      "town_expand_map",
+      "town_get_my_status",
+      "town_query_nearby_citizens",
+      "town_walk_to"
     ]
   },
   "configSchema": {

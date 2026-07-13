@@ -28,7 +28,7 @@
 │                                                                          │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │   channel    │  │     hook-    │  │   ws-server  │  │    tools     │  │
-│  │   inbound    │  │  translator  │  │   WS:20008   │  │  11 AI tools │  │
+│  │   inbound    │  │  translator  │  │   WS:20008   │  │  14 AI tools │  │
 │  │   dispatch   │  │  Hook→Event  │  │   broadcast  │  │  plan / step │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
@@ -125,13 +125,13 @@ agentshire/
 │   │   ├── channel.ts             # ChannelPlugin implementation
 │   │   ├── hook-translator.ts     # Hook → AgentEvent translation
 │   │   ├── ws-server.ts           # WebSocket server + session management
-│   │   ├── tools.ts               # AI tool registration (11 tools)
+│   │   ├── tools.ts               # AI tool registration (14 tools)
 │   │   ├── auto-config.ts         # Zero-config auto-create Agent + Binding
 │   │   ├── plan-manager.ts        # Multi-agent plan state machine
-│   │   ├── citizen-agent-manager.ts # Independent citizen Agent create/disable/update
+│   │   ├── citizen-agent-manager.ts # Independent citizen Agent create/disable/update + get/updateAgentConfig
 │   │   ├── citizen-chat-router.ts # User ↔ citizen Agent message routing
 │   │   ├── citizen-workshop-manager.ts # Citizen workshop config persistence
-│   │   ├── editor-serve.ts        # Editor HTTP API (asset CRUD / GLB optimize / publish / models API)
+│   │   ├── editor-serve.ts        # Editor HTTP API (asset CRUD / GLB optimize / publish / models API / agent-config / sessions)
 │   │   ├── llm-proxy.ts           # Lightweight LLM proxy (2 concurrent, anthropic/openai)
 │   │   ├── llm-agent-proxy.ts     # Per-agent LLM model routing (modelRef resolution)
 │   │   ├── model-config.ts        # openclaw.json providers/models CRUD (pure functions)
@@ -323,6 +323,7 @@ agentshire/
 | `GameAction` | same as above | 14 | MainScene → DataSource → Bridge |
 | `GroupMessage` | `src/contracts/chat.ts` | — | group-chat, group-chat-history, GroupChatView |
 | `PublishedCitizenConfig` | `town-frontend/src/data/CitizenWorkshopConfig.ts` | — | SceneBootstrap, editor-serve, CitizenWorkshop |
+| `npc_query_result` | `GameProtocol.ts` (GameAction) | — | tools.ts (spatial tools) ← MainScene (NPC query) |
 
 ## Sub-Module AGENTS.md
 
@@ -377,6 +378,10 @@ Test distribution:
 | Modify group chat system | `src/plugin/group-chat.ts` + `group-chat-history.ts` + `group-chat-context.ts` |
 | Modify LLM model management | `src/plugin/model-config.ts` + `town-frontend/src/editor/model/` |
 | Modify per-agent LLM model routing | `src/plugin/llm-agent-proxy.ts` |
+| Modify per-agent model proxy UI | `town-frontend/src/app/AgentModelsPanel.tsx` |
+| Modify citizen auto-walk toggle | `town-frontend/src/ui/SettingsPanel.ts` + `npc/DailyBehavior.ts` (`setAutoWalkEnabled`) + `game/MainScene.ts` |
+| Modify Town lazy-loading | `town-frontend/src/app/App.tsx` (`getTabFromHash`) + `app/TownView.tsx` (`loaded` state) |
+| Modify citizen spatial tools | `src/plugin/tools.ts` (3 spatial tools) + `town-frontend/src/game/MainScene.ts` (NPC query handler) |
 | Modify workflow choreography | `town-frontend/src/game/workflow/Choreographer.ts` → corresponding Orchestrator |
 | Modify NPC post-completion departure | `town-frontend/src/game/workflow/WorkflowHandler.ts` `handleNpcWorkDone()` |
 | Add frontend GameEvent handler | `town-frontend/src/game/EventDispatcher.ts` |

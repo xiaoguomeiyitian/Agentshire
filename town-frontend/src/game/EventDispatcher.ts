@@ -7,6 +7,7 @@ export interface EventHandlers {
   onNpcDespawn(npcId: string): void
   onNpcPhase(npcId: string, phase: string): void
   onNpcMoveTo(npcId: string, target: { x: number; y: number; z: number }, speed?: number, requestId?: string): void
+  onNpcQuery(requestId: string, query: { kind: 'self'; npcId: string } | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string }): void
   onNpcDailyBehaviorReady(npcId: string): void
   onNpcEmote(event: GameEvent & { type: 'npc_emote' }): void
   onNpcEmoji(npcId: string, emoji: string | null): void
@@ -66,6 +67,9 @@ export class EventDispatcher {
         break
       case 'npc_move_to':
         this.handlers.onNpcMoveTo(event.npcId, event.target, event.speed, event.requestId)
+        break
+      case 'npc_query':
+        this.handlers.onNpcQuery(event.requestId, event.query)
         break
       case 'npc_daily_behavior_ready':
         this.handlers.onNpcDailyBehaviorReady(event.npcId)

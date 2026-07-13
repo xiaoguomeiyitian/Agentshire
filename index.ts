@@ -14,6 +14,25 @@ import { pushNewChatMessages, pushSubagentCompletion } from "./src/plugin/ws-ser
 import { handleEditorRequest, ensureEditorDirs, MIME_TYPES } from "./src/plugin/editor-serve.js";
 import { getAgentModelRef } from "./src/plugin/citizen-agent-manager.js";
 
+// ── toolCallId → agentId mapping for spatial tools ──
+// Populated by the before_tool_call hook so that tools (which only receive
+// the toolUseId) can resolve the calling agent's identity.
+const toolCallAgentMap = new Map<string, string>();
+const TOOL_CALL_MAP_TTL_MS = 5 * 60 * 1000;
+
+/** Record a toolCallId → agentId mapping (called from before_tool_call hook). */
+function recordToolCallAgent(toolCallId: string, agentId: string): void {
+  if (!toolCallId || !agentId) return;
+  toolCallAgentMap.set(toolCallId, agentId);
+  // TTL cleanup
+  setTimeout(() => toolCallAgentMap.delete(toolCallId), TOOL_CALL_MAP_TTL_MS);
+}
+
+/** Resolve the agentId that initiated a tool call (exported for tools.ts). */
+export function getToolCallAgent(toolUseId: string): string | null {
+  return toolCallAgentMap.get(toolUseId) ?? null;
+}
+
 const NUDGE_DELAY_MS = 10_000;
 let pendingNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let httpServer: import("node:http").Server | null = null;
@@ -199,6 +218,12 @@ function registerHooks(api: OpenClawPluginApi): void {
 
   for (const hookName of stewardHooks) {
     api.on(hookName, (event: any, ctx: any) => {
+      // Record toolCallId → agentId mapping for spatial tools
+      if (hookName === 'before_tool_call') {
+        const toolCallId = String((event as any)?.toolCallId ?? (event as any)?.toolUseId ?? '');
+        const agentId = (ctx as any)?.agentId ?? TOWN_AGENT_ID;
+        if (toolCallId) recordToolCallAgent(toolCallId, agentId);
+      }
       if (!isStewardDirect(ctx)) {
         if (hookName === 'before_agent_start') {
           const sid = resolveSessionId(ctx, event as any);

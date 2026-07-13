@@ -60,6 +60,11 @@ export function TopNav({ activeTab, onTabChange, chatAgent, onChatBack, groupCha
             const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
             iframe?.contentWindow?.postMessage({ type: 'agentshire:soulmode', enabled }, '*')
           },
+          onAutoWalkChange: (enabled) => {
+            document.dispatchEvent(new CustomEvent('agentshire:autowalk', { detail: { enabled } }))
+            const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
+            iframe?.contentWindow?.postMessage({ type: 'agentshire:autowalk', enabled }, '*')
+          },
           onReset: () => {
             localStorage.removeItem('agentshire_config')
             location.reload()

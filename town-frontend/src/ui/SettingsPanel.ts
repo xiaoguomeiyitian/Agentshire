@@ -4,6 +4,7 @@ export interface SettingsState {
   language: string
   music: boolean
   soulMode: boolean
+  autoWalk: boolean
 }
 
 const SETTINGS_KEY = 'agentshire_settings'
@@ -18,10 +19,11 @@ export function loadSettings(): SettingsState {
         language: s.language ?? 'zh-CN',
         music: s.music !== false,
         soulMode: s.soulMode !== false,
+        autoWalk: s.autoWalk !== false,
       }
     }
   } catch { /* ignore */ }
-  return { language: 'zh-CN', music: true, soulMode: true }
+  return { language: 'zh-CN', music: true, soulMode: true, autoWalk: true }
 }
 
 export function saveSettings(state: SettingsState): void {
@@ -31,6 +33,7 @@ export function saveSettings(state: SettingsState): void {
 export function showSettingsPanel(opts: {
   onMusicChange: (enabled: boolean) => void
   onSoulModeChange: (enabled: boolean) => void
+  onAutoWalkChange: (enabled: boolean) => void
   onReset: () => void
 }): void {
   if (document.getElementById('agentshire-settings-overlay')) return
@@ -156,6 +159,13 @@ export function showSettingsPanel(opts: {
     markDirty()
   })))
 
+  // ── Auto-walk toggle ──
+
+  card.appendChild(createRow(t('settings.auto_walk'), createToggle(draft.autoWalk, (v) => {
+    draft.autoWalk = v
+    markDirty()
+  })))
+
   // ── Bottom buttons: Cancel + Save ──
 
   const btnRow = document.createElement('div')
@@ -190,6 +200,7 @@ export function showSettingsPanel(opts: {
     saveSettings(draft)
     if (draft.music !== saved.music) opts.onMusicChange(draft.music)
     if (draft.soulMode !== saved.soulMode) opts.onSoulModeChange(draft.soulMode)
+    if (draft.autoWalk !== saved.autoWalk) opts.onAutoWalkChange(draft.autoWalk)
     if (draft.language !== saved.language) {
       location.reload()
       return
