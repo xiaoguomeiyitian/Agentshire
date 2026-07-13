@@ -1,4 +1,5 @@
 import type { WeatherType, TimePeriod, SceneType } from '../types'
+import { apiUrl } from '@/utils/api-base'
 
 type BGMTrack = 'day' | 'dusk' | 'night' | 'work'
 
@@ -57,7 +58,7 @@ export class BGMManager {
     const entries = Object.entries(TRACK_FILES) as Array<[BGMTrack, string]>
     await Promise.all(entries.map(async ([track, file]) => {
       try {
-        const resp = await fetch(this.basePath + file)
+        const resp = await fetch(apiUrl(this.basePath + file))
         if (!resp.ok) return
         const buf = await this.ctx!.decodeAudioData(await resp.arrayBuffer())
         this.buffers.set(track, buf)

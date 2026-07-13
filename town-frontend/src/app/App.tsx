@@ -17,6 +17,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<AppTab>(getTabFromHash)
   const [chatAgent, setChatAgent] = useState<AgentInfo | null>(null)
   const [chatConnected, setChatConnected] = useState(false)
+  const [groupChatActive, setGroupChatActive] = useState(false)
 
   const handleTabChange = useCallback((tab: AppTab) => {
     setActiveTab(tab)
@@ -31,6 +32,7 @@ export function App() {
 
   const handleChatBack = useCallback(() => {
     setChatAgent(null)
+    setGroupChatActive(false)
     try {
       localStorage.removeItem(CHAT_AGENT_STORAGE_KEY)
       localStorage.removeItem('agentshire_chat_view_mode')
@@ -47,6 +49,7 @@ export function App() {
         chatAgent={chatAgent}
         chatConnected={activeTab === 'chat' ? chatConnected : undefined}
         onChatBack={handleChatBack}
+        groupChatActive={groupChatActive}
       />
 
       <div className="relative flex-1 overflow-hidden">
@@ -57,6 +60,7 @@ export function App() {
           selectedAgent={chatAgent}
           onAgentChange={setChatAgent}
           onConnectedChange={setChatConnected}
+          onGroupChatActiveChange={setGroupChatActive}
         />
       </div>
     </div>

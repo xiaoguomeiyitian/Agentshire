@@ -1,4 +1,5 @@
 import { getLocale } from '../../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 export interface SoulContext {
   name: string
@@ -80,7 +81,7 @@ export class SoulEditor {
     try {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(), 120_000)
-      const r = await fetch('/citizen-workshop/_api/generate-soul', {
+      const r = await fetch(apiUrl('/citizen-workshop/_api/generate-soul'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, bio, industry, specialty }),

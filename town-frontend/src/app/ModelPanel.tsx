@@ -8,6 +8,7 @@ import {
   ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiUrl } from '@/utils/api-base'
 import { t } from '@/i18n'
 
 // ── Types (mirror editor/model/types.ts) ──
@@ -67,7 +68,7 @@ const API_TYPES = [
 // ── API helper ──
 
 async function apiPost(route: string, body: unknown): Promise<ApiResult> {
-  const resp = await fetch(`/models/_api/${route}`, {
+  const resp = await fetch(apiUrl(`/models/_api/${route}`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body ?? {}),

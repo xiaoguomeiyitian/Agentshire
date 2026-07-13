@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import idleImageUrl from '../../assets/office-whiteboard-idle.webp'
+import { apiUrl } from '@/utils/api-base'
 
 export interface WhiteboardPlanData {
   name: string
@@ -119,7 +120,7 @@ export class WhiteboardRenderer {
     if (this.polling || this.mode === 'celebrating') return
     this.polling = true
     try {
-      const res = await fetch(`${this.baseUrl}/board/plans`)
+      const res = await fetch(apiUrl(`${this.baseUrl}/board/plans`))
       if (!res.ok) return
       const data = await res.json()
       if (!data.success || !Array.isArray(data.plans)) return

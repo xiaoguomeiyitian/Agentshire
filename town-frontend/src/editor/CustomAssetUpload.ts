@@ -3,6 +3,7 @@ import { getLocale } from '../i18n'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { CustomAssetStore, CustomAsset } from './CustomAssetStore'
+import { apiUrl } from '@/utils/api-base'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['.glb']
@@ -183,7 +184,7 @@ export class CustomAssetUpload {
     )
 
     const url = this.store.getModelUrl(asset)
-    const resolvedUrl = /^(blob:|https?:\/\/)/.test(url) ? url : (import.meta.env.BASE_URL ?? '/') + url
+    const resolvedUrl = /^(blob:|https?:\/\/)/.test(url) ? url : apiUrl((import.meta.env.BASE_URL ?? '/') + url)
     this.initPreview()
     this.loader.loadAsync(resolvedUrl)
       .then(gltf => {

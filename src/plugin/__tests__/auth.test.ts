@@ -1,5 +1,12 @@
 // @desc Tests for auth.ts: town page password authentication
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+
+// Mock stateDir before importing auth (auth.ts uses stateDir at module load for SESSION_FILE)
+vi.mock('../paths.js', () => ({
+  stateDir: () => '/tmp/agentshire-test-state',
+  initStateDir: vi.fn(),
+}))
+
 import {
   isPasswordAuthEnabled,
   getTownPassword,
@@ -294,7 +301,7 @@ describe('auth.ts', () => {
       const res = mockRes()
       await handleLogin(req, res)
       expect(res.statusCode).toBe(302)
-      expect(res.headers['Location']).toBe('/')
+      expect(res.headers['Location']).toBe('.')
     })
 
     it('locks out after 5 failures (429)', async () => {
@@ -347,14 +354,14 @@ describe('auth.ts', () => {
       expect(res.body).toContain('欢迎回到夏尔')
     })
 
-    it('redirects to /login for protected page when not authenticated', async () => {
+    it('redirects to login (relative) for protected page when not authenticated', async () => {
       process.env.AGENTSHIRE_TOWN_PASSWORD = 'pw'
       const req = mockReq({ url: '/', method: 'GET', accept: 'text/html' })
       const res = mockRes()
       const handled = await requireAuth(req, res, '/')
       expect(handled).toBe(true)
       expect(res.statusCode).toBe(302)
-      expect(res.headers['Location']).toBe('/login')
+      expect(res.headers['Location']).toBe('login')
     })
 
     it('returns 401 for API POST when not authenticated', async () => {

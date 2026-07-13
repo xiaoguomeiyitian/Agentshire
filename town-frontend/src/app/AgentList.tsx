@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
 import { Bot, Users } from 'lucide-react'
 import type { AgentInfo } from '@/hooks/useAgents'
+import { apiUrl } from '@/utils/api-base'
 
 interface AgentListProps {
   agents: AgentInfo[]
@@ -28,7 +29,7 @@ function AgentAvatar({ agent, size = 36, isSelected = false }: { agent: AgentInf
     return (
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <img
-          src={agent.avatarUrl}
+          src={apiUrl(agent.avatarUrl)}
           alt={agent.name}
           className={cn(
             'rounded-full object-cover w-full h-full',

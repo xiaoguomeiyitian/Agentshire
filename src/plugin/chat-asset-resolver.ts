@@ -60,7 +60,10 @@ export function resolveAsset(filePath: string): ResolvedAsset {
   if (filePath.startsWith(wsDir)) {
     fileUrl = `/steward-workspace${filePath.slice(wsDir.length)}`;
   } else {
-    fileUrl = `/citizen-workshop/_api/media?path=${encodeURIComponent(filePath)}`;
+    // base64url 编码：避免 %2F 被 nginx 反代吞掉
+    const b64 = Buffer.from(filePath, "utf-8").toString("base64")
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    fileUrl = `/citizen-workshop/_api/media/${b64}`;
   }
 
   let fileSize: number | undefined;

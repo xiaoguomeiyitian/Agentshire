@@ -6,6 +6,7 @@ import {
   type AnimMapping, type AnimSlot,
 } from '../../data/CitizenWorkshopConfig'
 import { getLocale } from '../../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 export interface AnimDialogInput {
   meshUrl: string
@@ -385,7 +386,7 @@ export class AnimMappingDialog {
 
   private async removeSource(src: AnimSource): Promise<void> {
     try {
-      await fetch('/citizen-workshop/_api/delete-anim', {
+      await fetch(apiUrl('/citizen-workshop/_api/delete-anim'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: src.url }),
       })
@@ -415,7 +416,7 @@ export class AnimMappingDialog {
     const bytes = new Uint8Array(buf)
     let binary = ''
     for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
-    const r = await fetch('/citizen-workshop/_api/upload-anim', {
+    const r = await fetch(apiUrl('/citizen-workshop/_api/upload-anim'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: btoa(binary), fileName: file.name }),
     })

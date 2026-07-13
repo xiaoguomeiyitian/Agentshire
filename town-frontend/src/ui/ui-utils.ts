@@ -2,6 +2,7 @@
 
 import type { NPCConfig } from '../types'
 import { getLocale } from '../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 const AVATAR_KEYS = new Set([
   'char-female-b', 'char-female-c', 'char-female-e', 'char-female-f',
@@ -16,7 +17,7 @@ export function buildAvatarEl(
   if (npc.avatarUrl) {
     const img = document.createElement('img')
     img.className = className
-    img.src = npc.avatarUrl
+    img.src = apiUrl(npc.avatarUrl)
     img.alt = npc.name[0]
     img.style.width = size + 'px'
     img.style.height = size + 'px'

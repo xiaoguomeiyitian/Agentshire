@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import type { AnimMapping, ModelTransform, ModelSource } from '../../data/CitizenWorkshopConfig'
 import { computeDefaultTransform } from '../../data/CitizenWorkshopConfig'
+import { apiUrl } from '@/utils/api-base'
 
 const PLATFORM_Y = 0.55
 const EXT_BASE = '/ext-assets'
@@ -240,7 +241,7 @@ export class CharacterStage {
     this.clearCharacter()
 
     try {
-      const gltf = await this.loader.loadAsync(meshUrl)
+      const gltf = await this.loader.loadAsync(apiUrl(meshUrl))
       if (this.loadId !== myLoadId) return
 
       const model = gltf.scene
@@ -314,7 +315,7 @@ export class CharacterStage {
       let clips = gltf.animations.length > 0 ? gltf.animations : (animClips ?? [])
       if (clips.length === 0 && source === 'library') {
         try {
-          const animGltf = await this.loader.loadAsync(`${EXT_BASE}/Characters_1/gLTF/Animations/Animations.glb`)
+          const animGltf = await this.loader.loadAsync(apiUrl(`${EXT_BASE}/Characters_1/gLTF/Animations/Animations.glb`))
           if (this.loadId !== myLoadId) { this.scene.remove(model); return }
           clips = animGltf.animations
         } catch { /* animation load failed */ }
@@ -322,7 +323,7 @@ export class CharacterStage {
       if (clips.length === 0 && animFileUrls && animFileUrls.length > 0) {
         for (const url of animFileUrls) {
           try {
-            const animGltf = await this.loader.loadAsync(url)
+            const animGltf = await this.loader.loadAsync(apiUrl(url))
             if (this.loadId !== myLoadId) { this.scene.remove(model); return }
             clips = [...clips, ...animGltf.animations]
           } catch { /* anim file load failed */ }

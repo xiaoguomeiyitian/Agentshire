@@ -2,6 +2,7 @@
 
 import { escapeHtml, truncateFileName } from './ui-utils'
 import { t } from '../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 export type ShowToastFn = (msg: string) => void
 
@@ -149,7 +150,7 @@ export class MediaPreview {
 
     const getDownloadUrl = (item: DeliverableItem): string => {
       if (item.data) return `data:${item.mimeType || 'application/octet-stream'};base64,${item.data}`
-      return item.url || ''
+      return apiUrl(item.url || '')
     }
 
     const hasDownload = (item: DeliverableItem): boolean => !!(item.data || item.url)
@@ -159,11 +160,11 @@ export class MediaPreview {
       const httpUrl = item.httpUrl || item.url || ''
       const ext = (item.name || item.filePath || '').split('.').pop()?.toLowerCase() ?? ''
       if (ext === 'md') return `/viewer.html?file=${encodeURIComponent(httpUrl)}`
-      return httpUrl
+      return apiUrl(httpUrl)
     }
 
     const getPreviewSrc = (item: DeliverableItem): string => {
-      if (isHttpItem(item)) return item.httpUrl || item.url || ''
+      if (isHttpItem(item)) return apiUrl(item.httpUrl || item.url || '')
       return getDownloadUrl(item)
     }
 

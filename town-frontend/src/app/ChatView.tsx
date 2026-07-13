@@ -8,6 +8,8 @@ import { ChatMessages } from './ChatMessages'
 import { ChatInputBar } from './ChatInputBar'
 import { GroupChatView } from './GroupChatView'
 import { getHelpText, type ParsedCommand } from '@/utils/command-parser'
+import { resolveWsUrl } from '@/utils/ws-url'
+import { apiUrl } from '@/utils/api-base'
 import { t } from '../i18n'
 
 /** Format a token count compactly (e.g. 26483 → "26K", 445 → "445"). */
@@ -73,6 +75,7 @@ interface ChatViewProps {
   selectedAgent: AgentInfo | null
   onAgentChange?: (agent: AgentInfo | null) => void
   onConnectedChange?: (connected: boolean) => void
+  onGroupChatActiveChange?: (active: boolean) => void
 }
 
 let globalMsgId = 0
@@ -124,7 +127,7 @@ function getAgentRoutingKey(agent: AgentInfo | null): string {
   return agent.agentId ?? agent.id
 }
 
-export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedChange }: ChatViewProps) {
+export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedChange, onGroupChatActiveChange }: ChatViewProps) {
   const { agents, loading } = useAgents()
   const [items, setItems] = useState<Map<string, ChatItem[]>>(new Map())
   const [historyLoadedSet, setHistoryLoadedSet] = useState<Set<string>>(new Set())
@@ -238,12 +241,32 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const [groupTypingCitizens, setGroupTypingCitizens] = useState<Map<string, string>>(new Map())
   const groupInitSentRef = useRef(false)
   const groupThinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Tracks whether the user has manually navigated (selected agent or exited group chat).
+  // Prevents auto-activation of group chat from re-triggering after manual navigation.
+  const userNavigatedRef = useRef(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [compacting, setCompacting] = useState(false)
 
+  // Notify parent of groupChatActive changes (for mobile back button)
+  useEffect(() => {
+    onGroupChatActiveChange?.(groupChatActive)
+  }, [groupChatActive, onGroupChatActiveChange])
+
+  // When selectedAgent is externally cleared (e.g. mobile back button from TopNav),
+  // also exit group chat so the agent list is shown on mobile.
+  // Use a ref to distinguish external clears (TopNav back) from internal ones
+  // (handleEnterGroupChat also clears selectedAgent, but shouldn't reset groupChatActive).
+  const internalAgentClearRef = useRef(false)
+  useEffect(() => {
+    if (selectedAgent === null && groupChatActive && !internalAgentClearRef.current) {
+      setGroupChatActive(false)
+    }
+    internalAgentClearRef.current = false
+  }, [selectedAgent, groupChatActive])
+
   const wsUrl = useMemo(() => {
     const param = new URLSearchParams(window.location.search).get('ws')
-    return param || `ws://${window.location.hostname || 'localhost'}:${(window.location.port ? Number(window.location.port) - 1 : 20008)}`
+    return resolveWsUrl(param)
   }, [])
 
   const isLive = useMemo(() => {
@@ -605,8 +628,10 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
 
   const handleGroupChatInfo = useCallback((info: GroupChatInfo) => {
     setGroupInfo(info)
-    // Auto-activate group chat if not already active and no agent selected
-    if (!groupChatActive && !selectedAgentRef.current) {
+    // Auto-activate group chat only on first connect (before user has interacted).
+    // Once the user has manually navigated (selected agent or exited group chat),
+    // don't auto-activate again — respect their choice.
+    if (!groupChatActive && !selectedAgentRef.current && !userNavigatedRef.current) {
       setGroupChatActive(true)
     }
   }, [groupChatActive])
@@ -668,6 +693,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
 
   // Enter group chat
   const handleEnterGroupChat = useCallback(() => {
+    userNavigatedRef.current = true
+    internalAgentClearRef.current = true // prevent effect from resetting groupChatActive
     setGroupChatActive(true)
     try { localStorage.setItem(CHAT_VIEW_MODE_STORAGE_KEY, 'group') } catch {}
     onAgentChange?.(null)
@@ -724,7 +751,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     let cancelled = false
     async function loadModels() {
       try {
-        const resp = await fetch('/citizen-workshop/_api/models', {
+        const resp = await fetch(apiUrl('/citizen-workshop/_api/models'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',
@@ -846,7 +873,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       return next
     })
     try {
-      const resp = await fetch('/citizen-workshop/_api/update-agent-model', {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/update-agent-model'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, modelRef: modelRef ?? null }),
@@ -1200,6 +1227,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   }, [sendAbort, sendCommand, addSystemMessage, performClearChat])
 
   const handleSelectAgent = useCallback((agent: AgentInfo) => {
+    userNavigatedRef.current = true
     // Do NOT clear thinking — it's per-agent now, switching agents should not
     // interrupt another agent's typing indicator.
     setGroupChatActive(false)

@@ -6,6 +6,7 @@ import {
   getAllSkills, getAllCategories, getSkillsByCategory,
   createSkillIcon, type SkillEntry,
 } from './SkillIcons'
+import { apiUrl } from '@/utils/api-base'
 
 import catalogZh from '../data/skill-catalog.json'
 import catalogEn from '../data/skill-catalog.en.json'
@@ -67,7 +68,7 @@ export class SkillPanel {
 
   private async fetchInstalled(): Promise<void> {
     try {
-      const res = await fetch('/installed-skills')
+      const res = await fetch(apiUrl('/installed-skills'))
       if (!res.ok) return
       const data = await res.json() as Record<string, { name: string }>
       this.installedNames = new Set(Object.values(data).map(s => s.name))

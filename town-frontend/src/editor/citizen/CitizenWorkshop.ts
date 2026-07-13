@@ -18,6 +18,7 @@ import {
   type ModelSource,
 } from '../../data/CitizenWorkshopConfig'
 import { getAllGroups, resolveGroupMeshUrl, type CharacterGroup } from '../../data/CharacterModelRegistry'
+import { apiUrl } from '@/utils/api-base'
 
 export class CitizenWorkshop {
   private container: HTMLElement
@@ -78,7 +79,7 @@ export class CitizenWorkshop {
 
   private async fetchAgents(): Promise<{ id: string; name: string }[]> {
     try {
-      const r = await fetch('/citizen-workshop/_api/agents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const r = await fetch(apiUrl('/citizen-workshop/_api/agents'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const d = await r.json()
       return d.agents ?? []
     } catch { return [] }
@@ -86,7 +87,7 @@ export class CitizenWorkshop {
 
   private async fetchBuildings(): Promise<{ id: string; name: string }[]> {
     try {
-      const r = await fetch('/citizen-workshop/_api/buildings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const r = await fetch(apiUrl('/citizen-workshop/_api/buildings'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const d = await r.json()
       return d.buildings ?? []
     } catch { return [] }
@@ -132,7 +133,7 @@ export class CitizenWorkshop {
       if (!ok) return
       const assetId = group.id.replace('custom-', '')
       try {
-        const resp = await fetch('/custom-assets/_api/delete', {
+        const resp = await fetch(apiUrl('/custom-assets/_api/delete'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: assetId }),
@@ -389,7 +390,7 @@ export class CitizenWorkshop {
       this.stage.setCharacter(meshUrl, undefined, mapping, group.animFileUrls, transform)
     } else {
       const base = import.meta.env.BASE_URL ?? './'
-      const meshUrl = `${base}assets/models/characters/character-${avatarId.replace('char-', '')}.glb`
+      const meshUrl = apiUrl(`${base}assets/models/characters/character-${avatarId.replace('char-', '')}.glb`)
       this.stage.setCharacter(meshUrl, undefined, mapping, undefined, transform)
     }
   }
@@ -635,7 +636,7 @@ export class CitizenWorkshop {
     try {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(), 120_000)
-      const r = await fetch('/citizen-workshop/_api/generate-soul', {
+      const r = await fetch(apiUrl('/citizen-workshop/_api/generate-soul'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: c.name, bio: c.bio, specialty: c.specialty, industry: c.industry }),
@@ -740,7 +741,7 @@ export class CitizenWorkshop {
           const dataUrl = reader.result as string
           const safeName = `avatar_${Date.now()}`
           try {
-            const r = await fetch('/citizen-workshop/_api/upload-avatar', {
+            const r = await fetch(apiUrl('/citizen-workshop/_api/upload-avatar'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ fileName: safeName, imageData: dataUrl }),
@@ -904,7 +905,7 @@ export class CitizenWorkshop {
     group.animFileUrls = result.animFileUrls
 
     try {
-      await fetch('/custom-assets/_api/update', {
+      await fetch(apiUrl('/custom-assets/_api/update'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1031,7 +1032,7 @@ export class CitizenWorkshop {
   }
 
   private resolveAvatarUrl(avatarUrl?: string, avatarId?: string): string | null {
-    if (avatarUrl) return avatarUrl
+    if (avatarUrl) return apiUrl(avatarUrl)
     if (avatarId) {
       const group = this.picker.getGroupById(avatarId) ?? getAllGroups().find(g => g.id === avatarId)
       if (group?.thumbnailUrl) return group.thumbnailUrl
@@ -1213,7 +1214,7 @@ export class CitizenWorkshop {
       for (const [key, content] of this.soulCache) {
         if (content) souls[key] = content
       }
-      const resp = await fetch('/citizen-workshop/_api/save', {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/save'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: this.config, souls }),
@@ -1234,7 +1235,7 @@ export class CitizenWorkshop {
       for (const [key, content] of this.soulCache) {
         if (content) souls[key] = content
       }
-      const resp = await fetch('/citizen-workshop/_api/publish', {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/publish'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ souls }),
@@ -1249,7 +1250,7 @@ export class CitizenWorkshop {
 
   async loadFromFile(): Promise<CitizenWorkshopConfig | null> {
     try {
-      const resp = await fetch('/citizen-workshop/_api/load', {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/load'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',

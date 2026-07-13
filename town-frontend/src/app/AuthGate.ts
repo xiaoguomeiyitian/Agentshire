@@ -12,15 +12,17 @@
  *     避免状态接口临时不可达时把整个应用锁死。
  */
 
+import { apiUrl } from '@/utils/api-base'
+
 interface AuthStatusResponse {
   loggedIn?: boolean
 }
 
 /** 状态接口地址，保持相对路径，天然同域（浏览器自动带 Cookie）。 */
-const AUTH_STATUS_URL = '/api/auth/status'
+const AUTH_STATUS_URL = apiUrl('/api/auth/status')
 
 /** 未登录时的去向。 */
-const LOGIN_URL = '/login'
+const LOGIN_URL = apiUrl('/login')
 
 /**
  * 确认当前访问者已登录。

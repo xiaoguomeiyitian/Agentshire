@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { apiUrl } from '@/utils/api-base'
 
 const loader = new GLTFLoader()
 const cache = new Map<string, THREE.Group>()
@@ -26,7 +27,7 @@ export class EditorAssetLoader {
 
     const promise = (async () => {
       try {
-        const resolvedUrl = /^(blob:|https?:\/\/)/.test(url) ? url : (import.meta.env.BASE_URL ?? '/') + url
+        const resolvedUrl = /^(blob:|https?:\/\/)/.test(url) ? url : apiUrl((import.meta.env.BASE_URL ?? '/') + url)
         const gltf = await loader.loadAsync(resolvedUrl)
         const model = gltf.scene
         model.traverse(child => {

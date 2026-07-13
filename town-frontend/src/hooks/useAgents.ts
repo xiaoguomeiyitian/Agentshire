@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { t } from '../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 export interface AgentInfo {
   id: string
@@ -22,7 +23,7 @@ export function useAgents() {
 
     async function load() {
       try {
-        const resp = await fetch('/citizen-workshop/_api/load-published', {
+        const resp = await fetch(apiUrl('/citizen-workshop/_api/load-published'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: '{}',

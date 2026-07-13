@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { apiUrl } from '@/utils/api-base'
 
 export interface AssetManifest {
   characters: Record<string, string>
@@ -9,8 +10,8 @@ export interface AssetManifest {
   props: Record<string, string>
 }
 
-const BASE = import.meta.env.BASE_URL + 'assets/models'
-const LIBRARY_BASE = import.meta.env.BASE_URL + 'assets/Characters_1/gLTF'
+const BASE = apiUrl(import.meta.env.BASE_URL + 'assets/models')
+const LIBRARY_BASE = apiUrl(import.meta.env.BASE_URL + 'assets/Characters_1/gLTF')
 
 const MANIFEST: AssetManifest = {
   characters: {
@@ -216,7 +217,7 @@ export class AssetLoader {
 
   private async loadSharedLibraryAnimations(): Promise<THREE.AnimationClip[]> {
     if (this.sharedLibraryAnims) return this.sharedLibraryAnims
-    const url = '/ext-assets/Characters_1/gLTF/Animations/Animations.glb'
+    const url = apiUrl('/ext-assets/Characters_1/gLTF/Animations/Animations.glb')
     try {
       const gltf = await this.loader.loadAsync(url)
       this.sharedLibraryAnims = gltf.animations
@@ -273,7 +274,7 @@ export class AssetLoader {
       if (!this.loadingPromises.has(cacheKey)) {
         const promise = (async () => {
           const sharedAnims = await this.loadSharedLibraryAnimations()
-          await this.loadGltfToCache(cacheKey, modelUrl, sharedAnims)
+          await this.loadGltfToCache(cacheKey, apiUrl(modelUrl), sharedAnims)
         })()
         this.loadingPromises.set(cacheKey, promise)
       }
@@ -291,14 +292,14 @@ export class AssetLoader {
           if (animFileUrls?.length) {
             for (const url of animFileUrls) {
               try {
-                const animGltf = await this.loader.loadAsync(url)
+                const animGltf = await this.loader.loadAsync(apiUrl(url))
                 allClips.push(...animGltf.animations)
               } catch {
                 console.warn(`[AssetLoader] Failed to load custom animation: ${url}`)
               }
             }
           }
-          await this.loadGltfToCache(cacheKey, meshUrl, allClips.length > 0 ? allClips : undefined)
+          await this.loadGltfToCache(cacheKey, apiUrl(meshUrl), allClips.length > 0 ? allClips : undefined)
           this.fixCustomMaterials(cacheKey)
         })()
         this.loadingPromises.set(cacheKey, promise)

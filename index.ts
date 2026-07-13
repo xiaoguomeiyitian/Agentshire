@@ -432,7 +432,6 @@ function registerFull(api: OpenClawPluginApi): void {
           let urlPath = new URL(req.url ?? "/", `http://localhost:${townPort}`).pathname;
           if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
 
-          // —— 鉴权中间件（新增）——
           const { requireAuth } = await import("./src/plugin/auth.js");
           if (await requireAuth(req, res, urlPath, config)) return;
 

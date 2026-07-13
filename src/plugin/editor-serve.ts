@@ -5,7 +5,7 @@
  * Returns true if the request was handled, false if it should fall through.
  */
 
-import { join, relative } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import {
   readFileSync,
   writeFileSync,
@@ -18,6 +18,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { stateDir, initStateDir } from "./paths.js";
 import { getTownRuntime } from "./runtime.js";
+
 
 function getStewardWorkspaceDir(): string {
   try {
@@ -1988,28 +1989,51 @@ export async function handleEditorRequest(
     return handleCustomAssetsStatic(res, urlPath, d.customAssetsDir);
   }
 
-  // /citizen-workshop/_api/media?path=... → serve media files (GET)
+  // /citizen-workshop/_api/media/<encoded-path> → serve media files (GET)
+  // 也兼容旧格式 /citizen-workshop/_api/media?path=<encoded-path>（nginx 反代可能丢失 query）
+  // 编码方式：base64url（A-Za-z0-9-_），避免 %2F 被 nginx 吞掉；也兼容旧的 encodeURIComponent
+  // 安全限制：path 必须在允许的目录范围内（防路径遍历读取任意文件）
   if (
-    urlPath === "/citizen-workshop/_api/media" &&
+    (urlPath === "/citizen-workshop/_api/media" ||
+      urlPath.startsWith("/citizen-workshop/_api/media/")) &&
     method === "GET"
   ) {
-    const urlObj = typeof url === "string" && url.startsWith("/")
-      ? new URL(url, "http://localhost")
-      : new URL(url ?? "/", "http://localhost");
-    const filePath = urlObj.searchParams.get("path") ?? "";
-    if (!filePath || !existsSync(filePath) || !statSync(filePath).isFile()) {
+    // 优先从路径段取 path，回退到 query string（兼容旧 URL）
+    let filePath = "";
+    if (urlPath.startsWith("/citizen-workshop/_api/media/")) {
+      const raw = urlPath.slice("/citizen-workshop/_api/media/".length);
+      // 尝试 base64url 解码（新格式），失败则用 decodeURIComponent（旧格式）
+      try {
+        // base64url → base64
+        const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+        filePath = Buffer.from(padded, "base64").toString("utf-8");
+      } catch {
+        filePath = decodeURIComponent(raw);
+      }
+    } else {
+      const urlObj = typeof url === "string" && url.startsWith("/")
+        ? new URL(url, "http://localhost")
+        : new URL(url ?? "/", "http://localhost");
+      filePath = urlObj.searchParams.get("path") ?? "";
+    }
+    // 允许的媒体目录白名单：avatars / custom-assets / souls
+    const allowedRoots = [d.avatarsDir, d.customAssetsDir, d.soulsDir];
+    const resolved = filePath ? resolve(filePath) : "";
+    const isAllowed = resolved && allowedRoots.some(root => resolved === root || resolved.startsWith(root + sep));
+    if (!isAllowed || !existsSync(resolved) || !statSync(resolved).isFile()) {
       res.writeHead(404);
       res.end("Not Found");
       return true;
     }
-    const ext = filePath.substring(filePath.lastIndexOf("."));
+    const ext = resolved.substring(resolved.lastIndexOf("."));
     const mime = MIME_TYPES[ext] ?? "application/octet-stream";
     res.writeHead(200, {
       "Content-Type": mime,
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "public, max-age=3600",
     });
-    res.end(readFileSync(filePath));
+    res.end(readFileSync(resolved));
     return true;
   }
 

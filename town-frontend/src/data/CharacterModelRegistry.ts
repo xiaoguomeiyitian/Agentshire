@@ -2,6 +2,7 @@ import builtinCatalogZh from './character-catalog.json'
 import builtinCatalogEn from './character-catalog.en.json'
 import { getLocale } from '../i18n'
 import type { CustomAsset } from '../editor/CustomAssetStore'
+import { apiUrl } from '@/utils/api-base'
 
 function getBuiltinCatalog() { return getLocale() === 'en' ? builtinCatalogEn : builtinCatalogZh }
 
@@ -35,7 +36,7 @@ export interface CharacterModelEntry {
   hasEmbeddedAnimations: boolean
 }
 
-const BASE = import.meta.env.BASE_URL + 'assets/models'
+const BASE = apiUrl(import.meta.env.BASE_URL + 'assets/models')
 const EXT_BASE = '/ext-assets'
 const SHARED_ANIM_URL = `${EXT_BASE}/Characters_1/gLTF/Animations/Animations.glb`
 
@@ -62,7 +63,7 @@ function ensureBuiltinCache(): void {
     id: m.id,
     displayName: m.id.replace('char-', '').replace('-', ' '),
     source: 'builtin' as const,
-    thumbnailUrl: `${import.meta.env.BASE_URL}assets/avatars/${m.id}.webp`,
+    thumbnailUrl: apiUrl(`${import.meta.env.BASE_URL}assets/avatars/${m.id}.webp`),
     variants: [],
     colors: [],
     meshUrlPattern: m.meshUrl,
@@ -80,7 +81,7 @@ const PET_GROUPS: CharacterGroup[] = PET_NAMES.map(name => ({
   id: `char-pet-${name}`,
   displayName: name,
   source: 'builtin' as const,
-  thumbnailUrl: `${import.meta.env.BASE_URL}assets/avatars/char-pet-${name}.webp`,
+  thumbnailUrl: apiUrl(`${import.meta.env.BASE_URL}assets/avatars/char-pet-${name}.webp`),
   variants: [],
   colors: [],
   meshUrlPattern: `${BASE}/characters/character-pet-${name}.glb`,
@@ -127,7 +128,7 @@ export function getAllGroups(customAssets: CustomAsset[] = []): CharacterGroup[]
       id: `custom-${a.id}`,
       displayName: a.name,
       source: 'custom' as const,
-      thumbnailUrl: a.thumbnail,
+      thumbnailUrl: apiUrl(a.thumbnail || ''),
       variants: [],
       colors: [],
       meshUrlPattern: `custom-assets/characters/${a.fileName}`,

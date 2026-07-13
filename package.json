@@ -55,18 +55,19 @@
     "build:backend": "tsc && npm run copy-assets",
     "build:town": "cd town-frontend && npm install && npm run build",
     "build": "npm run build:backend && npm run build:town",
-    "copy-assets": "node -e \"const fs=require('fs');const p=require('path');for(const d of ['town-souls','town-workspace']){const s=p.join(process.cwd(),d),t=p.join(process.cwd(),'dist',d);if(fs.existsSync(s)){fs.cpSync(s,t,{recursive:true});console.log('copied '+d+' -> dist/'+d)}}\"",
+    "copy-assets": "util copy ./town-data ./dist/town-data",
     "dev:town": "cd town-frontend && npm run dev",
     "postinstall": "echo '' && echo '  🏘️  Agentshire installed successfully!' && echo '' && echo '  Next: (re)start the OpenClaw Gateway to activate the plugin.' && echo '        The town will open automatically in your browser.' && echo ''",
     "test": "vitest run",
     "start": "openclaw gateway",
-    "stop": "openclaw gateway stop || true",
+    "stop": "openclaw gateway stop",
     "bs": "npm run build && npm run start"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.3.0",
     "@gltf-transform/extensions": "^4.3.0",
     "@gltf-transform/functions": "^4.3.0",
+    "@xiaoguomeiyitian/utils": "^0.1.3",
     "jsonrepair": "^3.13.3",
     "ws": "^8.16.0"
   },

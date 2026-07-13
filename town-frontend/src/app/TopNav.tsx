@@ -14,6 +14,7 @@ interface TopNavProps {
   chatAgent?: AgentInfo | null
   chatConnected?: boolean
   onChatBack?: () => void
+  groupChatActive?: boolean
 }
 
 function getMenuItems() {
@@ -25,7 +26,7 @@ function getMenuItems() {
   ]
 }
 
-export function TopNav({ activeTab, onTabChange, chatAgent, onChatBack }: TopNavProps) {
+export function TopNav({ activeTab, onTabChange, chatAgent, onChatBack, groupChatActive }: TopNavProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -68,7 +69,7 @@ export function TopNav({ activeTab, onTabChange, chatAgent, onChatBack }: TopNav
     }
   }, [])
 
-  const inMobileChat = activeTab === 'chat' && chatAgent != null
+  const inMobileChat = activeTab === 'chat' && (chatAgent != null || groupChatActive === true)
 
   return (
     <nav className="relative z-40 flex items-center h-12 px-4 bg-bg-canvas border-b border-border-subtle shrink-0 select-none">
@@ -94,11 +95,15 @@ export function TopNav({ activeTab, onTabChange, chatAgent, onChatBack }: TopNav
       {/* ── Center: Tabs (absolute centered) or Mobile agent name ── */}
       {inMobileChat ? (
         <div className="absolute inset-x-0 top-0 h-12 flex items-center justify-center gap-2 pointer-events-none md:hidden">
-          <span className="text-[16px] md:text-[14px] font-medium text-text-primary">{chatAgent!.name}</span>
-          <span className={cn(
-            'w-1.5 h-1.5 rounded-full shrink-0',
-            chatAgent!.online ? 'bg-status-success' : 'bg-text-quaternary',
-          )} />
+          <span className="text-[16px] md:text-[14px] font-medium text-text-primary">
+            {groupChatActive ? '小镇广场' : chatAgent!.name}
+          </span>
+          {chatAgent && !groupChatActive && (
+            <span className={cn(
+              'w-1.5 h-1.5 rounded-full shrink-0',
+              chatAgent.online ? 'bg-status-success' : 'bg-text-quaternary',
+            )} />
+          )}
         </div>
       ) : null}
 

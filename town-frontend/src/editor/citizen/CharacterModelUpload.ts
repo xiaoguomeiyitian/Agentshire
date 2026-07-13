@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { getLocale } from '../../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 const ALLOWED_EXTENSIONS = ['.glb', '.gltf']
@@ -88,7 +89,7 @@ export class CharacterModelUpload {
 
   private async loadAssetAndShowEdit(assetId: string): Promise<void> {
     try {
-      const r = await fetch('/custom-assets/_api/list', {
+      const r = await fetch(apiUrl('/custom-assets/_api/list'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
       })
       const d = await r.json()
@@ -105,7 +106,7 @@ export class CharacterModelUpload {
         thumbnail: asset.thumbnail,
       }
       this.renderStep2Form(asset.name, asset.scale ?? 1.0)
-      const meshUrl = `/custom-assets/characters/${asset.fileName}`
+      const meshUrl = apiUrl(`/custom-assets/characters/${asset.fileName}`)
       this.loader.loadAsync(meshUrl)
         .then(gltf => {
           this.setPreviewModel(gltf.scene)
@@ -342,7 +343,7 @@ export class CharacterModelUpload {
 
     try {
       if (isEdit) {
-        const resp = await fetch('/custom-assets/_api/update', {
+        const resp = await fetch(apiUrl('/custom-assets/_api/update'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -379,7 +380,7 @@ export class CharacterModelUpload {
         for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i])
         const base64 = btoa(binary)
 
-        const resp = await fetch('/custom-assets/_api/upload', {
+        const resp = await fetch(apiUrl('/custom-assets/_api/upload'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -425,7 +426,7 @@ export class CharacterModelUpload {
 
     statusBtn.textContent = getLocale() === 'en' ? 'Optimizing...' : '优化中...'
     try {
-      const r = await fetch('/custom-assets/_api/optimize', {
+      const r = await fetch(apiUrl('/custom-assets/_api/optimize'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: assetId }),

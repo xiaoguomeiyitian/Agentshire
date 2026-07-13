@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useCallback, useState, memo } from 'react'
 import { cn } from '@/lib/utils'
 import { Bot, User, Loader2, X, Copy, RotateCcw, ChevronRight, Wrench, Brain, CheckCircle2, AlertCircle, Pencil, Check } from 'lucide-react'
 import { t } from '../i18n'
+import { apiUrl } from '@/utils/api-base'
 
 function formatClockTime(ts: number): string {
   const d = new Date(ts)
@@ -62,7 +63,7 @@ const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx', 'json', 'py', 'css', 'scss'
 
 function normalizeResolvedUrl(raw: string): string {
   if (!raw) return ''
-  if (raw.startsWith('/steward-workspace/') || raw.startsWith('/citizen-workshop/_api/media?path=')) return raw
+  if (raw.startsWith('/steward-workspace/') || raw.startsWith('/citizen-workshop/_api/media/')) return raw
   if (/^https?:\/\//i.test(raw)) return raw
   if (raw.startsWith('/Users/')) {
     const stewardMarker = '/.openclaw/agents/town-steward/'
@@ -71,7 +72,9 @@ function normalizeResolvedUrl(raw: string): string {
       const rel = raw.slice(markerIdx + stewardMarker.length)
       return `/steward-workspace/${rel}`
     }
-    return `/citizen-workshop/_api/media?path=${encodeURIComponent(raw)}`
+    // base64url 编码：避免 %2F 被 nginx 反代吞掉（只用 A-Za-z0-9-_ 字符）
+    const b64 = btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    return `/citizen-workshop/_api/media/${b64}`
   }
   if (raw.startsWith('projects/') || raw.startsWith('tasks/')) {
     return `/steward-workspace/${raw}`
@@ -113,7 +116,7 @@ function findContextualTitle(text: string, pathIndex: number): string | undefine
 
 function extractAttachmentsFromText(text: string, existingUrls: Set<string>): DerivedAttachment[] {
   if (!text) return []
-  const regex = /(?:\/steward-workspace\/[^\s"'`<>()]+|\/citizen-workshop\/_api\/media\?path=[^\s"'`<>()]+|\/Users\/[^\s"'`<>()]+\.[A-Za-z0-9]+|projects\/[^\s"'`<>()]+\.[A-Za-z0-9]+|tasks\/[^\s"'`<>()]+\.[A-Za-z0-9]+|https?:\/\/[^\s"'`<>()]+\.[A-Za-z0-9/._?=%-]+)/gu
+  const regex = /(?:\/steward-workspace\/[^\s"'`<>()]+|\/citizen-workshop\/_api\/media\/[A-Za-z0-9_-]+|\/citizen-workshop\/_api\/media\?path=[^\s"'`<>()]+|\/Users\/[^\s"'`<>()]+\.[A-Za-z0-9]+|projects\/[^\s"'`<>()]+\.[A-Za-z0-9]+|tasks\/[^\s"'`<>()]+\.[A-Za-z0-9]+|https?:\/\/[^\s"'`<>()]+\.[A-Za-z0-9/._?=%-]+)/gu
   const results: DerivedAttachment[] = []
   const seen = new Set<string>()
   for (const match of text.matchAll(regex)) {
@@ -607,7 +610,7 @@ export function ChatMessages({
                 {msg.role === 'user'
                   ? <User size={13} strokeWidth={1.8} className="text-brand-primary" />
                   : agentAvatarUrl
-                    ? <img src={agentAvatarUrl} alt={agentName} className="w-full h-full object-cover rounded-full" />
+                    ? <img src={apiUrl(agentAvatarUrl)} alt={agentName} className="w-full h-full object-cover rounded-full" />
                     : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-quaternary" /></div>
                 }
               </div>
@@ -770,7 +773,7 @@ export function ChatMessages({
             <div className="flex gap-3 max-w-[85%]">
               <div className="w-7 h-7 rounded-full shrink-0 mt-0.5 overflow-hidden">
                 {agentAvatarUrl
-                  ? <img src={agentAvatarUrl} alt="" className="w-full h-full object-cover rounded-full" />
+                  ? <img src={apiUrl(agentAvatarUrl)} alt="" className="w-full h-full object-cover rounded-full" />
                   : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-quaternary" /></div>
                 }
               </div>

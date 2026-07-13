@@ -12,6 +12,7 @@ import { TownConfigStore } from './data/TownConfigStore'
 import type { IWorldDataSource } from './data/IWorldDataSource'
 import { InputBar, type TownMessage } from './ui/InputBar'
 import { loadSettings } from './ui/SettingsPanel'
+import { resolveWsUrl } from './utils/ws-url'
 
 interface WsHistoryMessage {
   role?: 'user' | 'assistant'
@@ -126,10 +127,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
   if (!useMock) {
     // @ts-ignore -- resolved by Vite alias at runtime
     bridgeModule = await import('agentshire_bridge')
-    // Derive WS URL: explicit ?ws= param > same-origin port-1 convention
     const wsParam = params.get('ws')
-    const wsUrl = wsParam
-      || `ws://${window.location.hostname || 'localhost'}:${(window.location.port ? Number(window.location.port) - 1 : 20008)}`
+    const wsUrl = resolveWsUrl(wsParam)
 
     const { DirectorBridge } = bridgeModule
     const director = new DirectorBridge()

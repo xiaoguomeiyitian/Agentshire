@@ -4,6 +4,7 @@ import {
 } from '../../data/CharacterModelRegistry'
 import { getLocale } from '../../i18n'
 import { CharacterModelUpload } from './CharacterModelUpload'
+import { apiUrl } from '@/utils/api-base'
 
 export type ModelPickerListener = (meshUrl: string, groupId: string) => void
 export type PreviewListener = (meshUrl: string, group: CharacterGroup) => void
@@ -52,7 +53,7 @@ export class ModelPicker {
 
   private async probeLibraryAssets(): Promise<void> {
     try {
-      const res = await fetch('/ext-assets/Characters_1/thumbnails/lib-1.webp', { method: 'HEAD' })
+      const res = await fetch(apiUrl('/ext-assets/Characters_1/thumbnails/lib-1.webp'), { method: 'HEAD' })
       if (res.ok) {
         this.allGroups = [...getBuiltinGroups(), ...getLibraryGroups()]
         this.render()
@@ -97,7 +98,7 @@ export class ModelPicker {
 
   private async loadCustomModels(): Promise<void> {
     try {
-      const r = await fetch('/custom-assets/_api/list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const r = await fetch(apiUrl('/custom-assets/_api/list'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const d = await r.json()
       const assets = d.assets ?? []
       this.customGroups = assets
@@ -106,7 +107,7 @@ export class ModelPicker {
           id: `custom-${a.id}`,
           displayName: a.name,
           source: 'custom' as const,
-          thumbnailUrl: a.thumbnail,
+          thumbnailUrl: apiUrl(a.thumbnail || ''),
           variants: [],
           colors: [],
           meshUrlPattern: `/custom-assets/characters/${a.fileName}`,

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/i18n'
+import { apiUrl } from '@/utils/api-base'
 import { ModelPanel } from './ModelPanel'
 
 interface ClawSettingsViewProps {
@@ -174,7 +175,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     setLoading(true)
     setError(null)
     try {
-      const resp = await fetch('/claw/_api/config/load', {
+      const resp = await fetch(apiUrl('/claw/_api/config/load'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -217,7 +218,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
 
   const loadSessions = useCallback(async () => {
     try {
-      const resp = await fetch('/claw/_api/sessions/list', {
+      const resp = await fetch(apiUrl('/claw/_api/sessions/list'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
@@ -244,7 +245,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     setError(null)
     setSaved(false)
     try {
-      const resp = await fetch('/claw/_api/config/save', {
+      const resp = await fetch(apiUrl('/claw/_api/config/save'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -315,7 +316,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     setClearing(true)
     setClearResult(null)
     try {
-      const resp = await fetch('/claw/_api/sessions/clear', {
+      const resp = await fetch(apiUrl('/claw/_api/sessions/clear'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

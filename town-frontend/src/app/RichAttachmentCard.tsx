@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ExternalLink, FileCode2, FileText, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { apiUrl } from '@/utils/api-base'
 
 interface RichAttachmentCardProps {
   fileUrl: string
@@ -35,9 +36,9 @@ function modeFor(fileName?: string, fileUrl?: string, mimeType?: string): Attach
 function buildOpenUrl(fileUrl: string, fileName?: string, mimeType?: string): string {
   const ext = fileExt(fileName, fileUrl)
   if (ext === 'md' || mimeType === 'text/markdown') {
-    return `/viewer.html?file=${encodeURIComponent(fileUrl)}`
+    return apiUrl(`/viewer.html?file=${encodeURIComponent(fileUrl)}`)
   }
-  return fileUrl
+  return apiUrl(fileUrl)
 }
 
 function deriveProjectTitle(fileUrl: string, fileName?: string): string {
@@ -70,7 +71,7 @@ export function RichAttachmentCard({
     let cancelled = false
     setLoading(true)
     setError('')
-    fetch(fileUrl)
+    fetch(apiUrl(fileUrl))
       .then(async (resp) => {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
         return resp.text()

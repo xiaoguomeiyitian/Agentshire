@@ -11,6 +11,12 @@ const TOWN_AGENT_ID = "town-steward";
 const MAX_SESSIONS = 100;
 const MAX_ARCHIVED_SESSIONS = 10;
 
+/** base64url 编码文件路径，生成 media URL 路径段（避免 %2F 被 nginx 反代吞掉） */
+function encodeMediaPath(filePath: string): string {
+  return Buffer.from(filePath, "utf-8").toString("base64")
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 export interface ChatHistoryMessage {
   role: "user" | "assistant";
   text: string;
@@ -290,7 +296,7 @@ function readSessionMessages(filePath: string): ChatHistoryMessage[] {
               const videoExts = ["mp4", "webm", "mov", "avi", "mkv"];
               const audioExts = ["mp3", "wav", "ogg", "m4a", "flac", "aac"];
               const fileName = mediaPath.split("/").pop() ?? "file";
-              const mediaUrl = `/citizen-workshop/_api/media?path=${encodeURIComponent(mediaPath)}`;
+              const mediaUrl = `/citizen-workshop/_api/media/${encodeMediaPath(mediaPath)}`;
 
               if (imageExts.includes(ext)) {
                 messages.push({
@@ -330,7 +336,7 @@ function readSessionMessages(filePath: string): ChatHistoryMessage[] {
                   const videoExts = ["mp4", "webm", "mov", "avi", "mkv"];
                   const audioExts = ["mp3", "wav", "ogg", "m4a", "flac", "aac"];
                   const fileName = mediaPath.split("/").pop() ?? "file";
-                  const fileUrl = `/citizen-workshop/_api/media?path=${encodeURIComponent(mediaPath)}`;
+                  const fileUrl = `/citizen-workshop/_api/media/${encodeMediaPath(mediaPath)}`;
 
                   if (imageExts.includes(ext)) {
                     messages.push({ role: "assistant", text: "", timestamp, type: "image", fileUrl, mimeType: `image/${ext === "jpg" ? "jpeg" : ext}` });
@@ -360,7 +366,7 @@ function readSessionMessages(filePath: string): ChatHistoryMessage[] {
               const videoExts = ["mp4", "webm", "mov", "avi", "mkv"];
               const audioExts = ["mp3", "wav", "ogg", "m4a", "flac", "aac"];
               const fileName = mediaPath.split("/").pop() ?? "file";
-              const fileUrl = `/citizen-workshop/_api/media?path=${encodeURIComponent(mediaPath)}`;
+              const fileUrl = `/citizen-workshop/_api/media/${encodeMediaPath(mediaPath)}`;
               let fileSize: number | undefined;
               try { fileSize = statSync(mediaPath).size; } catch {}
 

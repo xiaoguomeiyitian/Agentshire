@@ -11,6 +11,9 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { stateDir } from "./paths.js";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7天
 const MAX_FAILS = 5;
@@ -18,6 +21,47 @@ const LOCK_MS = 5 * 60 * 1000;
 
 const sessions = new Map<string, number>(); // token -> 过期时间戳
 const failCounts = new Map<string, { n: number; until: number }>(); // key(如IP) -> 失败计数/锁定到
+
+// ── Session 持久化（重启不丢失）──
+let _sessionFile: string | null = null;
+function sessionFile(): string {
+  if (_sessionFile) return _sessionFile;
+  _sessionFile = join(stateDir(), "agentshire-sessions.json");
+  return _sessionFile;
+}
+let sessionLoaded = false;
+
+/** 从磁盘加载 session（启动时调用一次，惰性加载） */
+function loadSessions(): void {
+  if (sessionLoaded) return;
+  sessionLoaded = true;
+  try {
+    const file = sessionFile();
+    if (!existsSync(file)) return;
+    const raw = readFileSync(file, "utf-8");
+    const obj = JSON.parse(raw) as Record<string, number>;
+    const now = Date.now();
+    for (const [token, exp] of Object.entries(obj)) {
+      if (exp > now) sessions.set(token, exp); // 过滤已过期的
+    }
+  } catch { /* 文件不存在或解析失败，忽略 */ }
+}
+
+/** 把 session 写入磁盘（防抖：合并多次连续写入） */
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
+function persistSessions(): void {
+  if (writeTimer) return; // 已有挂起的写入
+  writeTimer = setTimeout(() => {
+    writeTimer = null;
+    try {
+      const file = sessionFile();
+      mkdirSync(dirname(file), { recursive: true });
+      const obj: Record<string, number> = {};
+      for (const [token, exp] of sessions) obj[token] = exp;
+      writeFileSync(file, JSON.stringify(obj), "utf-8");
+    } catch { /* 写入失败不影响运行 */ }
+  }, 1000);
+}
 
 /**
  * 是否启用密码登录：唯一由环境变量 AGENTSHIRE_TOWN_PASSWORD 决定。
@@ -42,13 +86,15 @@ export function parseSessionToken(req: IncomingMessage): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-/** 查内存映射，token 合法且未过期返回 true（过期则顺手清除） */
+/** 查内存映射，token 合法且未过期返回 true（过期则顺手清除并持久化） */
 export function isValidSession(token: string | null): boolean {
   if (!token) return false;
+  loadSessions(); // 惰性加载磁盘 session
   const exp = sessions.get(token);
   if (!exp) return false;
   if (Date.now() > exp) {
     sessions.delete(token);
+    persistSessions();
     return false;
   }
   return true;
@@ -64,8 +110,10 @@ function safeEqual(a: string, b: string): boolean {
 
 /** 生成随机 token，存入映射并 Set-Cookie（HttpOnly+SameSite=Lax+Path=/+Max-Age） */
 export function createSession(res: ServerResponse): void {
+  loadSessions();
   const token = randomUUID();
   sessions.set(token, Date.now() + SESSION_TTL_MS);
+  persistSessions();
   const secure = process.env.AGENTSHIRE_HTTPS === "1" ? " Secure;" : "";
   res.setHeader(
     "Set-Cookie",
@@ -175,7 +223,7 @@ const LOGIN_HTML = `<!DOCTYPE html>
 </style>
 </head>
 <body>
-  <form class="login-card" method="POST" action="/api/login">
+  <form class="login-card" method="POST" action="/api/login" id="login-form">
     <div class="login-badge">🦫</div>
     <h1 class="login-title">欢迎回到夏尔</h1>
     <p class="login-subtitle">__SUBTITLE__</p>
@@ -185,6 +233,41 @@ const LOGIN_HTML = `<!DOCTYPE html>
     <button class="login-btn" type="submit">进入小镇</button>
     <p class="login-footer">🦫 卡皮巴拉守护着这座小镇</p>
   </form>
+<script>
+(function(){
+  var form = document.getElementById('login-form');
+  var errEl = form.querySelector('.login-error');
+  var btn = form.querySelector('.login-btn');
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var pwd = form.querySelector('input[name=password]').value;
+    btn.disabled = true;
+    btn.textContent = '进入中...';
+    fetch('api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ password: pwd })
+    }).then(function(resp){
+      if (resp.ok) {
+        location.href = '.';
+      } else {
+        return resp.json().catch(function(){ return { error: '密码错误' }; }).then(function(d){
+          throw new Error(d.error || '密码错误');
+        });
+      }
+    }).catch(function(err){
+      btn.disabled = false;
+      btn.textContent = '进入小镇';
+      errEl.textContent = err.message || '登录失败';
+      form.querySelector('.login-input').classList.add('is-error');
+      form.classList.add('shake');
+      setTimeout(function(){ form.classList.remove('shake'); }, 400);
+    });
+  });
+})();
+</script>
 </body>
 </html>`;
 
@@ -240,8 +323,9 @@ export async function handleLogin(
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     } else {
+      // 相对路径：从 /login 跳到上级目录（首页）
       res.writeHead(302, {
-        Location: "/",
+        Location: ".",
         "Set-Cookie": res.getHeader("Set-Cookie") as string,
       });
       res.end();
@@ -268,8 +352,9 @@ export async function handleLogin(
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
     } else {
+      // 相对路径：从 /login 跳到上级目录（首页）
       res.writeHead(302, {
-        Location: "/",
+        Location: ".",
         "Set-Cookie": res.getHeader("Set-Cookie") as string,
       });
       res.end();
@@ -298,9 +383,11 @@ export async function requireAuth(
   urlPath: string,
   config?: Record<string, unknown>,
 ): Promise<boolean> {
+  const realPath = urlPath;
+
   // 免密模式：/api/auth/status 返回已登录；其余请求直接放行给原逻辑。
   if (!isPasswordAuthEnabled()) {
-    if (urlPath === "/api/auth/status" && (req.method || "GET") === "GET") {
+    if (realPath === "/api/auth/status" && (req.method || "GET") === "GET") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ loggedIn: true }));
       return true;
@@ -308,16 +395,16 @@ export async function requireAuth(
     return false; // 其余请求直接放行给原逻辑
   }
 
-  if (isWhitelisted(urlPath, req.method || "GET")) {
-    if (urlPath === "/login") {
+  if (isWhitelisted(realPath, req.method || "GET")) {
+    if (realPath === "/login") {
       serveLoginPage(res);
       return true;
     }
-    if (urlPath === "/api/login") {
+    if (realPath === "/api/login") {
       await handleLogin(req, res, config);
       return true;
     }
-    if (urlPath === "/api/auth/status") {
+    if (realPath === "/api/auth/status") {
       handleAuthStatus(req, res);
       return true;
     }
@@ -326,13 +413,31 @@ export async function requireAuth(
 
   if (isValidSession(parseSessionToken(req))) return false; // 放行给原逻辑
 
-  // 未登录
+  // 未登录：区分页面请求 vs API 请求
+  // API 请求（accept: application/json 或路径以 /api/ /_api/ /board/ 开头）→ 401 JSON
+  // 页面请求（accept: text/html 或普通 GET）→ 302 到 login
+  const accept = req.headers.accept || "";
+  const isApiRequest =
+    accept.includes("application/json") ||
+    realPath.startsWith("/api/") ||
+    realPath.includes("/_api/") ||
+    realPath.startsWith("/board/");
   if (
-    (req.headers.accept || "").includes("text/html") ||
-    (req.method || "GET") === "GET"
+    !isApiRequest &&
+    (accept.includes("text/html") || (req.method || "GET") === "GET")
   ) {
-    res.writeHead(302, { Location: "/login" });
-    res.end();
+    // 用 HTML + JS 跳转代替 302，解决反代无结尾斜杠时相对路径丢端口的问题。
+    // 浏览器先规范化 URL（补结尾斜杠），再相对跳转到 login，保证前缀完整。
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><script>` +
+        `(function(){` +
+        `var p=location.pathname;` +
+        `if(p.charAt(p.length-1)!=='/'){location.replace(p+'/'+location.search+location.hash);return;}` +
+        `location.replace('login');` +
+        `})();` +
+        `</script></head><body></body></html>`,
+    );
   } else {
     res.writeHead(401, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "unauthorized" }));

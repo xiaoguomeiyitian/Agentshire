@@ -51,6 +51,14 @@ const filePath = params.get('file');
 
 let rawUrl = '';
 
+/**
+ * 把绝对路径转为相对路径（去掉前导斜杠），使 fetch 相对当前页面 URL 解析。
+ */
+function apiUrl(path) {
+  if (typeof path !== 'string' || !path.startsWith('/')) return path
+  return path.slice(1)
+}
+
 async function loadDocument() {
   const contentEl = document.getElementById('content');
   const filenameEl = document.getElementById('filename');
@@ -60,7 +68,7 @@ async function loadDocument() {
     return;
   }
 
-  rawUrl = new URL(filePath, location.origin).href;
+  rawUrl = new URL(apiUrl(filePath), location.href).href;
   const fileName = filePath.split('/').pop() || filePath;
   filenameEl.textContent = fileName;
   document.title = fileName + ' — 文档查看器';

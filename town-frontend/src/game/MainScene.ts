@@ -13,6 +13,7 @@ import { Effects } from './visual/Effects'
 import { VFXSystem } from './visual/VFXSystem'
 import { getAudioSystem } from '../audio/AudioSystem'
 import { AmbientSoundManager } from '../audio/AmbientSoundManager'
+import { apiUrl } from '@/utils/api-base'
 import { BGMManager } from '../audio/BGMManager'
 import { NPC } from '../npc/NPC'
 import { NPCManager } from '../npc/NPCManager'
@@ -275,7 +276,7 @@ export class MainScene implements GameScene {
       if (event.type === 'send_message') this.onUserMessage(event.text)
       if (event.type === 'play_now') {
         this.dataSource.sendAction({ type: 'game_popup_action', action: 'play_now', gameUrl: event.gameUrl })
-        if (event.gameUrl) window.open(event.gameUrl, '_blank', 'noopener')
+        if (event.gameUrl) window.open(apiUrl(event.gameUrl), '_blank', 'noopener')
       }
       if (event.type === 'back_town') {
         this.sceneSwitcher.switchScene('town')
@@ -1098,7 +1099,7 @@ __workflow 演出测试指令:
     if (this._mapConfigLoading) return
     this._mapConfigLoading = true
     try {
-      const res = await fetch('/town-map/_api/load')
+      const res = await fetch(apiUrl('/town-map/_api/load'))
       if (!res.ok) return
       const data = await res.json()
       const config = data.config as TownMapConfig | null
@@ -1126,7 +1127,7 @@ __workflow 演出测试指令:
     if (!config) return
     if (this._persistTimer) clearTimeout(this._persistTimer)
     this._persistTimer = setTimeout(() => {
-      fetch('/town-map/_api/save', {
+      fetch(apiUrl('/town-map/_api/save'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),

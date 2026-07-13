@@ -1,6 +1,7 @@
 /**
  * Audio System - 游戏音效系统
  */
+import { apiUrl } from '@/utils/api-base'
 
 interface SoundConfig {
   src: string
@@ -80,7 +81,7 @@ export class AudioSystem {
 
   private async loadAudioFile(filename: string): Promise<AudioBuffer> {
     if (!this.audioContext) throw new Error('AudioContext not initialized')
-    const response = await fetch(this.basePath + filename)
+    const response = await fetch(apiUrl(this.basePath + filename))
     if (!response.ok) throw new Error(`Audio file not found: ${filename}`)
     return await this.audioContext.decodeAudioData(await response.arrayBuffer())
   }

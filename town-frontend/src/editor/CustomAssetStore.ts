@@ -1,3 +1,5 @@
+import { apiUrl } from '@/utils/api-base'
+
 export type CustomAssetKind = 'model' | 'character'
 
 export interface CharacterAnimationSet {
@@ -33,7 +35,7 @@ export interface CustomAsset {
 
 type Listener = () => void
 
-const API_BASE = '/custom-assets/_api'
+const API_BASE = apiUrl('/custom-assets/_api')
 
 export class CustomAssetStore {
   private assets: CustomAsset[] = []

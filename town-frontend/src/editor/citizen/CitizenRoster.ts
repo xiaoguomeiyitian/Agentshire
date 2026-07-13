@@ -2,6 +2,7 @@ import type { CitizenWorkshopConfig, WorkshopCitizenConfig } from '../../data/Ci
 import { getLocale, t } from '../../i18n'
 import { generateCitizenId, INDUSTRY_SPECIALTY_MAP } from '../../data/CitizenWorkshopConfig'
 import { getAllGroups } from '../../data/CharacterModelRegistry'
+import { apiUrl } from '@/utils/api-base'
 
 export type RosterSelection =
   | { type: 'user' }
@@ -176,7 +177,7 @@ export class CitizenRoster {
 
   private resolveAvatarUrl(avatarUrl?: string, avatarId?: string): string | null {
     if (this.avatarResolver) return this.avatarResolver(avatarUrl, avatarId)
-    if (avatarUrl) return avatarUrl
+    if (avatarUrl) return apiUrl(avatarUrl)
     if (avatarId) {
       const group = getAllGroups().find(g => g.id === avatarId)
       if (group?.thumbnailUrl) return group.thumbnailUrl

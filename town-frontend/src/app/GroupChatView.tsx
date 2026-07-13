@@ -4,6 +4,7 @@ import { Users, AtSign, SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, F
 import type { AgentInfo } from '@/hooks/useAgents'
 import type { GroupChatMessageItem, GroupChatInfo } from '@/hooks/useWebSocket'
 import { MarkdownContent } from './ChatMessages'
+import { apiUrl } from '@/utils/api-base'
 
 function formatClockTime(ts: number): string {
   const d = new Date(ts)
@@ -390,7 +391,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
             <div key={msg.sequenceId} className={cn('group flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
               {/* Avatar */}
               {avatarUrl ? (
-                <img src={avatarUrl} alt={msg.speakerName} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                <img src={apiUrl(avatarUrl)} alt={msg.speakerName} className="w-8 h-8 rounded-full object-cover shrink-0" />
               ) : (
                 <div
                   className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0"
@@ -477,7 +478,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
             return (
               <div key={`typing-${npcId}`} className="flex gap-2.5">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt={speakerName} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                  <img src={apiUrl(avatarUrl)} alt={speakerName} className="w-8 h-8 rounded-full object-cover shrink-0" />
                 ) : (
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold text-white shrink-0"
@@ -550,7 +551,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                     <AtSign size={15} className="text-brand-secondary" />
                   </div>
                 ) : citizen!.avatarUrl ? (
-                  <img src={citizen!.avatarUrl} alt={citizen!.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                  <img src={apiUrl(citizen!.avatarUrl)} alt={citizen!.name} className="w-8 h-8 rounded-full object-cover shrink-0" />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-bg-elevated flex items-center justify-center text-[13px] font-bold text-text-secondary shrink-0">
                     {citizen!.name[0]}
