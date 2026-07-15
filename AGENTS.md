@@ -6,11 +6,11 @@
 ## Tech Stack
 
 - **Runtime**: OpenClaw Plugin SDK (Node.js / ESM)
-- **Frontend**: Three.js + vanilla TypeScript (no framework), Vite build, multi-page entries (game / editor / preview / citizen-editor)
+- **Frontend**: Three.js 0.185 + React 19 + vanilla TypeScript 7 (no framework for game core), Vite 8 (Rolldown engine) build, multi-page entries (game / editor / preview / citizen-editor)
 - **Protocol**: WebSocket JSON (plugin ↔ frontend), `AgentEvent` / `GameEvent` discriminated unions
 - **Audio**: Web Audio API procedural synthesis (zero audio files for ambient) + mp3 BGM
-- **Models**: GLTF/GLB, `@gltf-transform` optimization
-- **Testing**: Vitest (root + town-frontend each with independent config)
+- **Models**: GLTF/GLB, `@gltf-transform` 4.4 optimization
+- **Testing**: Vitest 4.1 (root + town-frontend each with independent config)
 
 ## System Architecture
 

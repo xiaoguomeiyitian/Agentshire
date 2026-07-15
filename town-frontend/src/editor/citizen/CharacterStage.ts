@@ -22,7 +22,7 @@ export class CharacterStage {
   private camera: THREE.PerspectiveCamera
   private controls: OrbitControls
   private loader = new GLTFLoader()
-  private clock = new THREE.Clock()
+  private clock = new THREE.Timer()
 
   private currentModel: THREE.Group | null = null
   private mixer: THREE.AnimationMixer | null = null
@@ -55,7 +55,7 @@ export class CharacterStage {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.renderer.toneMapping = THREE.AgXToneMapping
     this.renderer.toneMappingExposure = 1
 
@@ -227,7 +227,7 @@ export class CharacterStage {
     if (this.active) return
     this.active = true
     this.resize()
-    this.clock.start()
+    this.clock.update()
     this.loop()
   }
 
@@ -469,6 +469,7 @@ export class CharacterStage {
   private loop = (): void => {
     if (!this.active) return
     this.animId = requestAnimationFrame(this.loop)
+    this.clock.update()
     const dt = this.clock.getDelta()
     this.mixer?.update(dt)
 

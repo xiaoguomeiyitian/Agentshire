@@ -9,6 +9,7 @@
     "outDir": "dist",
     "rootDir": ".",
     "declaration": false,
+    "types": ["node"],
     "paths": {
       "openclaw/plugin-sdk/*": ["/home/node/lib/node_modules/openclaw/dist/plugin-sdk/*"]
     }

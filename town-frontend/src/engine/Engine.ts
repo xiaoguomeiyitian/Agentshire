@@ -33,7 +33,7 @@ export class Engine {
   public readonly screen: Screen
 
   private container: HTMLElement
-  private clock: THREE.Clock
+  private clock: THREE.Timer
   private currentScene: GameScene | null = null
   private animationId: number | null = null
 
@@ -49,14 +49,14 @@ export class Engine {
 
   constructor(container: HTMLElement) {
     this.container = container
-    this.clock = new THREE.Clock(false)
+    this.clock = new THREE.Timer()
 
     // Renderer
     this.renderer = new THREE.WebGLRenderer({ antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setSize(container.clientWidth, container.clientHeight)
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     container.appendChild(this.renderer.domElement)
 
     // Camera
@@ -116,7 +116,7 @@ export class Engine {
     if (this._running) return
     this._running = true
     this._paused = false
-    this.clock.start()
+    this.clock.update()
     this.animate()
   }
 
@@ -130,13 +130,12 @@ export class Engine {
 
   play(): void {
     this._paused = false
-    this.clock.start()
+    this.clock.update()
     if (this._running && this.animationId === null) this.animate()
   }
 
   pause(): void {
     this._paused = true
-    this.clock.stop()
     if (this.animationId !== null) {
       cancelAnimationFrame(this.animationId)
       this.animationId = null
@@ -159,6 +158,7 @@ export class Engine {
     if (!this._running || this._paused) return
     this.animationId = requestAnimationFrame(this.animate)
 
+    this.clock.update()
     const deltaTime = this.clock.getDelta()
     this._elapsedTime += deltaTime
     this._tick++

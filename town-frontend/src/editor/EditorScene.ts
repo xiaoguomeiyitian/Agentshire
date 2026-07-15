@@ -105,7 +105,7 @@ export class EditorScene {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
     this.renderer.setSize(this.container.clientWidth, this.container.clientHeight)
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.shadowMap.type = THREE.PCFShadowMap
     this.container.appendChild(this.renderer.domElement)
 
     const ro = new ResizeObserver(() => {

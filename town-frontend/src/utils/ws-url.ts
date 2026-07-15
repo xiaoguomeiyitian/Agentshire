@@ -1,18 +1,22 @@
 /**
  * WebSocket URL 解析工具
  *
- * 优先级：?ws= 显式参数 > baseURI 路径前缀推导 > 同源 port-1 约定
+ * 优先级：?ws= 显式参数 > location.pathname 路径前缀推导 > 同源 port-1 约定
  */
 
 /**
- * 从 document.baseURI 推导反代路径前缀。
+ * 从 location.pathname 推导反代路径前缀。
+ *
+ * 反代场景下 URL 形如 http://host/<container>/<port>/town.html，
+ * location.pathname 为 /<container>/<port>/town.html，
+ * 提取 container 和 port 用于拼接 API/WS 路径。
+ *
  * @returns { container, port } 或 null
  */
 export function detectReverseProxyPrefix(): { container: string; port: string } | null {
   if (typeof window === 'undefined' || !window.location) return null
   try {
-    const base = new URL(document.baseURI)
-    const m = base.pathname.match(/^\/([a-zA-Z0-9_-]+)\/(\d+)(?:\/|$)/)
+    const m = window.location.pathname.match(/^\/([a-zA-Z0-9_-]+)\/(\d+)(?:\/|$)/)
     if (!m) return null
     return { container: m[1], port: m[2] }
   } catch {

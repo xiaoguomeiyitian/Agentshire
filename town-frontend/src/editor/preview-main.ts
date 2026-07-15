@@ -44,7 +44,7 @@ async function boot() {
     renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.shadowMap.type = THREE.PCFShadowMap
     container.appendChild(renderer.domElement)
 
     // Scene + Camera
@@ -179,9 +179,10 @@ async function boot() {
     loadingEl.style.display = 'none'
 
     // Render loop
-    const clock = new THREE.Clock()
+    const clock = new THREE.Timer()
     function animate() {
       requestAnimationFrame(animate)
+      clock.update()
       const dt = Math.min(clock.getDelta(), 0.1)
 
       gameClock.update(dt)

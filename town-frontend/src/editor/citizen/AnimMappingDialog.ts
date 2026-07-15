@@ -39,7 +39,7 @@ export class AnimMappingDialog {
   private model: THREE.Group | null = null
   private mixer: THREE.AnimationMixer | null = null
   private currentAction: THREE.AnimationAction | null = null
-  private clock = new THREE.Clock()
+  private clock = new THREE.Timer()
   private animId = 0
   private allClips: THREE.AnimationClip[] = []
 
@@ -560,11 +560,12 @@ export class AnimMappingDialog {
       if (!this.renderer) return
       this.animId = requestAnimationFrame(tick)
       this.resizePreview()
+      this.clock.update()
       this.mixer?.update(this.clock.getDelta())
       this.controls?.update()
       this.renderer.render(this.scene!, this.camera!)
     }
-    this.clock.start()
+    this.clock.update()
     this.animId = requestAnimationFrame(tick)
   }
 

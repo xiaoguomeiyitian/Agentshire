@@ -1,5 +1,79 @@
 # Changelog
 
+## 2026.7.15 (rev 2)
+
+### Dependencies — Full Upgrade to Latest
+
+All project dependencies upgraded to the latest stable versions. Upgrades were executed in 5 incremental stages with tests passing after each stage.
+
+#### Backend (`package.json`)
+
+| Dependency | From | To | Notes |
+|---|---|---|---|
+| `@gltf-transform/core` | ^4.3.0 | ^4.4.1 | GLTF optimization core |
+| `@gltf-transform/extensions` | ^4.3.0 | ^4.4.1 | GLTF extensions |
+| `@gltf-transform/functions` | ^4.3.0 | ^4.4.1 | GLTF processing functions |
+| `jsonrepair` | ^3.13.3 | ^3.15.0 | JSON repair |
+| `ws` | ^8.16.0 | ^8.21.1 | WebSocket server |
+| `@types/ws` | ^8.5.10 | ^8.18.1 | ws type definitions |
+| `typescript` | ^5.4.0 | ^7.0.2 | Go-rewritten compiler, major perf gain |
+| `vitest` | ^4.1.0 | ^4.1.10 | Test framework |
+
+#### Frontend (`town-frontend/package.json`)
+
+| Dependency | From | To | Notes |
+|---|---|---|---|
+| `vite` | ^5.2.0 | ^8.1.4 | Rolldown engine, build 29s→7s |
+| `@vitejs/plugin-react` | ^4.7.0 | ^6.0.3 | peer: vite ^8 |
+| `@vitejs/plugin-basic-ssl` | ^1.1.0 | ^2.3.0 | peer: vite ^6/7/8 |
+| `@tailwindcss/vite` | ^4.2.1 | ^4.3.2 | Tailwind Vite plugin |
+| `tailwindcss` | ^4.2.1 | ^4.3.2 | Tailwind CSS |
+| `tailwind-merge` | ^3.5.0 | ^3.6.0 | Tailwind class merge |
+| `three` | ^0.162.0 | ^0.185.1 | Three.js 3D engine |
+| `@types/three` | ^0.162.0 | ^0.185.1 | Synced with three |
+| `react` | ^19.2.4 | ^19.2.7 | React |
+| `react-dom` | ^19.2.4 | ^19.2.7 | React DOM |
+| `@types/react` | ^19.2.14 | ^19.2.17 | React types |
+| `lucide` | ^0.577.0 | ^1.24.0 | Icon library (dynamic `icons` object) |
+| `lucide-react` | ^1.6.0 | ^1.24.0 | Lucide React components |
+| `typescript` | ^5.4.0 | ^7.0.2 | Go-rewritten compiler |
+| `vitest` | ^4.0.18 | ^4.1.10 | Test framework |
+
+### Deprecated API Replacements
+
+After upgrading, scanned and replaced all APIs marked as deprecated by the new dependency versions:
+
+- **`THREE.Clock` → `THREE.Timer`** (Three.js r183 deprecated `Clock`, runtime warning: *"Please use THREE.Timer instead"*). Migrated 4 files: `Engine.ts`, `AnimMappingDialog.ts`, `CharacterStage.ts`, `preview-main.ts`. API difference: `Clock` uses `start()`/`stop()` + auto-updating `getDelta()`; `Timer` uses explicit `update()` before `getDelta()` (safe for multiple queries per frame).
+- **`THREE.PCFSoftShadowMap` → `THREE.PCFShadowMap`** (Three.js r185 deprecated `PCFSoftShadowMap`, runtime auto-downgrades with warning). `PCFShadowMap` now supports soft shadows. Updated 4 files: `Engine.ts`, `CharacterStage.ts`, `EditorScene.ts`, `preview-main.ts`.
+- **`build.rollupOptions` → `build.rolldownOptions`** (Vite 8 deprecated `rollupOptions` in favor of Rolldown-native options). Updated `vite.config.ts`.
+- **`import.meta.glob({ as: 'raw' })` → `{ query: 'raw', import: 'default' }`** (Vite 6+ deprecated the `as` option). Updated `NPC.ts`.
+
+### Vite 8 Type Compatibility Fix
+
+- **`server.https` type change** — Vite 8 changed `server.https` type from `boolean` to `HttpsServerOptions`. The previous `https: mode === 'https' || ...` (boolean) caused a VSCode type error. Removed the `server.https` config line; HTTPS is now auto-injected by `@vitejs/plugin-basic-ssl` in its `configResolved` hook when the plugin is loaded.
+
+### Reverse Proxy Base Plugin Removal
+
+- **Removed `reverseProxyBasePlugin`** from `vite.config.ts`. The old approach injected an inline `<script>` into `<head>` at build time to dynamically create a `<base>` tag, making `document.baseURI` carry the reverse-proxy prefix. The new approach derives the prefix directly from `location.pathname` in JS:
+  - `ws-url.ts`: `detectReverseProxyPrefix()` now reads `window.location.pathname` instead of `document.baseURI`.
+  - `api-base.ts`: `apiUrl()` now prepends the proxy prefix (e.g. `/agentshire/55210`) to absolute paths, instead of stripping the leading `/` and relying on `document.baseURI` for relative resolution.
+  - Static assets use `./` relative paths (via `base: './'`), which the browser resolves relative to the page URL — automatically carrying the proxy prefix in reverse-proxy scenarios.
+
+### TypeScript 7 Migration
+
+- **`tsconfig.json` (backend)**: Added `"types": ["node"]` — TS 6/7 defaults `types` to `[]`, which would drop global `process`/`Buffer` types from `@types/node`.
+- **`town-frontend/tsconfig.json`**: Removed deprecated `baseUrl` (TS 7 removed it entirely, error: `Option 'baseUrl' has been removed`); changed `paths` from `["src/*"]` to `["./src/*"]` (relative paths required without `baseUrl`).
+
+### Performance
+
+- Frontend build time: **29.3s → 6.8s** (Vite 8 Rolldown engine).
+- Backend test duration: **3.2s → 2.4s** (TypeScript 7 Go-rewritten compiler).
+
+### Chores
+- Updated `AGENTS.md` Tech Stack section with new dependency versions.
+- Updated `README.md` and `README.zh-CN.md` with current tech stack.
+- Bumped version to `2026.7.15`.
+
 ## 2026.7.15
 
 ### Improvements
