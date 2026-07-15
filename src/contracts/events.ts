@@ -191,6 +191,14 @@ export type AgentEvent =
       query:
         | { kind: 'self'; npcId: string }
         | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string } }
+  // World control (NPC move — plugin tools → frontend)
+  | { type: 'world_control'; target: 'move_npc';
+      npcId: string;
+      destination: { x: number; y: number; z: number };
+      speed?: number }
+
+  // Visual effect (plugin tools → frontend)
+  | { type: 'fx'; effect: string; params: Record<string, unknown> }
 
   // Error
   | { type: 'error'; message: string; recoverable: boolean };

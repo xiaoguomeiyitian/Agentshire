@@ -18,12 +18,13 @@ import {
 import { randomUUID } from "node:crypto";
 import { stateDir, initStateDir } from "./paths.js";
 import { getTownRuntime } from "./runtime.js";
+import { buildTownInboundContext } from "./channel.js";
 
 
 function getStewardWorkspaceDir(): string {
   try {
     const rt = getTownRuntime();
-    const cfg = rt.config as any;
+    const cfg = rt.config.current() as any;
     const entry = (cfg?.agents?.list ?? []).find((a: any) => a.id === "town-steward");
     if (entry?.workspace) return entry.workspace;
   } catch {}
@@ -56,7 +57,7 @@ function guessMime(filePath: string): string {
  * Builtin assets are read from town-frontend/src/data/asset-catalog.json.
  * Custom assets are read from the CustomAssetManager catalog.
  */
-async function buildAssetCatalog(
+export async function buildAssetCatalog(
   pluginDir: string,
   d: ReturnType<typeof resolveDirs>,
 ): Promise<{ builtin: any[]; custom: any[] }> {
@@ -242,7 +243,7 @@ export interface EditorServeDirs {
   townDataDir: string;
 }
 
-function resolveDirs(pluginDir: string): {
+export function resolveDirs(pluginDir: string): {
   extAssetsDir: string;
   townDataDir: string;
   soulsDir: string;
@@ -320,7 +321,7 @@ function migrateCatalogThumbnails(customAssetsDir: string, catalogPath: string):
 function loadAgentList(): { id: string; name: string; model?: string }[] {
   try {
     const rt = getTownRuntime();
-    const cfg = rt.config as any;
+    const cfg = rt.config.current() as any;
     return (cfg?.agents?.list ?? []).map((a: any) => ({
       id: a.id,
       name: a.identity?.name || a.name || a.id,
@@ -1056,25 +1057,19 @@ const SOUL_GEN_TIMEOUT_MS = 90_000;
 
 async function generateSoulViaAgent(system: string, user: string): Promise<string> {
   const rt = getTownRuntime();
-  const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
+  const cfg = rt.config.current() as any;
   const sessionKey = `agent:town-steward:soul-gen:${Date.now()}`;
   const message = `【系统指令】\n${system}\n\n【用户输入】\n${user}`;
 
   let responseText = "";
   const agentDone = rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: rt.channel.reply.finalizeInboundContext({
-      Body: message,
-      RawBody: message,
-      CommandBody: message,
-      From: "agentshire:user",
-      To: "agentshire:steward",
-      SessionKey: sessionKey,
-      AccountId: "default",
-      OriginatingChannel: "agentshire",
-      ChatType: "direct",
-      SenderId: "user",
-      Provider: "agentshire",
-      Surface: "agentshire",
+    ctx: buildTownInboundContext({
+      rt,
+      body: message,
+      from: "agentshire:user",
+      to: "agentshire:steward",
+      sessionKey,
+      accountId: "default",
     }),
     cfg,
     dispatcherOptions: {
@@ -1719,10 +1714,14 @@ async function handleClawApi(
     switch (route) {
       case "config/load": {
         const cfg = m.readOpenClawConfig();
-        // Surface only the commonly-edited sections to keep the payload small
-        // and avoid leaking secrets (apiKeys are masked by the model manager).
+        // Surface commonly-edited sections; secrets are auto-redacted by `openclaw config get`
         const summary = {
-          gateway: cfg?.gateway ?? { mode: "local" },
+          gateway: {
+            mode: cfg?.gateway?.mode ?? "local",
+            port: cfg?.gateway?.port,
+            bind: cfg?.gateway?.bind,
+            auth: m.getConfigSection("gateway.auth"),
+          },
           agents: {
             defaults: cfg?.agents?.defaults ?? {},
             count: (cfg?.agents?.list ?? []).length,
@@ -1730,6 +1729,8 @@ async function handleClawApi(
               id: a.id,
               name: a.identity?.name || a.name || a.id,
               emoji: a.identity?.emoji,
+              thinkingDefault: a.thinkingDefault,
+              reasoningDefault: a.reasoningDefault,
             })),
           },
           plugin: {
@@ -1741,117 +1742,464 @@ async function handleClawApi(
           bindings: cfg?.bindings ?? [],
           meta: cfg?.meta ?? {},
           defaultModel: m.readDefaultModel(),
-          // ── Extended config sections ──
+          // ── Extended config sections (use getConfigSection for auto-redacted reads) ──
           logging: cfg?.logging ?? {},
           browser: cfg?.browser ?? {},
           update: cfg?.update ?? {},
           session: cfg?.session ?? {},
           security: cfg?.security ?? {},
           diagnostics: cfg?.diagnostics ?? {},
+          messages: cfg?.messages ?? {},
+          commands: cfg?.commands ?? {},
+          cron: cfg?.cron ?? {},
+          memory: cfg?.memory ?? {},
+          proxy: cfg?.proxy ?? {},
+          env: cfg?.env ?? {},
+          audit: cfg?.audit ?? {},
+          tools: cfg?.tools ?? {},
+          talk: cfg?.talk ?? {},
+          web: cfg?.web ?? {},
+          media: cfg?.media ?? {},
+          mcp: cfg?.mcp ?? {},
+          transcripts: cfg?.transcripts ?? {},
+          commitments: cfg?.commitments ?? {},
+          broadcast: cfg?.broadcast ?? {},
+          models: { mode: cfg?.models?.mode },
+          plugins: {
+            enabled: cfg?.plugins?.enabled,
+            bundledDiscovery: cfg?.plugins?.bundledDiscovery,
+          },
+          acp: cfg?.acp ?? {},
+          hooks: cfg?.hooks ?? {},
+          ui: cfg?.ui ?? {},
         };
         jsonRes(res, { success: true, config: summary });
         return true;
       }
       case "config/save": {
-        const cfg = m.readOpenClawConfig();
-        // Gateway mode
-        if (body.gateway?.mode) {
-          cfg.gateway = cfg.gateway ?? {};
-          cfg.gateway.mode = String(body.gateway.mode);
+        // Build a patch object — `openclaw config patch` does schema validation + atomic write
+        const patch: Record<string, unknown> = {};
+
+        // Gateway
+        if (body.gateway?.mode !== undefined) {
+          patch.gateway = { mode: String(body.gateway.mode) };
         }
+        if (body.gateway?.port !== undefined) {
+          patch.gateway = { ...(patch.gateway as any ?? {}), port: Number(body.gateway.port) };
+        }
+        if (body.gateway?.bind !== undefined) {
+          patch.gateway = { ...(patch.gateway as any ?? {}), bind: String(body.gateway.bind) };
+        }
+
         // Subagent timeout
         if (body.subagentsTimeoutSeconds !== undefined) {
-          cfg.agents = cfg.agents ?? {};
-          cfg.agents.defaults = cfg.agents.defaults ?? {};
-          cfg.agents.defaults.subagents = cfg.agents.defaults.subagents ?? {};
           const sec = Number(body.subagentsTimeoutSeconds);
           if (Number.isFinite(sec) && sec > 0) {
-            cfg.agents.defaults.subagents.runTimeoutSeconds = sec;
+            patch.agents = { defaults: { subagents: { runTimeoutSeconds: sec } } };
           }
         }
-        // Plugin enabled / autoLaunch / allowConversationAccess
-        if (body.pluginEnabled !== undefined) {
-          cfg.plugins = cfg.plugins ?? {};
-          cfg.plugins.entries = cfg.plugins.entries ?? {};
-          cfg.plugins.entries.agentshire = cfg.plugins.entries.agentshire ?? {};
-          cfg.plugins.entries.agentshire.enabled = Boolean(body.pluginEnabled);
+
+        // Plugin settings
+        const pluginPatch: any = {};
+        if (body.pluginEnabled !== undefined) pluginPatch.enabled = Boolean(body.pluginEnabled);
+        if (body.autoLaunch !== undefined) pluginPatch.config = { autoLaunch: Boolean(body.autoLaunch) };
+        if (body.allowConversationAccess !== undefined) pluginPatch.hooks = { allowConversationAccess: Boolean(body.allowConversationAccess) };
+        if (Object.keys(pluginPatch).length > 0) {
+          patch.plugins = { entries: { agentshire: pluginPatch } };
         }
-        if (body.autoLaunch !== undefined) {
-          cfg.plugins = cfg.plugins ?? {};
-          cfg.plugins.entries = cfg.plugins.entries ?? {};
-          cfg.plugins.entries.agentshire = cfg.plugins.entries.agentshire ?? {};
-          cfg.plugins.entries.agentshire.config = cfg.plugins.entries.agentshire.config ?? {};
-          cfg.plugins.entries.agentshire.config.autoLaunch = Boolean(body.autoLaunch);
-        }
-        if (body.allowConversationAccess !== undefined) {
-          cfg.plugins = cfg.plugins ?? {};
-          cfg.plugins.entries = cfg.plugins.entries ?? {};
-          cfg.plugins.entries.agentshire = cfg.plugins.entries.agentshire ?? {};
-          cfg.plugins.entries.agentshire.hooks = cfg.plugins.entries.agentshire.hooks ?? {};
-          cfg.plugins.entries.agentshire.hooks.allowConversationAccess = Boolean(body.allowConversationAccess);
-        }
-        // ── Logging ──
+
+        // Logging
         if (body.logging) {
-          cfg.logging = cfg.logging ?? {};
-          const lg = body.logging;
-          if (lg.level !== undefined) cfg.logging.level = String(lg.level);
-          if (lg.consoleLevel !== undefined) cfg.logging.consoleLevel = String(lg.consoleLevel);
-          if (lg.consoleStyle !== undefined) cfg.logging.consoleStyle = String(lg.consoleStyle);
-          if (lg.redactSensitive !== undefined) cfg.logging.redactSensitive = String(lg.redactSensitive);
+          const lg: any = {};
+          if (body.logging.level !== undefined) lg.level = String(body.logging.level);
+          if (body.logging.consoleLevel !== undefined) lg.consoleLevel = String(body.logging.consoleLevel);
+          if (body.logging.consoleStyle !== undefined) lg.consoleStyle = String(body.logging.consoleStyle);
+          if (body.logging.redactSensitive !== undefined) lg.redactSensitive = String(body.logging.redactSensitive);
+          if (Object.keys(lg).length > 0) patch.logging = lg;
         }
-        // ── Browser ──
+
+        // Browser
         if (body.browser) {
-          cfg.browser = cfg.browser ?? {};
-          const br = body.browser;
-          if (br.enabled !== undefined) cfg.browser.enabled = Boolean(br.enabled);
-          if (br.headless !== undefined) cfg.browser.headless = Boolean(br.headless);
-          if (br.noSandbox !== undefined) cfg.browser.noSandbox = Boolean(br.noSandbox);
-          if (br.cdpUrl !== undefined) cfg.browser.cdpUrl = String(br.cdpUrl);
-          if (br.actionTimeoutMs !== undefined) {
-            const ms = Number(br.actionTimeoutMs);
-            if (Number.isFinite(ms) && ms > 0) cfg.browser.actionTimeoutMs = ms;
+          const br: any = {};
+          if (body.browser.enabled !== undefined) br.enabled = Boolean(body.browser.enabled);
+          if (body.browser.headless !== undefined) br.headless = Boolean(body.browser.headless);
+          if (body.browser.noSandbox !== undefined) br.noSandbox = Boolean(body.browser.noSandbox);
+          if (body.browser.cdpUrl !== undefined) br.cdpUrl = String(body.browser.cdpUrl);
+          if (body.browser.actionTimeoutMs !== undefined) {
+            const ms = Number(body.browser.actionTimeoutMs);
+            if (Number.isFinite(ms) && ms > 0) br.actionTimeoutMs = ms;
           }
+          if (Object.keys(br).length > 0) patch.browser = br;
         }
-        // ── Update ──
+
+        // Update
         if (body.update) {
-          cfg.update = cfg.update ?? {};
-          const up = body.update;
-          if (up.channel !== undefined) cfg.update.channel = String(up.channel);
-          if (up.checkOnStart !== undefined) cfg.update.checkOnStart = Boolean(up.checkOnStart);
-          if (up.auto?.enabled !== undefined) {
-            cfg.update.auto = cfg.update.auto ?? {};
-            cfg.update.auto.enabled = Boolean(up.auto.enabled);
-          }
+          const up: any = {};
+          if (body.update.channel !== undefined) up.channel = String(body.update.channel);
+          if (body.update.checkOnStart !== undefined) up.checkOnStart = Boolean(body.update.checkOnStart);
+          if (body.update.auto?.enabled !== undefined) up.auto = { enabled: Boolean(body.update.auto.enabled) };
+          if (Object.keys(up).length > 0) patch.update = up;
         }
-        // ── Session ──
+
+        // Session
         if (body.session) {
-          cfg.session = cfg.session ?? {};
-          const ss = body.session;
-          if (ss.maxHistoryTurns !== undefined) {
-            const n = Number(ss.maxHistoryTurns);
-            if (Number.isFinite(n) && n >= 0) cfg.session.maxHistoryTurns = n;
+          const ss: any = {};
+          if (body.session.maxHistoryTurns !== undefined) {
+            const n = Number(body.session.maxHistoryTurns);
+            if (Number.isFinite(n) && n >= 0) ss.maxHistoryTurns = n;
           }
-          if (ss.compactionThresholdTokens !== undefined) {
-            const n = Number(ss.compactionThresholdTokens);
-            if (Number.isFinite(n) && n > 0) cfg.session.compactionThresholdTokens = n;
+          if (body.session.compactionThresholdTokens !== undefined) {
+            const n = Number(body.session.compactionThresholdTokens);
+            if (Number.isFinite(n) && n > 0) ss.compactionThresholdTokens = n;
           }
+          if (body.session.scope !== undefined) ss.scope = String(body.session.scope);
+          if (body.session.idleMinutes !== undefined) {
+            const n = Number(body.session.idleMinutes);
+            if (Number.isFinite(n) && n >= 0) ss.idleMinutes = n;
+          }
+          if (Object.keys(ss).length > 0) patch.session = ss;
         }
-        // ── Diagnostics ──
+
+        // Diagnostics
         if (body.diagnostics) {
-          cfg.diagnostics = cfg.diagnostics ?? {};
-          const dg = body.diagnostics;
-          if (dg.enabled !== undefined) cfg.diagnostics.enabled = Boolean(dg.enabled);
-          if (dg.stuckSessionWarnMs !== undefined) {
-            const ms = Number(dg.stuckSessionWarnMs);
-            if (Number.isFinite(ms) && ms > 0) cfg.diagnostics.stuckSessionWarnMs = ms;
+          const dg: any = {};
+          if (body.diagnostics.enabled !== undefined) dg.enabled = Boolean(body.diagnostics.enabled);
+          if (body.diagnostics.stuckSessionWarnMs !== undefined) {
+            const ms = Number(body.diagnostics.stuckSessionWarnMs);
+            if (Number.isFinite(ms) && ms > 0) dg.stuckSessionWarnMs = ms;
           }
-          if (dg.stuckSessionAbortMs !== undefined) {
-            const ms = Number(dg.stuckSessionAbortMs);
-            if (Number.isFinite(ms) && ms > 0) cfg.diagnostics.stuckSessionAbortMs = ms;
+          if (body.diagnostics.stuckSessionAbortMs !== undefined) {
+            const ms = Number(body.diagnostics.stuckSessionAbortMs);
+            if (Number.isFinite(ms) && ms > 0) dg.stuckSessionAbortMs = ms;
           }
+          if (Object.keys(dg).length > 0) patch.diagnostics = dg;
         }
-        m.writeOpenClawConfig(cfg);
-        jsonRes(res, { success: true });
+
+        // Messages
+        if (body.messages) {
+          const msg: any = {};
+          if (body.messages.ackReactionScope !== undefined) msg.ackReactionScope = String(body.messages.ackReactionScope);
+          if (body.messages.suppressToolErrors !== undefined) msg.suppressToolErrors = Boolean(body.messages.suppressToolErrors);
+          if (Object.keys(msg).length > 0) patch.messages = msg;
+        }
+
+        // Commands
+        if (body.commands) {
+          const cmd: any = {};
+          if (body.commands.text !== undefined) cmd.text = Boolean(body.commands.text);
+          if (body.commands.bash !== undefined) cmd.bash = Boolean(body.commands.bash);
+          if (body.commands.config !== undefined) cmd.config = Boolean(body.commands.config);
+          if (body.commands.restart !== undefined) cmd.restart = Boolean(body.commands.restart);
+          if (Object.keys(cmd).length > 0) patch.commands = cmd;
+        }
+
+        // Cron
+        if (body.cron) {
+          const cr: any = {};
+          if (body.cron.enabled !== undefined) cr.enabled = Boolean(body.cron.enabled);
+          if (body.cron.maxConcurrentRuns !== undefined) {
+            const n = Number(body.cron.maxConcurrentRuns);
+            if (Number.isFinite(n) && n > 0) cr.maxConcurrentRuns = n;
+          }
+          if (Object.keys(cr).length > 0) patch.cron = cr;
+        }
+
+        // Memory
+        if (body.memory) {
+          const mem: any = {};
+          if (body.memory.backend !== undefined) mem.backend = String(body.memory.backend);
+          if (Object.keys(mem).length > 0) patch.memory = mem;
+        }
+
+        // Proxy
+        if (body.proxy) {
+          const px: any = {};
+          if (body.proxy.enabled !== undefined) px.enabled = Boolean(body.proxy.enabled);
+          if (body.proxy.proxyUrl !== undefined) px.proxyUrl = String(body.proxy.proxyUrl);
+          if (Object.keys(px).length > 0) patch.proxy = px;
+        }
+
+        // Env
+        if (body.env) {
+          const envPatch: any = {};
+          if (body.env.shellEnv?.enabled !== undefined) {
+            envPatch.shellEnv = { enabled: Boolean(body.env.shellEnv.enabled) };
+          }
+          if (Object.keys(envPatch).length > 0) patch.env = envPatch;
+        }
+
+        // Audit
+        if (body.audit) {
+          const au: any = {};
+          if (body.audit.enabled !== undefined) au.enabled = Boolean(body.audit.enabled);
+          if (Object.keys(au).length > 0) patch.audit = au;
+        }
+
+        // Tools
+        if (body.tools) {
+          const tp: any = {};
+          if (body.tools.profile !== undefined) tp.profile = String(body.tools.profile);
+          if (body.tools.toolSearch !== undefined) tp.toolSearch = body.tools.toolSearch;
+          if (body.tools.codeMode !== undefined) tp.codeMode = body.tools.codeMode;
+          if (Object.keys(tp).length > 0) patch.tools = tp;
+        }
+
+        // Talk
+        if (body.talk) {
+          const tk: any = {};
+          if (body.talk.provider !== undefined) tk.provider = String(body.talk.provider);
+          if (body.talk.consultThinkingLevel !== undefined) tk.consultThinkingLevel = String(body.talk.consultThinkingLevel);
+          if (body.talk.consultFastMode !== undefined) tk.consultFastMode = Boolean(body.talk.consultFastMode);
+          if (body.talk.speechLocale !== undefined) tk.speechLocale = String(body.talk.speechLocale);
+          if (body.talk.interruptOnSpeech !== undefined) tk.interruptOnSpeech = Boolean(body.talk.interruptOnSpeech);
+          if (body.talk.silenceTimeoutMs !== undefined) {
+            const ms = Number(body.talk.silenceTimeoutMs);
+            if (Number.isFinite(ms) && ms > 0) tk.silenceTimeoutMs = ms;
+          }
+          if (Object.keys(tk).length > 0) patch.talk = tk;
+        }
+
+        // Web
+        if (body.web) {
+          const wb: any = {};
+          if (body.web.enabled !== undefined) wb.enabled = Boolean(body.web.enabled);
+          if (body.web.heartbeatSeconds !== undefined) {
+            const n = Number(body.web.heartbeatSeconds);
+            if (Number.isFinite(n) && n > 0) wb.heartbeatSeconds = n;
+          }
+          if (Object.keys(wb).length > 0) patch.web = wb;
+        }
+
+        // Media
+        if (body.media) {
+          const md: any = {};
+          if (body.media.preserveFilenames !== undefined) md.preserveFilenames = Boolean(body.media.preserveFilenames);
+          if (body.media.ttlHours !== undefined) {
+            const n = Number(body.media.ttlHours);
+            if (Number.isFinite(n) && n >= 0) md.ttlHours = n;
+          }
+          if (Object.keys(md).length > 0) patch.media = md;
+        }
+
+        // MCP
+        if (body.mcp) {
+          const mc: any = {};
+          if (body.mcp.sessionIdleTtlMs !== undefined) {
+            const n = Number(body.mcp.sessionIdleTtlMs);
+            if (Number.isFinite(n) && n > 0) mc.sessionIdleTtlMs = n;
+          }
+          if (Object.keys(mc).length > 0) patch.mcp = mc;
+        }
+
+        // Transcripts
+        if (body.transcripts) {
+          const tr: any = {};
+          if (body.transcripts.enabled !== undefined) tr.enabled = Boolean(body.transcripts.enabled);
+          if (body.transcripts.maxUtterances !== undefined) {
+            const n = Number(body.transcripts.maxUtterances);
+            if (Number.isFinite(n) && n > 0) tr.maxUtterances = n;
+          }
+          if (Object.keys(tr).length > 0) patch.transcripts = tr;
+        }
+
+        // Commitments
+        if (body.commitments) {
+          const cm: any = {};
+          if (body.commitments.enabled !== undefined) cm.enabled = Boolean(body.commitments.enabled);
+          if (body.commitments.maxPerDay !== undefined) {
+            const n = Number(body.commitments.maxPerDay);
+            if (Number.isFinite(n) && n >= 0) cm.maxPerDay = n;
+          }
+          if (Object.keys(cm).length > 0) patch.commitments = cm;
+        }
+
+        // Broadcast
+        if (body.broadcast) {
+          const bc: any = {};
+          if (body.broadcast.strategy !== undefined) bc.strategy = String(body.broadcast.strategy);
+          if (Object.keys(bc).length > 0) patch.broadcast = bc;
+        }
+
+        // Models mode
+        if (body.models?.mode !== undefined) {
+          patch.models = { mode: String(body.models.mode) };
+        }
+
+        // Plugins global
+        if (body.plugins) {
+          const pg: any = {};
+          if (body.plugins.enabled !== undefined) pg.enabled = Boolean(body.plugins.enabled);
+          if (body.plugins.bundledDiscovery !== undefined) pg.bundledDiscovery = String(body.plugins.bundledDiscovery);
+          if (Object.keys(pg).length > 0) patch.plugins = { ...(patch.plugins as any ?? {}), ...pg };
+        }
+
+        // ACP
+        if (body.acp) {
+          const ac: any = {};
+          if (body.acp.enabled !== undefined) ac.enabled = Boolean(body.acp.enabled);
+          if (body.acp.backend !== undefined) ac.backend = String(body.acp.backend);
+          if (body.acp.defaultAgent !== undefined) ac.defaultAgent = String(body.acp.defaultAgent);
+          if (body.acp.maxConcurrentSessions !== undefined) {
+            const n = Number(body.acp.maxConcurrentSessions);
+            if (Number.isFinite(n) && n > 0) ac.maxConcurrentSessions = n;
+          }
+          if (Object.keys(ac).length > 0) patch.acp = ac;
+        }
+
+        // Hooks
+        if (body.hooks) {
+          const hk: any = {};
+          if (body.hooks.enabled !== undefined) hk.enabled = Boolean(body.hooks.enabled);
+          if (body.hooks.path !== undefined) hk.path = String(body.hooks.path);
+          if (body.hooks.token !== undefined) hk.token = String(body.hooks.token);
+          if (body.hooks.defaultSessionKey !== undefined) hk.defaultSessionKey = String(body.hooks.defaultSessionKey);
+          if (body.hooks.allowRequestSessionKey !== undefined) hk.allowRequestSessionKey = Boolean(body.hooks.allowRequestSessionKey);
+          if (body.hooks.maxBodyBytes !== undefined) {
+            const n = Number(body.hooks.maxBodyBytes);
+            if (Number.isFinite(n) && n > 0) hk.maxBodyBytes = n;
+          }
+          if (body.hooks.transformsDir !== undefined) hk.transformsDir = String(body.hooks.transformsDir);
+          if (Object.keys(hk).length > 0) patch.hooks = hk;
+        }
+
+        // UI
+        if (body.ui) {
+          const ui: any = {};
+          if (body.ui.seamColor !== undefined) ui.seamColor = String(body.ui.seamColor);
+          if (Object.keys(ui).length > 0) patch.ui = ui;
+        }
+
+        // Gateway extended
+        if (body.gateway) {
+          const gw: any = (patch.gateway as any) ?? {};
+          if (body.gateway.customBindHost !== undefined) gw.customBindHost = String(body.gateway.customBindHost);
+          if (body.gateway.allowRealIpFallback !== undefined) gw.allowRealIpFallback = Boolean(body.gateway.allowRealIpFallback);
+          if (body.gateway.handshakeTimeoutMs !== undefined) {
+            const ms = Number(body.gateway.handshakeTimeoutMs);
+            if (Number.isFinite(ms) && ms > 0) gw.handshakeTimeoutMs = ms;
+          }
+          if (body.gateway.channelHealthCheckMinutes !== undefined) {
+            const n = Number(body.gateway.channelHealthCheckMinutes);
+            if (Number.isFinite(n) && n > 0) gw.channelHealthCheckMinutes = n;
+          }
+          if (body.gateway.channelStaleEventThresholdMinutes !== undefined) {
+            const n = Number(body.gateway.channelStaleEventThresholdMinutes);
+            if (Number.isFinite(n) && n > 0) gw.channelStaleEventThresholdMinutes = n;
+          }
+          if (body.gateway.channelMaxRestartsPerHour !== undefined) {
+            const n = Number(body.gateway.channelMaxRestartsPerHour);
+            if (Number.isFinite(n) && n > 0) gw.channelMaxRestartsPerHour = n;
+          }
+          if (Object.keys(gw).length > 0) patch.gateway = gw;
+        }
+
+        // Browser extended
+        if (body.browser) {
+          const br: any = (patch.browser as any) ?? {};
+          if (body.browser.evaluateEnabled !== undefined) br.evaluateEnabled = Boolean(body.browser.evaluateEnabled);
+          if (body.browser.executablePath !== undefined) br.executablePath = String(body.browser.executablePath);
+          if (body.browser.attachOnly !== undefined) br.attachOnly = Boolean(body.browser.attachOnly);
+          if (body.browser.cdpPortRangeStart !== undefined) {
+            const n = Number(body.browser.cdpPortRangeStart);
+            if (Number.isFinite(n) && n > 0) br.cdpPortRangeStart = n;
+          }
+          if (body.browser.defaultProfile !== undefined) br.defaultProfile = String(body.browser.defaultProfile);
+          if (body.browser.color !== undefined) br.color = String(body.browser.color);
+          if (Object.keys(br).length > 0) patch.browser = br;
+        }
+
+        // Logging extended
+        if (body.logging) {
+          const lg: any = (patch.logging as any) ?? {};
+          if (body.logging.file !== undefined) lg.file = String(body.logging.file);
+          if (body.logging.maxFileBytes !== undefined) {
+            const n = Number(body.logging.maxFileBytes);
+            if (Number.isFinite(n) && n > 0) lg.maxFileBytes = n;
+          }
+          if (Object.keys(lg).length > 0) patch.logging = lg;
+        }
+
+        // Session extended
+        if (body.session) {
+          const ss: any = (patch.session as any) ?? {};
+          if (body.session.dmScope !== undefined) ss.dmScope = String(body.session.dmScope);
+          if (body.session.store !== undefined) ss.store = String(body.session.store);
+          if (body.session.typingIntervalSeconds !== undefined) {
+            const n = Number(body.session.typingIntervalSeconds);
+            if (Number.isFinite(n) && n >= 0) ss.typingIntervalSeconds = n;
+          }
+          if (body.session.typingMode !== undefined) ss.typingMode = String(body.session.typingMode);
+          if (body.session.mainKey !== undefined) ss.mainKey = String(body.session.mainKey);
+          if (Object.keys(ss).length > 0) patch.session = ss;
+        }
+
+        // Diagnostics extended
+        if (body.diagnostics) {
+          const dg: any = (patch.diagnostics as any) ?? {};
+          if (body.diagnostics.memoryPressureSnapshot !== undefined) dg.memoryPressureSnapshot = Boolean(body.diagnostics.memoryPressureSnapshot);
+          if (Object.keys(dg).length > 0) patch.diagnostics = dg;
+        }
+
+        // Messages extended
+        if (body.messages) {
+          const msg: any = (patch.messages as any) ?? {};
+          if (body.messages.messagePrefix !== undefined) msg.messagePrefix = String(body.messages.messagePrefix);
+          if (body.messages.responsePrefix !== undefined) msg.responsePrefix = String(body.messages.responsePrefix);
+          if (body.messages.ackReaction !== undefined) msg.ackReaction = String(body.messages.ackReaction);
+          if (body.messages.removeAckAfterReply !== undefined) msg.removeAckAfterReply = Boolean(body.messages.removeAckAfterReply);
+          if (body.messages.visibleReplies !== undefined) msg.visibleReplies = String(body.messages.visibleReplies);
+          if (body.messages.responseUsage !== undefined) msg.responseUsage = String(body.messages.responseUsage);
+          if (Object.keys(msg).length > 0) patch.messages = msg;
+        }
+
+        // Commands extended
+        if (body.commands) {
+          const cmd: any = (patch.commands as any) ?? {};
+          if (body.commands.native !== undefined) cmd.native = body.commands.native;
+          if (body.commands.nativeSkills !== undefined) cmd.nativeSkills = body.commands.nativeSkills;
+          if (body.commands.bashForegroundMs !== undefined) {
+            const n = Number(body.commands.bashForegroundMs);
+            if (Number.isFinite(n) && n >= 0) cmd.bashForegroundMs = n;
+          }
+          if (body.commands.mcp !== undefined) cmd.mcp = Boolean(body.commands.mcp);
+          if (body.commands.plugins !== undefined) cmd.plugins = Boolean(body.commands.plugins);
+          if (body.commands.debug !== undefined) cmd.debug = Boolean(body.commands.debug);
+          if (body.commands.useAccessGroups !== undefined) cmd.useAccessGroups = Boolean(body.commands.useAccessGroups);
+          if (body.commands.ownerDisplay !== undefined) cmd.ownerDisplay = String(body.commands.ownerDisplay);
+          if (Object.keys(cmd).length > 0) patch.commands = cmd;
+        }
+
+        // Cron extended
+        if (body.cron) {
+          const cr: any = (patch.cron as any) ?? {};
+          if (body.cron.store !== undefined) cr.store = String(body.cron.store);
+          if (body.cron.webhook !== undefined) cr.webhook = String(body.cron.webhook);
+          if (body.cron.webhookToken !== undefined) cr.webhookToken = String(body.cron.webhookToken);
+          if (Object.keys(cr).length > 0) patch.cron = cr;
+        }
+
+        // Memory extended
+        if (body.memory) {
+          const mem: any = (patch.memory as any) ?? {};
+          if (body.memory.citations !== undefined) mem.citations = String(body.memory.citations);
+          if (Object.keys(mem).length > 0) patch.memory = mem;
+        }
+
+        // Proxy extended
+        if (body.proxy) {
+          const px: any = (patch.proxy as any) ?? {};
+          if (body.proxy.loopbackMode !== undefined) px.loopbackMode = String(body.proxy.loopbackMode);
+          if (Object.keys(px).length > 0) patch.proxy = px;
+        }
+
+        try {
+          if (Object.keys(patch).length > 0) {
+            m.patchConfig(patch);
+          }
+          jsonRes(res, { success: true });
+        } catch (err: any) {
+          jsonRes(res, { success: false, error: err?.message ?? "Config patch failed" }, 500);
+        }
         return true;
       }
       case "sessions/list": {

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react'
-import { Trash2, AlertTriangle, Cpu, ChevronDown, Archive, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Trash2, AlertTriangle, Cpu, ChevronDown, Archive, PanelLeftClose, PanelLeftOpen, Brain } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAgents, type AgentInfo } from '@/hooks/useAgents'
 import { useWebSocket, type ChatItem, type GroupChatMessageItem, type GroupChatInfo } from '@/hooks/useWebSocket'
@@ -40,17 +40,14 @@ function dedupRetryMessages(items: ChatItem[]): ChatItem[] {
     }
   }
 
-  // Identify which user messages are "stale" (not the last occurrence)
-  // A stale user message and its reply (the assistant messages until the next
-  // user message) should be removed.
+  // Identify stale user messages (not the last occurrence) and their reply blocks for removal
   const staleRanges: Array<[number, number]> = []
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     if (item.role === 'user' && item.kind === 'text' && item.text) {
       const lastIdx = lastUserIdx.get(item.text!)
       if (lastIdx !== undefined && lastIdx !== i) {
-        // This is a stale user message — find the end of its reply block
-        // (everything until the next user message or end of array)
+        // Find the end of this stale message's reply block (until next user msg or end)
         let end = i + 1
         while (end < items.length && items[end].role !== 'user') {
           end++
@@ -140,40 +137,39 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const [hasMoreMap, setHasMoreMap] = useState<Map<string, boolean>>(new Map())
   const [cursorMap, setCursorMap] = useState<Map<string, string>>(new Map())
   const [thinkingMap, setThinkingMap] = useState<Map<string, boolean>>(new Map())
-  // Live reasoning/thinking text per agent (accumulated from thinking_delta events)
+  // Live reasoning/thinking text per agent (from thinking_delta events)
   const [thinkingTextMap, setThinkingTextMap] = useState<Map<string, string>>(new Map())
-  // Ref mirror for access in callbacks with [] deps
   const thinkingTextMapRef = useRef<Map<string, string>>(new Map())
   thinkingTextMapRef.current = thinkingTextMap
   // Context window usage per agent: { used, limit, percent }
   const [contextMap, setContextMap] = useState<Map<string, { used: number; limit: number; percent: number }>>(new Map())
   // Compaction count per agent (from turn_end event)
   const [compactionMap, setCompactionMap] = useState<Map<string, number>>(new Map())
-  // Model options for the agent model selector (contextWindow from openclaw.json)
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string; contextWindow?: number }>>([])
-  // Map from modelRef ("providerId/modelId") → contextWindow limit, for restoring ctx on refresh
+  // modelRef → contextWindow limit, for restoring ctx on refresh
   const contextWindowMapRef = useRef<Map<string, number>>(new Map())
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [modelUpdating, setModelUpdating] = useState(false)
   const modelMenuRef = useRef<HTMLDivElement>(null)
-  // Per-agent model override: persists model changes across agent switching
-  // without needing to reload from backend. Keyed by agentId (or 'steward').
+  // Per-agent model override (persists across agent switching, keyed by agentId)
   const [modelRefOverride, setModelRefOverride] = useState<Map<string, string | undefined>>(new Map())
+  // Per-agent thinking/reasoning config from openclaw.json
+  const [agentConfigs, setAgentConfigs] = useState<Record<string, { thinkingDefault?: string; reasoningDefault?: string }>>({})
+  const [thinkingMenuOpen, setThinkingMenuOpen] = useState(false)
+  const [thinkingUpdating, setThinkingUpdating] = useState(false)
+  const thinkingMenuRef = useRef<HTMLDivElement>(null)
   // Agent list collapsed state (avatar-only mode)
   const [agentListCollapsed, setAgentListCollapsed] = useState(() => {
     try { return localStorage.getItem(AGENT_LIST_COLLAPSED_KEY) === 'true' } catch { return false }
   })
   const selectedAgentRef = useRef(selectedAgent)
   selectedAgentRef.current = selectedAgent
-  // Keep agents list in a ref so callbacks with [] deps can access the latest list
   const agentsRef = useRef(agents)
   agentsRef.current = agents
 
-  // Safety net: per-agent thinking timeout timers. If turn_end is missed
-  // (e.g. disconnect during agent_end), the thinking indicator is cleared
-  // after THINKING_TIMEOUT_MS so it doesn't stay forever.
+  // Safety net: clear thinking indicator after THINKING_TIMEOUT_MS if turn_end is missed
   const thinkingTimerRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-  const THINKING_TIMEOUT_MS = 120_000 // 2 minutes — multi-turn responses can be long
+  const THINKING_TIMEOUT_MS = 120_000
 
   /** Set thinking state for a specific agent (by routing key). */
   const setThinkingFor = useCallback((routingKey: string, value: boolean) => {
@@ -194,7 +190,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       // Clear any existing timer for this agent
       const existing = timers.get(routingKey)
       if (existing) clearTimeout(existing)
-      // Set a new timeout — if turn_end never arrives, clear thinking
+      // Set timeout — clear thinking if turn_end never arrives
       const timer = setTimeout(() => {
         setThinkingMap(prev => {
           if (!prev.get(routingKey)) return prev
@@ -216,23 +212,15 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const historyLoadedRef = useRef<Set<string>>(new Set())
   const loadingMoreRef = useRef(false)
   const lastAgentSyncRef = useRef('')
-  // Map<routingKey, clearTimestamp> — messages with timestamp <= clearTime are ignored
-  // Persisted to localStorage so that page refresh / server restart doesn't reload stale messages
+  // Per-agent clear timestamps (persisted to localStorage); messages <= clearTime are ignored
   const clearedAgentsRef = useRef<Map<string, number>>(loadClearedAgents())
-  // Group chat clear timestamp — messages with timestamp <= clearTime are ignored
-  // Persisted to localStorage for the same reason
+  // Group chat clear timestamp (persisted to localStorage); messages <= clearTime are ignored
   const groupClearedAtRef = useRef<number | null>(loadGroupClearedAt())
-  // Per-agent abort counter — incremented on each abort. turn_end events
-  // decrement this counter and are ignored while it's > 0, which reliably
-  // discards late turn_end/error events from aborted turns regardless of
-  // arrival order or timing. error events are also ignored while > 0
-  // (but don't decrement, since error always precedes turn_end from the
-  // same agent_end hook — turn_end will consume the counter).
+  // Per-agent abort counter: incremented on abort, decremented by late turn_end.
+  // While > 0, late turn_end/error events from aborted turns are discarded.
   const abortCountRef = useRef<Map<string, number>>(new Map())
-  // Records the timestamp of the last abort per agent. chat_delta/chat_new_messages
-  // that arrive after an abort but belong to the aborted turn are filtered using
-  // this timestamp — assistant messages with timestamp <= abortTime + grace are
-  // dropped. This complements abortCountRef which only covers turn_end/error events.
+  // Per-agent abort timestamp: filters late chat_delta/chat_new_messages from aborted turns
+  // (complements abortCountRef which only covers turn_end/error events)
   const abortTimestampRef = useRef<Map<string, number>>(new Map())
 
   // ── Group chat state ──
@@ -242,12 +230,11 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const [groupInfo, setGroupInfo] = useState<GroupChatInfo | null>(null)
   const [groupMessages, setGroupMessages] = useState<GroupChatMessageItem[]>([])
   const [groupThinking, setGroupThinking] = useState(false)
-  // Citizens currently composing a reply in group chat (npcId → speakerName)
+  // Citizens composing a reply in group chat (npcId → speakerName)
   const [groupTypingCitizens, setGroupTypingCitizens] = useState<Map<string, string>>(new Map())
   const groupInitSentRef = useRef(false)
   const groupThinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Tracks whether the user has manually navigated (selected agent or exited group chat).
-  // Prevents auto-activation of group chat from re-triggering after manual navigation.
+  // Tracks manual navigation to prevent group chat auto-activation from re-triggering
   const userNavigatedRef = useRef(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [compacting, setCompacting] = useState(false)
@@ -257,10 +244,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     onGroupChatActiveChange?.(groupChatActive)
   }, [groupChatActive, onGroupChatActiveChange])
 
-  // When selectedAgent is externally cleared (e.g. mobile back button from TopNav),
-  // also exit group chat so the agent list is shown on mobile.
-  // Use a ref to distinguish external clears (TopNav back) from internal ones
-  // (handleEnterGroupChat also clears selectedAgent, but shouldn't reset groupChatActive).
+  // External clear of selectedAgent (TopNav back) exits group chat on mobile.
+  // internalAgentClearRef distinguishes external clears from handleEnterGroupChat's internal clear.
   const internalAgentClearRef = useRef(false)
   useEffect(() => {
     if (selectedAgent === null && groupChatActive && !internalAgentClearRef.current) {
@@ -269,11 +254,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     internalAgentClearRef.current = false
   }, [selectedAgent, groupChatActive])
 
-  // Watch the exitNonce signal from App. When the user presses the mobile back
-  // button while in group chat, selectedAgent is already null, so the effect
-  // above cannot detect the back press. App bumps exitNonce instead, and we
-  // reset the internal groupChatActive state here. Skip the initial mount
-  // (exitNonce === 0) so we don't clobber a persisted 'group' view mode.
+  // exitNonce from App: mobile back press in group chat (selectedAgent already null).
+  // Skip initial mount (nonce===0) to preserve persisted 'group' view mode.
   const lastExitNonceRef = useRef(exitNonce ?? 0)
   useEffect(() => {
     const nonce = exitNonce ?? 0
@@ -327,25 +309,16 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     historyLoadedRef.current = new Set(historyLoadedRef.current).add(agentId)
 
     if (isInitial) {
-      // Clear any stale abort counter from before the page refresh —
-      // a fresh history load means no turn is pending abort.
+      // Clear stale abort counter on fresh history load
       abortCountRef.current.delete(agentId)
-      // Deduplicate consecutive identical user text messages — retry/edit
-      // re-sends the same text to the backend, which stores both copies.
-      // Keep only the last copy so the user doesn't see duplicates on refresh.
+      // Deduplicate consecutive identical user messages (retry/edit re-sends same text)
       const deduped = dedupRetryMessages(newItems)
       setItems((prev) => new Map(prev).set(agentId, deduped))
-      // Restore the thinking indicator if the agent is still composing a reply.
-      // The backend reports `agentActive=true` when the agent has an active turn
-      // (between before_agent_start and agent_end). This covers multi-turn
-      // responses where the first reply has already arrived but the agent is
-      // still working (e.g. using tools before a second reply).
+      // Restore thinking indicator if agent is still composing (agentActive=true or last msg is user)
       if (agentActive) {
         setThinkingFor(agentId, true)
       } else {
-        // Fallback: if the last visible message is from the user, the agent
-        // is still composing a reply (covers cases where agentActive is not
-        // available, e.g. older backend).
+        // Fallback: last visible message from user means agent is still composing
         const visibleItems = newItems.filter(it => it.kind === 'text' || it.kind === 'media')
         const lastItem = visibleItems[visibleItems.length - 1]
         if (lastItem && lastItem.role === 'user') {
@@ -363,14 +336,11 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         return new Map(prev).set(agentId, merged)
       })
     }
-    // Restore context window usage from the last assistant message's usage info.
-    // `used` = last assistant message's input tokens; `limit` = model's contextWindow
-    // (looked up from openclaw.json via the model options API).
+    // Restore context window usage from last assistant message's usage info
     if (isInitial) {
       const lastAssistant = [...newItems].reverse().find(it => it.role === 'assistant' && it.usage)
       if (lastAssistant?.usage) {
         const used = lastAssistant.usage.input ?? 0
-        // Determine the model ref for this agent to look up contextWindow limit
         const agent = agentsRef.current.find(a => getAgentRoutingKey(a) === agentId)
         const modelRef = agent ? (modelRefOverride.get(agentId) ?? agent.modelRef) : undefined
         const limit = modelRef
@@ -390,14 +360,10 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   }, [])
 
   const handleDeltaItems = useCallback((agentId: string, deltaItems: ChatItem[]) => {
-    // Filter out stale items that existed before a local clear operation
+    // Filter stale items (before local clear) and aborted turn deltas
     const clearTime = clearedAgentsRef.current.get(agentId)
-    // Ignore assistant deltas from aborted turns — the abort counter is > 0
-    // until the aborted turn's turn_end arrives and consumes it.
     const abortCount = abortCountRef.current.get(agentId) ?? 0
-    // Also check abort timestamp — even after abortCount is consumed by turn_end,
-    // late chat_delta/chat_new_messages from the aborted turn may still arrive.
-    // Filter assistant messages with timestamp <= abortTime + 10s grace period.
+    // Also filter by abort timestamp (late deltas after abortCount is consumed)
     const abortTime = abortTimestampRef.current.get(agentId)
     const abortCutoff = abortTime ? abortTime + 10_000 : 0
     const effectiveItems = deltaItems.filter(item => {
@@ -408,10 +374,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     })
     if (effectiveItems.length === 0) return
 
-    // NOTE: Do NOT clear thinking on assistant message arrival.
-    // In multi-turn responses (agent uses tools then calls LLM again), clearing
-    // here would hide the typing indicator between turns. Instead, thinking is
-    // cleared only on turn_end (agent_end hook) in handleAgentEvent.
+    // NOTE: Don't clear thinking here — multi-turn responses need it between turns.
+    // Thinking is cleared only on turn_end in handleAgentEvent.
 
     setItems((prev) => {
       const existing = [...(prev.get(agentId) || [])]
@@ -446,11 +410,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         if (item.role === 'user') {
           let localIdx = -1
           if (item.kind === 'text') {
-            // Match by text content — find the LAST local- user message
-            // with the same text that has NO assistant reply after it.
-            // This handles retry scenarios where the original local message
-            // timestamp was updated but the backend echo arrives with a
-            // different timestamp (server time).
+            // Match by text: find last local- user message with same text and no reply after it
+            // (handles retry where local timestamp differs from server echo timestamp)
             for (let i = existing.length - 1; i >= 0; i--) {
               const entry = existing[i]
               if (
@@ -494,18 +455,13 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   }, [])
 
   const handleAgentEvent = useCallback((event: any) => {
-    // ── Error event: API returned an error status ──
-    // Display the error message in chat with a retry button (copy button preserved).
+    // ── Error event: display in chat with retry button ──
     if (event.type === 'error') {
       const routingKey = (event.agentId as string | undefined)
         ?? (event.npcId as string | undefined)
         ?? 'steward'
-      // Ignore error events from an aborted turn. The aborted turn's agent_end
-      // fires late with error + turn_end. We ignore the error here and let
-      // turn_end consume the abort counter.
-      // BUT: dispatch errors (recoverable=true, sent from channel.ts catch block)
-      // are from the NEW retry message, not the aborted turn — they must NOT
-      // be ignored, otherwise thinking stays forever.
+      // Ignore errors from aborted turns, but NOT dispatch errors (recoverable=true)
+      // which are from the new retry message
       const abortCount = abortCountRef.current.get(routingKey) ?? 0
       const isDispatchError = event.recoverable === true
       if (abortCount > 0 && !isDispatchError) return
@@ -531,15 +487,11 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       return
     }
     if (event.type === 'turn_end' || event.type === 'end') {
-      // Use agentId (e.g. "citizen-citizen_6") as routing key — it matches
-      // the key used by setThinkingFor in handleSend. Fall back to npcId
-      // (e.g. "citizen_6") for backwards compatibility, then 'steward'.
+      // Use agentId as routing key (matches setThinkingFor in handleSend); fall back to npcId, then 'steward'
       const routingKey = (event.agentId as string | undefined)
         ?? (event.npcId as string | undefined)
         ?? 'steward'
-      // Ignore turn_end events from an aborted turn. Each abort increments
-      // the counter; each late turn_end decrements it. When the counter
-      // reaches 0, the next turn_end belongs to the current active turn.
+      // Ignore turn_end from aborted turns (abortCount > 0: decrement and skip)
       const abortCount = abortCountRef.current.get(routingKey) ?? 0
       if (abortCount > 0) {
         abortCountRef.current.set(routingKey, abortCount - 1)
@@ -621,10 +573,9 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     if (clearTime !== null && msg.timestamp <= clearTime) return
 
     setGroupMessages(prev => {
-      // Deduplicate: skip if a message with the same sequenceId already exists
-      // (user messages are added locally first, then echoed back by the server)
+      // Deduplicate by sequenceId (user messages added locally first, then echoed by server)
       if (prev.some(m => m.sequenceId === msg.sequenceId)) return prev
-      // Also skip user messages from server echo — local message already added
+      // Skip user messages from server echo (local already added)
       if (msg.speakerNpcId === 'user' && prev.some(m =>
         m.speakerNpcId === 'user' &&
         m.text === msg.text &&
@@ -632,7 +583,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       )) return prev
       return [...prev, msg]
     })
-    // Clear this citizen's typing indicator (double safety alongside group_chat_typing_done)
+    // Clear typing indicator (double safety alongside group_chat_typing_done)
     if (msg.speakerNpcId !== 'user' && msg.speakerNpcId !== 'system') {
       setGroupTypingCitizens(prev => {
         if (!prev.has(msg.speakerNpcId)) return prev
@@ -650,9 +601,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
 
   const handleGroupChatInfo = useCallback((info: GroupChatInfo) => {
     setGroupInfo(info)
-    // Auto-activate group chat only on first connect (before user has interacted).
-    // Once the user has manually navigated (selected agent or exited group chat),
-    // don't auto-activate again — respect their choice.
+    // Auto-activate group chat on first connect only (before user navigates manually)
     if (!groupChatActive && !selectedAgentRef.current && !userNavigatedRef.current) {
       setGroupChatActive(true)
     }
@@ -704,10 +653,9 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const connectedRef = useRef(connected)
   connectedRef.current = connected
 
-  // Request group chat init on connect (also re-init on reconnect)
+  // Request group chat init on connect (re-init on reconnect)
   useEffect(() => {
     if (connected && visible && isLive) {
-      // Reset on each connect so reconnect re-fetches group chat state/history
       groupInitSentRef.current = true
       sendGroupChatInit()
     }
@@ -797,6 +745,34 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     return () => { cancelled = true }
   }, [])
 
+  // Fetch agent configs (thinking/reasoning defaults) from openclaw.json
+  useEffect(() => {
+    let cancelled = false
+    async function loadAgentConfigs() {
+      try {
+        const resp = await fetch(apiUrl('/claw/_api/config/load'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        const data = await resp.json()
+        if (cancelled || !data.success || !data.config?.agents?.list) return
+        const map: Record<string, { thinkingDefault?: string; reasoningDefault?: string }> = {}
+        for (const a of data.config.agents.list) {
+          map[a.id] = {
+            thinkingDefault: a.thinkingDefault,
+            reasoningDefault: a.reasoningDefault,
+          }
+        }
+        setAgentConfigs(map)
+      } catch {
+        // ignore — thinking panel just won't show current values
+      }
+    }
+    loadAgentConfigs()
+    return () => { cancelled = true }
+  }, [])
+
   // Close model menu on outside click
   useEffect(() => {
     if (!modelMenuOpen) return
@@ -809,6 +785,18 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [modelMenuOpen])
 
+  // Close thinking menu on outside click
+  useEffect(() => {
+    if (!thinkingMenuOpen) return
+    function handleClickOutside(e: MouseEvent) {
+      if (thinkingMenuRef.current && !thinkingMenuRef.current.contains(e.target as Node)) {
+        setThinkingMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [thinkingMenuOpen])
+
   useEffect(() => {
     if (!connected || !visible || !selectedAgent) {
       lastAgentSyncRef.current = ''
@@ -820,8 +808,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     if (lastAgentSyncRef.current === syncKey) return
     lastAgentSyncRef.current = syncKey
     bindChatAgent(agentKey)
-    // Always request history; handleHistoryItems will filter out messages
-    // older than the clear timestamp (clearedAgentsRef)
+    // Always request history; handleHistoryItems filters out cleared messages
     requestHistory(agentKey)
   }, [selectedAgent, connected, visible, townSessionId, bindChatAgent, requestHistory])
 
@@ -924,6 +911,56 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     }
   }, [onAgentChange])
 
+  // Update agent thinking/reasoning config via backend API
+  const handleUpdateThinking = useCallback(async (patch: { thinkingDefault?: string | null; reasoningDefault?: string | null }) => {
+    const agent = selectedAgentRef.current
+    if (!agent) return
+    const agentId = agent.type === 'steward' ? 'town-steward' : (agent.agentId ?? agent.id)
+    setThinkingUpdating(true)
+    // Optimistically update local config
+    setAgentConfigs(prev => {
+      const next = { ...prev }
+      const existing = next[agentId] ?? {}
+      next[agentId] = {
+        ...existing,
+        ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== null)),
+      }
+      // Remove null fields
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null) delete (next[agentId] as any)[k]
+      }
+      return next
+    })
+    try {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/update-agent-config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, patch }),
+      })
+      const data = await resp.json()
+      if (!data.success) {
+        // Reload config to revert on failure
+        const reloadResp = await fetch(apiUrl('/claw/_api/config/load'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        })
+        const reloadData = await reloadResp.json()
+        if (reloadData.success && reloadData.config?.agents?.list) {
+          const map: Record<string, { thinkingDefault?: string; reasoningDefault?: string }> = {}
+          for (const a of reloadData.config.agents.list) {
+            map[a.id] = { thinkingDefault: a.thinkingDefault, reasoningDefault: a.reasoningDefault }
+          }
+          setAgentConfigs(map)
+        }
+      }
+    } catch {
+      // ignore — optimistic update stays
+    } finally {
+      setThinkingUpdating(false)
+    }
+  }, [])
+
   const handleSend = useCallback((text: string) => {
     const agent = selectedAgentRef.current
     if (!agent) return
@@ -932,9 +969,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       addSystemMessage(routingKey, '⚠️ 网络已断开，请刷新页面重新连接。')
       return
     }
-    // Note: we do NOT delete the cleared timestamp — it stays so that stale
-    // transcript messages (from before the clear) are always filtered out.
-    // New messages naturally have timestamps > clearTime so they pass through.
+    // Note: don't delete cleared timestamp — stale messages stay filtered; new msgs pass through
     setThinkingFor(routingKey, true)
     setItems((prev) => {
       const agentItems = [...(prev.get(routingKey) || [])]
@@ -961,7 +996,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       addSystemMessage(routingKey, '⚠️ 网络已断开，请刷新页面重新连接。')
       return
     }
-    // Note: we do NOT delete the cleared timestamp — see handleSend for rationale.
+    // Note: don't delete cleared timestamp — see handleSend for rationale
     setThinkingFor(routingKey, true)
 
     const textPart = parts.find((p) => p.kind === 'text')
@@ -1102,8 +1137,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     // Group chat compact
     if (groupChatActive) {
       setCompacting(true)
-      // /compact is a gateway command; for group chat we send it via the group message channel
-      // by routing it as a regular command through the steward session
+      // /compact for group chat: route as regular command through steward session
       sendCommand('compact', '')
       setTimeout(() => setCompacting(false), 3000)
       return
@@ -1136,8 +1170,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       abortTimestampRef.current.set(routingKey, Date.now())
       sendAbort(agent.type === 'steward' ? undefined : { agentId: routingKey, npcId: agent.id })
     }
-    // Remove all messages after the last matching user message (i.e. the agent's reply)
-    // and mark the user message with a fresh local- id so the backend echo can match it
+    // Remove agent's reply after the matching user message; reset user msg to fresh local- id
     setItems((prev) => {
       const existing = [...(prev.get(routingKey) || [])]
       // Find the last user text message matching the retry text
@@ -1152,10 +1185,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       if (lastUserIdx >= 0) {
         // Keep everything up to and including the user message; drop the rest
         existing.splice(lastUserIdx + 1)
-        // Reset the user message to a fresh local- entry so the backend echo
-        // can match it via the dedup logic in handleDeltaItems (which looks
-        // for local- prefix). The original message may have been replaced by
-        // a backend echo (msg: prefix) from a previous send/retry cycle.
+        // Reset to fresh local- id so backend echo can match via dedup logic
         existing[lastUserIdx] = {
           ...existing[lastUserIdx],
           id: `local-${++globalMsgId}`,
@@ -1165,7 +1195,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       return new Map(prev).set(routingKey, existing)
     })
     setThinkingFor(routingKey, true)
-    // Re-send the message to the backend (no new local user message — the original stays)
+    // Re-send to backend (no new local user message — original stays)
     if (agent.type === 'steward') sendChat(text)
     else sendCitizenChat(agent.id, text)
   }, [sendChat, sendCitizenChat, sendAbort, addSystemMessage, setThinkingFor, thinkingMap])
@@ -1291,6 +1321,12 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const currentContextInfo = contextMap.get(currentRoutingKey)
   // Compaction count for the current agent (shown next to ctx in header)
   const currentCompactionCount = compactionMap.get(currentRoutingKey)
+  // Current agent's thinking/reasoning config
+  const currentAgentConfigId = selectedAgent
+    ? (selectedAgent.type === 'steward' ? 'town-steward' : (selectedAgent.agentId ?? selectedAgent.id))
+    : undefined
+  const currentThinkingDefault = currentAgentConfigId ? agentConfigs[currentAgentConfigId]?.thinkingDefault : undefined
+  const currentReasoningDefault = currentAgentConfigId ? agentConfigs[currentAgentConfigId]?.reasoningDefault : undefined
 
   return (
     <div className="flex h-full" style={{ display: visible ? undefined : 'none' }}>
@@ -1302,14 +1338,14 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         {/* Collapse toggle button (desktop only) */}
         <button
           onClick={handleToggleAgentListCollapse}
-          className="hidden md:flex absolute top-2 right-2 z-10 items-center justify-center w-6 h-6 rounded-lg text-text-quaternary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
+          className="hidden md:flex absolute top-2 right-2 z-10 items-center justify-center w-6 h-6 rounded-lg text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
           title={agentListCollapsed ? t('chat.expand_list') : t('chat.collapse_list')}
         >
           {agentListCollapsed ? <PanelLeftOpen size={14} strokeWidth={1.8} /> : <PanelLeftClose size={14} strokeWidth={1.8} />}
         </button>
         {loading ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-xs text-text-quaternary">加载中...</div>
+            <div className="text-xs text-text-tertiary">加载中...</div>
           </div>
         ) : (
           <AgentList
@@ -1347,11 +1383,11 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
             <div className="flex items-center gap-2 px-4 py-1 select-none shrink-0">
               <span className="hidden md:inline text-[13px] font-semibold text-brand-secondary">{selectedAgent.name}</span>
               {selectedAgent.specialty && (
-                <span className="hidden md:inline text-[11px] text-text-quaternary/70">（{selectedAgent.specialty}）</span>
+                <span className="hidden md:inline text-[11px] text-text-tertiary/80">（{selectedAgent.specialty}）</span>
               )}
               <span className={cn(
                 'hidden md:block w-1.5 h-1.5 rounded-full shrink-0',
-                agentOnline ? 'bg-status-success' : 'bg-text-quaternary',
+                agentOnline ? 'bg-status-success' : 'bg-text-tertiary',
               )} />
               {/* Agent model selector */}
               {modelOptions.length > 0 && (
@@ -1376,7 +1412,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
                     <ChevronDown size={10} strokeWidth={1.8} className="shrink-0" />
                     {currentContextInfo && currentContextInfo.limit > 0 && (
                       <span
-                        className="text-text-quaternary/50 tabular-nums ml-0.5"
+                        className="text-text-tertiary/70 tabular-nums ml-0.5"
                         title={`上下文 ${formatTokens(currentContextInfo.used)}/${formatTokens(currentContextInfo.limit)}`}
                       >
                         ctx {currentContextInfo.percent}%
@@ -1384,7 +1420,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
                     )}
                     {typeof currentCompactionCount === 'number' && currentCompactionCount > 0 && (
                       <span
-                        className="text-text-quaternary/50 tabular-nums ml-0.5"
+                        className="text-text-tertiary/70 tabular-nums ml-0.5"
                         title={`上下文压缩次数 ${currentCompactionCount}`}
                       >
                         · 压缩 {currentCompactionCount}
@@ -1422,6 +1458,64 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
                   )}
                 </div>
               )}
+              {/* Thinking & reasoning selector */}
+              <div ref={thinkingMenuRef} className="relative">
+                <button
+                  onClick={() => setThinkingMenuOpen(o => !o)}
+                  disabled={thinkingUpdating}
+                  className={cn(
+                    'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px]',
+                    'transition-colors duration-150 cursor-pointer',
+                    thinkingMenuOpen
+                      ? 'bg-bg-elevated text-text-primary'
+                      : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated/40',
+                    thinkingUpdating && 'opacity-50 cursor-default',
+                  )}
+                  title={t('claw.am_thinking')}
+                >
+                  <Brain size={11} strokeWidth={1.8} />
+                  <span className="max-w-[120px] truncate">
+                    {currentThinkingDefault || currentReasoningDefault
+                      ? `${currentThinkingDefault || '—'} / ${currentReasoningDefault || '—'}`
+                      : t('claw.am_inherit')}
+                  </span>
+                  <ChevronDown size={10} strokeWidth={1.8} className="shrink-0" />
+                </button>
+                {thinkingMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 w-[240px] py-3 px-3 rounded-2xl bg-bg-surface border border-border-subtle shadow-2xl shadow-black/60 z-50 space-y-3">
+                    <div className="flex items-center gap-1.5 text-text-secondary">
+                      <Brain size={12} strokeWidth={1.8} className="text-brand-secondary" />
+                      <span className="text-[12px] font-medium">{t('claw.am_thinking')}</span>
+                    </div>
+                    <div className="flex flex-col gap-2 pl-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[12px] text-text-tertiary shrink-0">{t('claw.am_thinking_default')}</span>
+                        <select
+                          value={currentThinkingDefault ?? ''}
+                          onChange={(e) => handleUpdateThinking({ thinkingDefault: e.target.value || null })}
+                          disabled={thinkingUpdating}
+                          className="w-full sm:w-40 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-1.5 text-[12px] text-text-primary outline-none focus:border-brand-primary cursor-pointer"
+                        >
+                          <option value="">{t('claw.am_inherit')}</option>
+                          {['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'adaptive', 'max'].map(l => <option key={l} value={l}>{l}</option>)}
+                        </select>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[12px] text-text-tertiary shrink-0">{t('claw.am_reasoning_default')}</span>
+                        <select
+                          value={currentReasoningDefault ?? ''}
+                          onChange={(e) => handleUpdateThinking({ reasoningDefault: e.target.value || null })}
+                          disabled={thinkingUpdating}
+                          className="w-full sm:w-40 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-1.5 text-[12px] text-text-primary outline-none focus:border-brand-primary cursor-pointer"
+                        >
+                          <option value="">{t('claw.am_inherit')}</option>
+                          {['on', 'off', 'stream'].map(l => <option key={l} value={l}>{l}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div className="flex-1" />
               <button
                 onClick={handleCompactChat}
@@ -1470,6 +1564,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
               onRetry={handleRetry}
               onEdit={handleEdit}
               retryDisabled={currentThinking || !canSend}
+              reasoningVisibility={currentReasoningDefault}
             />
             <ChatInputBar
               onSend={handleSend}
@@ -1497,7 +1592,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
             />
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-text-quaternary text-sm select-none">
+          <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm select-none">
             选择一个 Agent 开始对话
           </div>
         )}

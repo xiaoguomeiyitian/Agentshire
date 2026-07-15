@@ -7,6 +7,7 @@
 import { getTownRuntime } from "./runtime.js";
 import { pushCitizenMessages } from "./ws-server.js";
 import { sanitizeTownSessionId } from "./town-session.js";
+import { buildTownInboundContext } from "./channel.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -96,27 +97,14 @@ export async function routeCitizenMessage(params: {
 
   console.log(`[citizen-chat] Routing to ${agentId} (${label}), sessionKey=${sessionKey}`);
 
-  const msgCtx = rt.channel.reply.finalizeInboundContext({
-    Body: message,
-    RawBody: message,
-    CommandBody: message,
-    From: `${CHANNEL_ID}:user`,
-    To: `${CHANNEL_ID}:${npcId}`,
-    SessionKey: sessionKey,
-    AccountId: accountId,
-    OriginatingChannel: CHANNEL_ID,
-    ChatType: "direct",
-    SenderId: "user",
-    Provider: CHANNEL_ID,
-    Surface: CHANNEL_ID,
-    // Authorize slash commands (e.g. /new, /reset) so OpenClaw recognises
-    // them as session-reset triggers instead of treating them as plain text.
-    // Without CommandAuthorized + CommandSource="text", /new is ignored and
-    // dispatched to the LLM as a normal user message, which wastes a model
-    // call and can cause "reply session initialization conflicted" errors.
-    CommandAuthorized: true,
-    CommandSource: "text",
-    ...(mediaPaths?.length ? { MediaPaths: mediaPaths } : {}),
+  const msgCtx = buildTownInboundContext({
+    rt,
+    body: message,
+    from: `${CHANNEL_ID}:user`,
+    to: `${CHANNEL_ID}:${npcId}`,
+    sessionKey,
+    accountId,
+    mediaPaths,
   });
 
   // Retry with backoff for "reply session initialization conflicted" errors.

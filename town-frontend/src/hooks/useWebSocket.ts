@@ -55,6 +55,8 @@ export interface GroupChatMessageItem {
   contextBudget?: number
   /** Model id used for this citizen response */
   model?: string
+  /** Reasoning/thinking text extracted from the citizen response (if present) */
+  reasoning?: string
 }
 
 export interface GroupChatInfo {
@@ -161,6 +163,7 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 ...(data.usage ? { usage: data.usage } : {}),
                 ...(typeof data.contextBudget === 'number' ? { contextBudget: data.contextBudget } : {}),
                 ...(typeof data.model === 'string' ? { model: data.model } : {}),
+                ...(typeof data.reasoning === 'string' ? { reasoning: data.reasoning } : {}),
               })
             } else if (data.type === 'group_chat_info' && data.groupId) {
               onGroupChatInfoRef.current?.({
@@ -184,6 +187,8 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
                 groupName: data.groupName ?? '',
                 ...(m.usage ? { usage: m.usage } : {}),
                 ...(typeof m.contextBudget === 'number' ? { contextBudget: m.contextBudget } : {}),
+                ...(typeof m.model === 'string' ? { model: m.model } : {}),
+                ...(typeof m.reasoning === 'string' ? { reasoning: m.reasoning } : {}),
               }))
               onGroupChatHistoryRef.current?.(historyMessages)
             } else if (data.type === 'group_chat_typing' && data.npcId) {
@@ -204,9 +209,9 @@ export function useWebSocket({ url, townSessionId, enabled, onHistoryItems, onDe
           scheduleReconnect()
         }
 
-        ws.onerror = () => {
-          setConnected(false)
-        }
+        // Don't setConnected(false) on error: iOS Safari flickers connected state,
+        // toggling textarea disabled and dismissing the keyboard. Let onclose handle it.
+        ws.onerror = () => {}
       } catch {
         setConnected(false)
         scheduleReconnect()

@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026.7.15
+
+### Improvements
+- **Claw Settings Panel Restructure** — The Claw Settings view (`ClawSettingsView.tsx`) has been reorganized from a single overloaded "advanced" tab (21 sections in one page) into 5 logically grouped nav sections with a shared `AdvancedPanel` component using a `group` prop for conditional section rendering:
+  - **系统 (System)** — Logging, Update, Diagnostics, Audit
+  - **消息 (Messaging)** — Session, Messages, Commands, Cron
+  - **工具 (Tools)** — Browser, Tools, Web, Media, MCP
+  - **AI** — Talk/Voice, Transcripts, Commitments, Broadcast, ACP
+  - **网络 (Network)** — Memory, Proxy, Env, Hooks, UI
+  - The existing General, Providers, Models, Plugin, Sessions, and About sections remain as separate nav items, bringing the total to 11 nav entries.
+- **OpenClaw Config Defaults** — All ~100 `useState` default values in `ClawSettingsView.tsx` are now aligned with the actual `openclaw.json` values (e.g., `gateway.bind=loopback`, `logging.level=info`, `logging.consoleStyle=pretty`, `logging.redactSensitive=off`, `browser.enabled=true`, `browser.headless=false`, `session.scope=per-sender`, `session.dmScope=main`, `session.typingMode=never`, `commands.native=auto`, `commands.ownerDisplay=raw`, `commands.restart=true`, `memory.backend=builtin`, `memory.citations=auto`, `tools.profile=full`, `talk.consultThinkingLevel=off`, `talk.interruptOnSpeech=true`, `broadcast.strategy=parallel`, `proxy.loopbackMode=gateway-only`, `models.mode=merge`, `plugins.bundledDiscovery=compat`, `plugins.enabled=true`, `update.channel=stable`, `update.checkOnStart=true`, `update.auto.enabled=false`, `diagnostics.enabled=true`, `audit.enabled=false`, `cron.enabled=false`, `cron.maxConcurrentRuns=1`).
+- **Shared Props Object** — A shared `advProps` object is defined before the render statement and spread into all 5 `AdvancedPanel` calls, eliminating ~100 lines of repeated prop passing.
+- **i18n Labels** — Added nav labels for the 5 new groups in both `en.ts` and `zh-CN.ts` (`claw.nav_system`, `claw.nav_messaging`, `claw.nav_tools`, `claw.nav_ai`, `claw.nav_network`).
+
+### Chores
+- Updated `README.md` and `README.zh-CN.md` Claw Settings feature descriptions to reflect the 11-section nav structure.
+- Updated `AGENTS.md` and `town-frontend/AGENTS.md` with `ClawSettingsView.tsx` architecture notes.
+
+## 2026.7.14
+
+### Improvements
+- **OpenClaw 2026.7.1 SDK Adaptation** — Migrated all `rt.config.loadConfig()` fallbacks to `rt.config.current()` (the stable API since 2026.6.11). Removed the `typeof rt.config.current === "function"` feature-detection guards now that 2026.7.1 is the baseline. Affected files: `channel.ts`, `editor-serve.ts`, `llm-agent-proxy.ts`, `ws-server.ts`, `paths.ts`.
+- **Config Access Fix** — `editor-serve.ts` `getStewardWorkspaceDir()` and `loadAgentList()` previously accessed `rt.config` directly (the config object, not the config itself); now correctly call `rt.config.current()` to get the runtime config snapshot.
+- **`before_agent_start` → `before_model_resolve` Migration** — The `@deprecated` `before_agent_start` hook is now fully replaced by `before_model_resolve` across `index.ts` (steward hook registration + `session_start` init dispatch), `hook-translator.ts` (AgentEvent translation), and `ws-server.ts` (comment). The project already used `before_prompt_build` for soul injection (migrated from `subagent_spawning` in a prior session). All 12 registered hooks are now non-deprecated.
+- **`finalizeInboundContext` → `buildChannelInboundEventContext` Migration** — The `@deprecated` `rt.channel.reply.finalizeInboundContext()` is now fully replaced by `buildChannelInboundEventContext` from `openclaw/plugin-sdk/channel-inbound`. A new `buildTownInboundContext()` helper in `channel.ts` maps the legacy flat params (`Body`/`From`/`To`/`SessionKey`/`ChatType`/`CommandAuthorized`/…) into the structured facts objects (`SenderFacts`/`ConversationFacts`/`RouteFacts`/`ReplyPlanFacts`/`MessageFacts`/`AccessFacts`) required by the new API. All 3 call sites migrated: `channel.ts` (steward dispatch), `citizen-chat-router.ts` (citizen chat), `editor-serve.ts` (soul generation).
+- **Startup Banner** — Removed the hardcoded version number from the startup banner; it now reads `🏘️  Agentshire is live!` without a version suffix.
+
+### Chores
+- Full OpenClaw 2026.7.1 compliance audit completed: 100% compliant across deprecated API usage, SDK import paths, hook registration, manifest fields, and config access patterns.
+- Added `openclaw/plugin-sdk/channel-inbound` mock to `channel.test.ts` to keep the test suite green after the `buildChannelInboundEventContext` import.
+
 ## 2026.7.13
 
 ### New Features

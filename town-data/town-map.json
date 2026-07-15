@@ -11692,8 +11692,8 @@
     },
     {
       "id": "bobj_mrga5eve_6y00",
-      "modelKey": "building_G",
-      "modelUrl": "/assets/models/buildings/building_G.gltf",
+      "modelKey": "building_C",
+      "modelUrl": "/assets/models/buildings/building_C.gltf",
       "gridX": 2,
       "gridZ": 30,
       "widthCells": 6,
@@ -11716,8 +11716,8 @@
     },
     {
       "id": "bobj_mrga5ewl_ww4w",
-      "modelKey": "building_G",
-      "modelUrl": "/assets/models/buildings/building_G.gltf",
+      "modelKey": "building_B",
+      "modelUrl": "/assets/models/buildings/building_B.gltf",
       "gridX": 2,
       "gridZ": 6,
       "widthCells": 6,
@@ -11812,8 +11812,8 @@
     },
     {
       "id": "bobj_mrga60al_koon",
-      "modelKey": "building_G",
-      "modelUrl": "/assets/models/buildings/building_G.gltf",
+      "modelKey": "building_D",
+      "modelUrl": "/assets/models/buildings/building_D.gltf",
       "gridX": 60,
       "gridZ": 32,
       "widthCells": 6,
@@ -12058,11 +12058,1352 @@
     {
       "id": "pobj_mrhfhowx_lmgf",
       "modelKey": "capybara",
-      "modelUrl": "/custom-assets/models/capybara.glb",
+      "modelUrl": "/assets/models/props/capybara.glb",
       "gridX": 40,
       "gridZ": 24,
       "rotationY": 0,
       "scale": 80
+    },
+    {
+      "id": "pobj_288019_2824",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 37,
+      "gridZ": 21,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_1409",
+      "modelKey": "plaza_grass",
+      "modelUrl": "/assets/models/stage-deco/Grass_A_1.glb",
+      "gridX": 43,
+      "gridZ": 21,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_5506",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 37,
+      "gridZ": 27,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_5012",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 40,
+      "gridZ": 21,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_4657",
+      "modelKey": "plaza_grass",
+      "modelUrl": "/assets/models/stage-deco/Grass_A_1.glb",
+      "gridX": 37,
+      "gridZ": 24,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_3286",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 39,
+      "gridZ": 22,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_2679",
+      "modelKey": "plaza_grass",
+      "modelUrl": "/assets/models/stage-deco/Grass_A_1.glb",
+      "gridX": 41,
+      "gridZ": 22,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_9935",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 39,
+      "gridZ": 26,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_2424",
+      "modelKey": "plaza_grass",
+      "modelUrl": "/assets/models/stage-deco/Grass_A_1.glb",
+      "gridX": 41,
+      "gridZ": 26,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_7912",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 38,
+      "gridZ": 23,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_1520",
+      "modelKey": "plaza_grass",
+      "modelUrl": "/assets/models/stage-deco/Grass_A_1.glb",
+      "gridX": 42,
+      "gridZ": 23,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_1488",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 38,
+      "gridZ": 25,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_2535",
+      "modelKey": "plaza_grass",
+      "modelUrl": "/assets/models/stage-deco/Grass_A_1.glb",
+      "gridX": 42,
+      "gridZ": 25,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_4582",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 35,
+      "gridZ": 23,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_4811",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 44,
+      "gridZ": 23,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_9279",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 39,
+      "gridZ": 19,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_1434",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 40,
+      "gridZ": 28,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_4257",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 35,
+      "gridZ": 27,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_9928",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 40,
+      "gridZ": 23,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_7873",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 40,
+      "gridZ": 25,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_4611",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 39,
+      "gridZ": 24,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_8359",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 41,
+      "gridZ": 24,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_5557",
+      "modelKey": "watertower",
+      "modelUrl": "/assets/models/buildings/watertower.gltf",
+      "gridX": 34,
+      "gridZ": 20,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_1106",
+      "modelKey": "pebble",
+      "modelUrl": "/assets/models/stage-deco/Pebles_1_A_2.glb",
+      "gridX": 38,
+      "gridZ": 20,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_3615",
+      "modelKey": "pebble",
+      "modelUrl": "/assets/models/stage-deco/Pebles_1_A_2.glb",
+      "gridX": 42,
+      "gridZ": 20,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_7924",
+      "modelKey": "pebble",
+      "modelUrl": "/assets/models/stage-deco/Pebles_1_A_2.glb",
+      "gridX": 38,
+      "gridZ": 28,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_6574",
+      "modelKey": "pebble",
+      "modelUrl": "/assets/models/stage-deco/Pebles_1_A_2.glb",
+      "gridX": 42,
+      "gridZ": 28,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288019_5552",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 2,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288019_3547",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 2,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4527",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 6,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6514",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 6,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2674",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 10,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2519",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 10,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7224",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 14,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2584",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 14,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6881",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 18,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6635",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 18,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5333",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 22,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_1711",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 22,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_8527",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 26,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_9785",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 26,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3045",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 30,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7201",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 30,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2291",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 34,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5803",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 34,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6925",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 38,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4150",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 38,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2139",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 42,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_1750",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 42,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4733",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 46,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5741",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 46,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2307",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 50,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4814",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 50,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2654",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 54,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7227",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 54,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5554",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 58,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_8428",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 58,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6977",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 62,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3664",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 62,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7065",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 66,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6820",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 66,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4432",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 70,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5374",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 70,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2169",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 74,
+      "gridZ": 38,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3803",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 74,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_9751",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 48,
+      "gridZ": 22,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5010",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 50,
+      "gridZ": 20,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3677",
+      "modelKey": "trash_A",
+      "modelUrl": "/assets/models/props/trash_A.gltf",
+      "gridX": 49,
+      "gridZ": 24,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_8573",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 51,
+      "gridZ": 20,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7216",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 21,
+      "gridZ": 19,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5422",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 21,
+      "gridZ": 17,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4598",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 23,
+      "gridZ": 17,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6313",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 59,
+      "gridZ": 23,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_1916",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 59,
+      "gridZ": 21,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4752",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 61,
+      "gridZ": 21,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_1525",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 69,
+      "gridZ": 33,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6168",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 69,
+      "gridZ": 31,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7572",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 71,
+      "gridZ": 31,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5386",
+      "modelKey": "kiosk",
+      "modelUrl": "/assets/models/buildings/box_A.gltf",
+      "gridX": 30,
+      "gridZ": 40,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2084",
+      "modelKey": "kiosk",
+      "modelUrl": "/assets/models/buildings/box_A.gltf",
+      "gridX": 58,
+      "gridZ": 40,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4456",
+      "modelKey": "trash_A",
+      "modelUrl": "/assets/models/props/trash_A.gltf",
+      "gridX": 25,
+      "gridZ": 41,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_6155",
+      "modelKey": "trash_A",
+      "modelUrl": "/assets/models/props/trash_A.gltf",
+      "gridX": 45,
+      "gridZ": 41,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4483",
+      "modelKey": "trash_A",
+      "modelUrl": "/assets/models/props/trash_A.gltf",
+      "gridX": 55,
+      "gridZ": 41,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_9179",
+      "modelKey": "trash_A",
+      "modelUrl": "/assets/models/props/trash_A.gltf",
+      "gridX": 5,
+      "gridZ": 41,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7482",
+      "modelKey": "trash_A",
+      "modelUrl": "/assets/models/props/trash_A.gltf",
+      "gridX": 75,
+      "gridZ": 41,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_8517",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 12,
+      "gridZ": 13,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_3340",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 13,
+      "gridZ": 13,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_5339",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 11,
+      "gridZ": 13,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_3287",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 12,
+      "gridZ": 25,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_5040",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 13,
+      "gridZ": 25,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_9830",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 11,
+      "gridZ": 25,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_5304",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 2,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_8019",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 3,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_7543",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 1,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_6930",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 12,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_4593",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 13,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_3266",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 11,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_9348",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 2,
+      "gridZ": 13,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_9085",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 3,
+      "gridZ": 13,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_2489",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 1,
+      "gridZ": 13,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_1771",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 22,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_2796",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 23,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_3504",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 21,
+      "gridZ": 37,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_3621",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 60,
+      "gridZ": 15,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_7916",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 61,
+      "gridZ": 15,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_2040",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 59,
+      "gridZ": 15,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_7304",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 70,
+      "gridZ": 29,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_7252",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 71,
+      "gridZ": 29,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_8668",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 69,
+      "gridZ": 29,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_9669",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 50,
+      "gridZ": 39,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_5119",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 51,
+      "gridZ": 39,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_1188",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 49,
+      "gridZ": 39,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_2876",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 60,
+      "gridZ": 39,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_9797",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 61,
+      "gridZ": 39,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_5371",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 59,
+      "gridZ": 39,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_6573",
+      "modelKey": "car_sedan",
+      "modelUrl": "/assets/models/props/car_sedan.gltf",
+      "gridX": 10,
+      "gridZ": 12,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_2827",
+      "modelKey": "car_hatchback",
+      "modelUrl": "/assets/models/props/car_hatchback.gltf",
+      "gridX": 14,
+      "gridZ": 12,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5808",
+      "modelKey": "car_taxi",
+      "modelUrl": "/assets/models/props/car_taxi.gltf",
+      "gridX": 66,
+      "gridZ": 12,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_8123",
+      "modelKey": "car_sedan",
+      "modelUrl": "/assets/models/props/car_sedan.gltf",
+      "gridX": 68,
+      "gridZ": 12,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3591",
+      "modelKey": "car_hatchback",
+      "modelUrl": "/assets/models/props/car_hatchback.gltf",
+      "gridX": 46,
+      "gridZ": 30,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_8433",
+      "modelKey": "car_taxi",
+      "modelUrl": "/assets/models/props/car_taxi.gltf",
+      "gridX": 54,
+      "gridZ": 30,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_1053",
+      "modelKey": "car_sedan",
+      "modelUrl": "/assets/models/props/car_sedan.gltf",
+      "gridX": 26,
+      "gridZ": 36,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_5315",
+      "modelKey": "car_hatchback",
+      "modelUrl": "/assets/models/props/car_hatchback.gltf",
+      "gridX": 34,
+      "gridZ": 36,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_9201",
+      "modelKey": "car_taxi",
+      "modelUrl": "/assets/models/props/car_taxi.gltf",
+      "gridX": 36,
+      "gridZ": 18,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3927",
+      "modelKey": "car_police",
+      "modelUrl": "/assets/models/buildings/car_police.gltf",
+      "gridX": 62,
+      "gridZ": 40,
+      "rotationY": 90,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_9317",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 20,
+      "gridZ": 8,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_2743",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 20,
+      "gridZ": 4,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_5889",
+      "modelKey": "plaza_flower",
+      "modelUrl": "/assets/models/stage-deco/Flowers_1_D.glb",
+      "gridX": 24,
+      "gridZ": 4,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_288020_9317",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 22,
+      "gridZ": 4,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_4258",
+      "modelKey": "signboard",
+      "modelUrl": "/assets/models/buildings/box_B.gltf",
+      "gridX": 40,
+      "gridZ": 18,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3504",
+      "modelKey": "signboard",
+      "modelUrl": "/assets/models/buildings/box_B.gltf",
+      "gridX": 22,
+      "gridZ": 16,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_7126",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 75,
+      "gridZ": 20,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_3646",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 40,
+      "gridZ": 40,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_288020_9837",
+      "modelKey": "streetlight",
+      "modelUrl": "/assets/models/props/streetlight.gltf",
+      "gridX": 20,
+      "gridZ": 42,
+      "rotationY": 0,
+      "scale": 1.0
+    },
+    {
+      "id": "pobj_381593_1884",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 22,
+      "gridZ": 14,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381593_4046",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 23,
+      "gridZ": 14,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381594_3410",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 2,
+      "gridZ": 26,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381594_9841",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 3,
+      "gridZ": 26,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381595_9271",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 22,
+      "gridZ": 26,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381596_2257",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 23,
+      "gridZ": 26,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381598_8108",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 70,
+      "gridZ": 16,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381599_4446",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 71,
+      "gridZ": 16,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381599_9110",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 50,
+      "gridZ": 30,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381599_4121",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 51,
+      "gridZ": 30,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381600_9592",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 60,
+      "gridZ": 30,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381600_6242",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 61,
+      "gridZ": 30,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381603_1893",
+      "modelKey": "bush",
+      "modelUrl": "/assets/models/props/bush.gltf",
+      "gridX": 50,
+      "gridZ": 16,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381603_8261",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 51,
+      "gridZ": 16,
+      "rotationY": 0,
+      "scale": 0.8
+    },
+    {
+      "id": "pobj_381604_2751",
+      "modelKey": "bench",
+      "modelUrl": "/assets/models/props/bench.gltf",
+      "gridX": 71,
+      "gridZ": 40,
+      "rotationY": 0,
+      "scale": 0.8
     }
   ],
   "roads": [

@@ -3,16 +3,16 @@ import { textResult } from "openclaw/plugin-sdk/agent-runtime";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { broadcastAgentEvent, requestNpcQuery, findCitizenNpcId } from "./ws-server.js";
+import { broadcastAgentEvent, requestNpcQuery, findCitizenNpcId, getSceneCapableClientCount, broadcastAgentEventToScene } from "./ws-server.js";
 import { createPlan, getNextStepInstruction, isPlanFullyComplete, clearTasks, completePlan } from "./plan-manager.js";
 import type { CitizenRosterEntry } from "./plan-manager.js";
 import { hasRunningSubagents } from "./subagent-tracker.js";
 import { resolveFileData } from "./outbound-adapter.js";
 import { stateDir } from "./paths.js";
+import { buildAssetCatalog, resolveDirs } from "./editor-serve.js";
 
 // ── Spatial tools: resolve calling agent's npcId from toolUseId ──
-// `getToolCallAgent` is exported from index.ts (populated by before_tool_call hook).
-// We import it lazily to avoid a circular dependency at module load time.
+// Lazily import getToolCallAgent from index.ts to avoid circular dependency
 let _getToolCallAgent: ((toolUseId: string) => string | null) | null = null;
 async function getCallerAgentId(toolUseId: string): Promise<string | null> {
   if (!_getToolCallAgent) {
@@ -98,6 +98,38 @@ function getPluginDir(): string {
   return join(fileURLToPath(import.meta.url), "../../..");
 }
 
+/**
+ * Resolve the asset catalog via the async buildAssetCatalog (preferred path).
+ * Cached after first call to avoid repeated disk scans.
+ * Bypasses HTTP so it works even when password auth is enabled.
+ */
+async function getAssetCatalog(): Promise<{ builtin: any[]; custom: any[] }> {
+  if (!_assetCatalogCache) {
+    const pluginDir = getPluginDir();
+    const d = resolveDirs(pluginDir);
+    _assetCatalogCache = buildAssetCatalog(pluginDir, d);
+  }
+  return _assetCatalogCache;
+}
+
+let _assetCatalogCache: Promise<{ builtin: any[]; custom: any[] }> | null = null;
+
+/**
+ * Read the saved TownMapConfig directly from town-data/town-map.json —
+ * bypasses HTTP so it works even when password auth is enabled.
+ * Mirrors what `GET /town-map/_api/load` returns.
+ */
+function readMapConfigLocal(): any | null {
+  const pluginDir = getPluginDir();
+  const mapPath = join(pluginDir, "town-data", "town-map.json");
+  if (!existsSync(mapPath)) return null;
+  try {
+    return JSON.parse(readFileSync(mapPath, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
 function getStewardWorkspaceDir(): string {
   return join(stateDir(), "workspace-town-steward");
 }
@@ -180,25 +212,46 @@ export function createTownTools(): OpenClawPluginToolFactory {
     {
       name: "town_effect",
       description:
-        "Trigger a visual effect in the 3D Agentshire (celebration, ripple, etc.)",
+        "Trigger a visual effect in the 3D town. Effect names map directly to the frontend VFX system. " +
+        "Effects that target an NPC require npcId; 'deployFireworks' plays at the town center and ignores npcId.",
       parameters: {
         type: "object" as const,
         properties: {
           effect: {
             type: "string",
-            enum: ["celebration", "ripple", "fireworks", "glow"],
-            description: "Effect type",
+            enum: [
+              "deployFireworks",
+              "summon_ripple",
+              "completion_stars",
+              "personaTransform",
+              "exclamation",
+              "error_sparks",
+              "hookFlash",
+            ],
+            description:
+              "Effect type. deployFireworks=全屏烟花(无需npcId); summon_ripple=召唤波纹; " +
+              "completion_stars=完成星星; personaTransform=变身光效; exclamation=感叹号; " +
+              "error_sparks=错误闪电; hookFlash=Hook闪光",
+          },
+          npcId: {
+            type: "string",
+            description:
+              "Target NPC id (for NPC-targeted effects). Omit for deployFireworks. " +
+              "Use 'steward' for the steward, or a citizen npcId.",
           },
         },
         required: ["effect"],
       },
-      async execute(_id: string, { effect }: { effect: string }) {
+      async execute(_id: string, args: { effect: string; npcId?: string }) {
+        const effect = String(args.effect ?? "");
+        const params: Record<string, unknown> = { intensity: 1.0 };
+        if (args.npcId) params.npcId = String(args.npcId);
         broadcastAgentEvent({
           type: 'fx',
           effect,
-          params: { intensity: 1.0 },
+          params,
         } as any);
-        return ok(`Effect "${effect}" triggered in town`);
+        return ok(`Effect "${effect}" triggered in town${args.npcId ? ` on ${args.npcId}` : ""}`);
       },
     },
     {
@@ -582,9 +635,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
       async execute(_id: string, args: Record<string, unknown>) {
         const category = String(args.category ?? "all");
         try {
-          const res = await fetch("http://localhost:20009/town-map/_api/assets");
-          if (!res.ok) return ok(`Error: 无法获取资产目录 (HTTP ${res.status})`);
-          const data = await res.json() as { builtin: any[]; custom: any[] };
+          const data = await getAssetCatalog();
           let assets = [...(data.builtin ?? []), ...(data.custom ?? [])];
           if (category !== "all") {
             assets = assets.filter((a) => a.category === category);
@@ -623,10 +674,7 @@ export function createTownTools(): OpenClawPluginToolFactory {
       async execute(_id: string, args: Record<string, unknown>) {
         const category = String(args.category ?? "all");
         try {
-          const res = await fetch("http://localhost:20009/town-map/_api/load");
-          if (!res.ok) return ok(`Error: 无法加载地图配置 (HTTP ${res.status})`);
-          const data = await res.json();
-          const config = data.config;
+          const config = readMapConfigLocal();
           if (!config) return ok("当前没有已保存的地图配置,小镇使用默认硬编码布局。");
           const objects: any[] = [];
           if (category === "all" || category === "building") {
@@ -694,19 +742,16 @@ export function createTownTools(): OpenClawPluginToolFactory {
         let fixRotationZ: number | undefined;
         let catalogCells: [number, number] | undefined;
         try {
-          const res = await fetch("http://localhost:20009/town-map/_api/assets");
-          if (res.ok) {
-            const data = await res.json() as { builtin: any[]; custom: any[] };
-            const all = [...(data.builtin ?? []), ...(data.custom ?? [])];
-            const found = all.find((a) => (a.key ?? a.id) === modelKey);
-            if (found) {
-              modelUrl = found.url;
-              defaultScale = found.defaultScale ?? 1;
-              fixRotationX = found.fixRotationX;
-              fixRotationY = found.fixRotationY;
-              fixRotationZ = found.fixRotationZ;
-              catalogCells = found.cells;
-            }
+          const data = await getAssetCatalog();
+          const all = [...(data.builtin ?? []), ...(data.custom ?? [])];
+          const found = all.find((a) => (a.key ?? a.id) === modelKey);
+          if (found) {
+            modelUrl = found.url;
+            defaultScale = found.defaultScale ?? 1;
+            fixRotationX = found.fixRotationX;
+            fixRotationY = found.fixRotationY;
+            fixRotationZ = found.fixRotationZ;
+            catalogCells = found.cells;
           }
         } catch {}
 
@@ -720,19 +765,15 @@ export function createTownTools(): OpenClawPluginToolFactory {
         const finalWidth = catalogCells ? catalogCells[0] : widthCells;
         const finalDepth = catalogCells ? catalogCells[1] : depthCells;
 
-        // Server-side overlap check
+        // Server-side overlap check (read map config directly from disk)
         try {
-          const res = await fetch("http://localhost:20009/town-map/_api/load");
-          if (res.ok) {
-            const data = await res.json();
-            const config = data.config;
-            if (config) {
-              const overlap = checkPlacementOverlap(config, category, gridX, gridZ, finalWidth, finalDepth);
-              if (overlap) return ok(`Error: 放置位置 (${gridX}, ${gridZ}) 与已有物件 "${overlap.id}" (${overlap.modelKey}) 重叠,请选择其他位置。`);
-              const terrain = config.terrain?.[gridZ]?.[gridX];
-              if (terrain?.type === "water" && category === "building") {
-                return ok(`Error: 不能在水域上放置建筑。`);
-              }
+          const config = readMapConfigLocal();
+          if (config) {
+            const overlap = checkPlacementOverlap(config, category, gridX, gridZ, finalWidth, finalDepth);
+            if (overlap) return ok(`Error: 放置位置 (${gridX}, ${gridZ}) 与已有物件 "${overlap.id}" (${overlap.modelKey}) 重叠,请选择其他位置。`);
+            const terrain = config.terrain?.[gridZ]?.[gridX];
+            if (terrain?.type === "water" && category === "building") {
+              return ok(`Error: 不能在水域上放置建筑。`);
             }
           }
         } catch {}
@@ -867,10 +908,11 @@ export function createTownTools(): OpenClawPluginToolFactory {
       name: "town_expand_map",
       description:
         "[Agentshire steward only — do NOT use if you are not the town steward agent] " +
-        "扩大小镇地图尺寸,用于小镇扩建。" +
+        "调整小镇地图尺寸,用于小镇扩建或缩小。" +
         "当前地图尺寸可通过 town_list_objects 查询(grid.cols × grid.rows)。" +
-        "最小 20×16,最大 80×60。扩展后新增区域默认为草地地形。" +
-        "扩展方向: 向右增加列(cols),向下增加行(rows)。已有物件位置不变。",
+        "最小 20×16,最大 80×60。调整后新增区域默认为草地地形。" +
+        "支持扩大和缩小:扩大时新增区域为草地;缩小时超出新边界的物件(建筑/道具/道路)会被移除。" +
+        "调整方向: 向右增加列(cols),向下增加行(rows)。已有物件位置不变(缩小除外)。",
       parameters: {
         type: "object" as const,
         properties: {
@@ -1008,11 +1050,16 @@ export function createTownTools(): OpenClawPluginToolFactory {
         } catch (err) {
           return ok(`错误：无法确认当前状态 — ${(err as Error).message}`);
         }
-        // Emit move command (frontend MainScene.onNpcMoveTo handles it)
-        broadcastAgentEvent({
-          type: "npc_move_to",
+        // Check if 3D scene is connected — move_npc requires the scene to animate
+        if (getSceneCapableClientCount() === 0) {
+          return ok("错误：3D 场景未连接（请先打开 Town 标签页加载场景），无法移动角色。");
+        }
+        // Emit move command via world_control/move_npc (EventTranslator → npc_move_to GameEvent)
+        broadcastAgentEventToScene({
+          type: "world_control",
+          target: "move_npc",
           npcId: caller.npcId,
-          target: { x, y: 0, z },
+          destination: { x, y: 0, z },
           speed,
         } as any);
         return ok(`已发出移动指令：前往坐标 (${x}, ${z})，速度 ${speed}。角色正在移动中。`);

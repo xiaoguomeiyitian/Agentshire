@@ -1,5 +1,4 @@
 // @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
-// @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
 import { EventTranslator } from './EventTranslator.js'
 import type { GameEvent, NPCPhase } from '../../town-frontend/src/data/GameProtocol.js'
 import type { AgentEvent } from '../contracts/events.js'

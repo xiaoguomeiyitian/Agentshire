@@ -86,7 +86,8 @@ export function AgentList({ agents, selectedId, onSelect, className, groupChatAc
         <div className="w-full border-t border-border-subtle my-1" />
         <div className="flex-1 overflow-y-auto styled-scrollbar w-full flex flex-col items-center">
           {agents.map((agent) => {
-            const isSelected = selectedId === agent.id
+            // Mutual exclusivity: when group chat is active, no agent shows selected
+            const isSelected = !groupChatActive && selectedId === agent.id
             return (
               <button
                 key={agent.id}
@@ -142,7 +143,8 @@ export function AgentList({ agents, selectedId, onSelect, className, groupChatAc
       )}
       <div className="flex-1 overflow-y-auto styled-scrollbar">
         {agents.map((agent) => {
-          const isSelected = selectedId === agent.id
+          // Mutual exclusivity: when group chat is active, no agent shows selected
+          const isSelected = !groupChatActive && selectedId === agent.id
           return (
             <button
               key={agent.id}

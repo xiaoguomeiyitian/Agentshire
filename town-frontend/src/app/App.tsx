@@ -18,10 +18,8 @@ export function App() {
   const [chatAgent, setChatAgent] = useState<AgentInfo | null>(null)
   const [chatConnected, setChatConnected] = useState(false)
   const [groupChatActive, setGroupChatActive] = useState(false)
-  // Incremented each time the mobile back button is pressed. ChatView watches
-  // this nonce to reset its internal groupChatActive state, because when the
-  // user is in group chat selectedAgent is already null, so the existing
-  // effect that depends on selectedAgent cannot detect the back press.
+  // Bumped on mobile back press; ChatView watches it to reset groupChatActive
+  // (selectedAgent is already null in group chat, so the selectedAgent effect can't detect back press)
   const [chatExitNonce, setChatExitNonce] = useState(0)
 
   const handleTabChange = useCallback((tab: AppTab) => {
@@ -38,9 +36,7 @@ export function App() {
   const handleChatBack = useCallback(() => {
     setChatAgent(null)
     setGroupChatActive(false)
-    // Bump the nonce so ChatView resets its internal groupChatActive state.
-    // This is necessary because selectedAgent is already null in group chat,
-    // so ChatView's effect that watches selectedAgent won't fire on back press.
+    // Bump nonce so ChatView resets its groupChatActive (selectedAgent is null in group chat)
     setChatExitNonce((n) => n + 1)
     try {
       localStorage.removeItem(CHAT_AGENT_STORAGE_KEY)

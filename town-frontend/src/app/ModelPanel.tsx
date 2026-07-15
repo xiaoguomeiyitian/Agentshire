@@ -1,5 +1,4 @@
-// React-native model (LLM provider) management panel embedded in ClawSettingsView.
-// Talks to the /models/_api/* backend endpoints.
+// LLM provider management panel (talks to /models/_api/* endpoints)
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {

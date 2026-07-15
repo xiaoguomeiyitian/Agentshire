@@ -360,8 +360,11 @@ describe('auth.ts', () => {
       const res = mockRes()
       const handled = await requireAuth(req, res, '/')
       expect(handled).toBe(true)
-      expect(res.statusCode).toBe(302)
-      expect(res.headers['Location']).toBe('login')
+      // Auth uses HTML + JS redirect (200) instead of 302 to handle reverse-proxy
+      // trailing-slash issues. The HTML body contains a script that redirects to 'login'.
+      expect(res.statusCode).toBe(200)
+      expect(res.headers['Content-Type']).toContain('text/html')
+      expect(String(res.body)).toContain("location.replace('login')")
     })
 
     it('returns 401 for API POST when not authenticated', async () => {

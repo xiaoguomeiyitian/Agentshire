@@ -563,7 +563,7 @@ function stripReasoning(text: string): string {
 /** Extract reasoning/thinking text from assistant message content.
  * Returns the reasoning text (without tags), or undefined if no reasoning tags found.
  * Also returns the cleaned final text. */
-function extractReasoning(text: string): { reasoning?: string; final: string } {
+export function extractReasoning(text: string): { reasoning?: string; final: string } {
   // Check for <final> tag — reasoning is everything outside <final>
   const finalMatch = text.match(/<final\b[^>]*>([\s\S]*?)<\/final>/i);
   if (finalMatch) {
@@ -942,7 +942,7 @@ export function loadCitizenItemHistory(
       allItems.push(...readSessionItems(arc.filePath, agentId));
     }
 
-    // Also include unindexed sessions (created by runtime without updating sessions.json)
+    // Include unindexed sessions (runtime may create sessions without updating index)
     const unindexed = listUnindexedSessions(sessDir, indexedIds);
     for (const u of unindexed) {
       allItems.push(...readSessionItems(u.filePath, agentId));
@@ -984,7 +984,7 @@ export function loadCitizenNewMessages(agentId: string): ChatHistoryMessage[] {
       }
     }
 
-    // Also check unindexed sessions (runtime may create new sessions without updating index)
+    // Check unindexed sessions (runtime may create sessions without updating index)
     const unindexed = listUnindexedSessions(sessDir, indexedIds);
     if (unindexed.length > 0) {
       // Compare the newest unindexed session with the latest indexed one

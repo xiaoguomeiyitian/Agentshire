@@ -28,6 +28,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { stateDir } from "./paths.js";
 
@@ -118,6 +119,40 @@ export function readOpenClawConfig(): any {
 
 export function writeOpenClawConfig(cfg: any): void {
   saveOpenClawConfig(cfg);
+}
+
+/**
+ * Read a config section via `openclaw config get <path> --json`.
+ * Returns undefined if the path doesn't exist. Secrets are auto-redacted by the CLI.
+ */
+export function getConfigSection(path: string): any {
+  try {
+    const out = execSync(`openclaw config get ${path} --json 2>/dev/null`, { encoding: "utf-8", timeout: 5000 });
+    return JSON.parse(out);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Patch config via `openclaw config patch --stdin` (schema-validated, atomic write).
+ * Objects merge recursively, arrays/scalars replace, null deletes a path.
+ * Returns true on success, throws on validation error.
+ */
+export function patchConfig(patch: Record<string, unknown>): void {
+  const input = JSON.stringify(patch);
+  try {
+    execSync("openclaw config patch --stdin", {
+      input,
+      encoding: "utf-8",
+      timeout: 10000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  } catch (err: any) {
+    const stderr = err.stderr ?? "";
+    const msg = stderr.toString().trim() || err.message;
+    throw new ModelConfigError("INTERNAL_ERROR", `Config patch failed: ${msg}`);
+  }
 }
 
 function clone<T>(v: T): T {

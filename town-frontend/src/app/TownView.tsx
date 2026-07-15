@@ -13,8 +13,7 @@ export function TownView({ visible }: TownViewProps) {
     return `town.html?${params.toString()}`
   }, [])
 
-  // Lazy-load: only set iframe src when Town tab is first activated.
-  // Once loaded, keep it mounted (avoid re-initializing 3D engine on every switch).
+  // Lazy-load: set iframe src on first activation, keep mounted afterward
   useEffect(() => {
     if (visible && !loaded) setLoaded(true)
   }, [visible, loaded])

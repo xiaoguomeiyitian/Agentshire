@@ -179,7 +179,7 @@ agentshire/
         ├── main.ts                # Game entry (WS connection / implicit chat proxy)
         ├── main.tsx               # React entry (standalone)
         ├── types.ts               # Shared types (weather / time period / buildings / NPC roles / modes)
-        ├── app/                   # ★ React Chat UI (App / ChatView / GroupChatView / AgentList / TopNav / TownDynamicPanel)
+        ├── app/                   # ★ React Chat UI (App / ChatView / GroupChatView / AgentList / TopNav / TownDynamicPanel / ClawSettingsView[11 nav sections: General/System/Messaging/Tools/AI/Network/Providers/Models/Plugin/Sessions/About])
         ├── game/                  # Scene management (see game/AGENTS.md)
         │   ├── MainScene.ts       # Main scene (1622 lines, update loop + subsystem orchestration)
         │   ├── EventDispatcher.ts # 65 GameEvent type routing

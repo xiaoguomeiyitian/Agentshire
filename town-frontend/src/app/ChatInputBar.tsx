@@ -92,9 +92,7 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !composingRef.current) {
       e.preventDefault()
-      // Block sending while the agent is thinking — the send button is
-      // replaced by a stop/abort button in this state, so Enter should
-      // not trigger a new message either.
+      // Block sending while thinking (send button is replaced by stop button)
       if (thinking) return
       submit()
     }
@@ -214,12 +212,14 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
           onCompositionStart={() => { composingRef.current = true }}
           onCompositionEnd={() => { composingRef.current = false }}
           placeholder={placeholder || '输入消息...'}
-          disabled={disabled}
+          // readOnly (not disabled) avoids iOS Safari keyboard dismissal on toggle
+          readOnly={disabled}
           rows={1}
           className={cn(
             'flex-1 bg-transparent text-[16px] md:text-[14px] text-text-primary placeholder:text-text-quaternary',
             'resize-none outline-none leading-9 styled-scrollbar',
             multiline ? 'leading-[1.5] py-1 overflow-y-auto' : 'overflow-hidden',
+            disabled && 'opacity-50 cursor-not-allowed',
           )}
           style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
         />

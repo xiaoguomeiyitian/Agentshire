@@ -156,7 +156,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
     const bindTownSession = (townSessionId: string) => {
       if (ws.readyState !== WebSocket.OPEN) return
-      ws.send(JSON.stringify({ type: 'town_session_init', townSessionId }))
+      ws.send(JSON.stringify({ type: 'town_session_init', townSessionId, sceneCapable: true }))
     }
 
     const forwardCitizenMessagesToScene = (
@@ -196,8 +196,11 @@ const syncTownSessionUrl = (townSessionId: string) => {
           const evt = data.event
           if (evt.type === 'deliverable_card' || evt.type === 'media_preview') {
             if (sceneRef) sceneRef.handleGameEvent(evt)
-          } else if (evt.type === 'world_control' && ((evt as any).target === 'scene' || (evt as any).target === 'query_npc')) {
-            // Scene editing + NPC spatial query events → DirectorBridge → EventTranslator → MainScene
+          } else if (evt.type === 'world_control' && ((evt as any).target === 'scene' || (evt as any).target === 'query_npc' || (evt as any).target === 'move_npc')) {
+            // Scene editing + NPC spatial query/move events → DirectorBridge → EventTranslator → MainScene
+            director.processAgentEvent(evt)
+          } else if (evt.type === 'fx') {
+            // Visual effect events → DirectorBridge → EventTranslator → MainScene.onFx
             director.processAgentEvent(evt)
           } else if (evt.npcId && evt.npcId !== 'steward') {
             director.processCitizenEvent(evt.npcId, evt)

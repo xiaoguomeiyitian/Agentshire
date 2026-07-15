@@ -4,8 +4,8 @@ import { hookToAgentEvent } from '../hook-translator.js'
 import type { AgentEvent } from '../../contracts/events.js'
 
 describe('hookToAgentEvent', () => {
-  it('before_agent_start → system.init AgentEvent', () => {
-    const result = hookToAgentEvent('before_agent_start', {
+  it('before_model_resolve → system.init AgentEvent', () => {
+    const result = hookToAgentEvent('before_model_resolve', {
       sessionId: 'sess-1',
       model: 'claude-3',
       persona: 'steward',
@@ -20,8 +20,8 @@ describe('hookToAgentEvent', () => {
     })
   })
 
-  it('before_agent_start uses defaults when payload is empty', () => {
-    const result = hookToAgentEvent('before_agent_start', {}) as AgentEvent
+  it('before_model_resolve uses defaults when payload is empty', () => {
+    const result = hookToAgentEvent('before_model_resolve', {}) as AgentEvent
     expect(result).toMatchObject({
       type: 'system',
       subtype: 'init',

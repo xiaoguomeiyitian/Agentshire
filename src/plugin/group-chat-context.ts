@@ -16,6 +16,10 @@ export interface GroupMessage {
   mentions: string[];
   usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number };
   contextBudget?: number;
+  /** Model id used for this citizen response */
+  model?: string;
+  /** Reasoning/thinking text extracted from the citizen response (if present). */
+  reasoning?: string;
 }
 
 export interface Participant {

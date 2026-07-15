@@ -44,6 +44,8 @@ interface ChatMessagesProps {
   onEdit?: (msgId: string, oldText: string, newText: string) => void
   /** Whether the agent is currently thinking (disables retry/edit buttons) */
   retryDisabled?: boolean
+  /** Reasoning visibility setting: 'off' hides reasoning, 'on'/'stream'/undefined shows it */
+  reasoningVisibility?: string
 }
 
 interface DerivedAttachment {
@@ -179,7 +181,9 @@ function highlightMentionsInChildren(
   })
 }
 
-export const MarkdownContent = memo(function MarkdownContent({ text, mentionHighlight }: { text: string; mentionHighlight?: { mentions: string[]; participants: Array<{ npcId: string; name: string }> } }) {
+export const MarkdownContent = memo(function MarkdownContent({ text, mentionHighlight, breaks }: { text: string; mentionHighlight?: { mentions: string[]; participants: Array<{ npcId: string; name: string }> }; breaks?: boolean }) {
+  // breaks=true: convert single newlines to Markdown hard line breaks to preserve user line structure
+  const md = breaks ? text.replace(/\n/g, '  \n') : text
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -201,7 +205,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, mentionHigh
             return (
               <div className="my-2 rounded-lg bg-bg-base border border-border-subtle overflow-hidden">
                 <div className="flex items-center px-3 py-1.5 bg-bg-canvas border-b border-border-subtle">
-                  <span className="text-[10px] text-text-quaternary">{className?.replace('language-', '') || 'code'}</span>
+                  <span className="text-[10px] text-text-tertiary">{className?.replace('language-', '') || 'code'}</span>
                 </div>
                 <pre className="p-3 overflow-x-auto styled-scrollbar">
                   <code className="text-[12px] leading-relaxed text-text-secondary">{children}</code>
@@ -230,7 +234,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, mentionHigh
         strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>,
       }}
     >
-      {text}
+      {md}
     </ReactMarkdown>
   )
 })
@@ -242,7 +246,7 @@ function ToolCallItem({ item }: { item: ChatItem }) {
   const isStart = item.phase === 'start'
   const isError = item.isError
   const icon = isStart
-    ? (isError ? <AlertCircle size={12} strokeWidth={1.8} className="text-status-error shrink-0" /> : <Wrench size={12} strokeWidth={1.8} className="text-text-quaternary shrink-0" />)
+    ? (isError ? <AlertCircle size={12} strokeWidth={1.8} className="text-status-error shrink-0" /> : <Wrench size={12} strokeWidth={1.8} className="text-text-tertiary shrink-0" />)
     : <CheckCircle2 size={12} strokeWidth={1.8} className="text-status-success shrink-0" />
   const label = isStart ? item.toolName : `${item.toolName} →`
   const detail = isStart
@@ -265,7 +269,7 @@ function ToolCallItem({ item }: { item: ChatItem }) {
       </button>
       {expanded && detail && (
         <div className="mt-1 ml-6 mr-2 p-2 rounded-lg bg-bg-base/60 border border-border-subtle overflow-x-auto">
-          <pre className="text-[10px] text-text-quaternary whitespace-pre-wrap break-all font-mono leading-relaxed">{detail}</pre>
+          <pre className="text-[10px] text-text-tertiary whitespace-pre-wrap break-all font-mono leading-relaxed">{detail}</pre>
         </div>
       )}
     </div>
@@ -273,7 +277,7 @@ function ToolCallItem({ item }: { item: ChatItem }) {
 }
 
 /** Collapsible reasoning/thinking box — styled like VS Code Copilot Chat thinking process. */
-function ReasoningBox({ reasoning, reasoningTokens }: { reasoning?: string; reasoningTokens?: number }) {
+export function ReasoningBox({ reasoning, reasoningTokens }: { reasoning?: string; reasoningTokens?: number }) {
   const [expanded, setExpanded] = useState(false)
   const hasText = reasoning && reasoning.length > 0
   return (
@@ -281,7 +285,7 @@ function ReasoningBox({ reasoning, reasoningTokens }: { reasoning?: string; reas
       <button
         onClick={() => hasText && setExpanded(e => !e)}
         className={cn(
-          'flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] text-text-quaternary',
+          'flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] text-text-tertiary',
           'transition-colors duration-150',
           hasText && 'cursor-pointer hover:bg-bg-elevated/40',
         )}
@@ -290,7 +294,7 @@ function ReasoningBox({ reasoning, reasoningTokens }: { reasoning?: string; reas
         <Brain size={12} strokeWidth={1.8} className="shrink-0 text-brand-primary/50" />
         <span className="font-medium">思考过程</span>
         {reasoningTokens && reasoningTokens > 0 && (
-          <span className="text-text-quaternary/50 tabular-nums">· {reasoningTokens} tokens</span>
+          <span className="text-text-tertiary/70 tabular-nums">· {reasoningTokens} tokens</span>
         )}
       </button>
       {expanded && hasText && (
@@ -314,7 +318,7 @@ function LiveThinkingBox({ text }: { text: string }) {
     <div className="rounded-2xl rounded-tl-md bg-bg-elevated border border-border-subtle overflow-hidden">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="flex items-center gap-1.5 w-full px-3 py-2 text-[11px] text-text-quaternary transition-colors duration-150 cursor-pointer hover:bg-bg-base/40"
+        className="flex items-center gap-1.5 w-full px-3 py-2 text-[11px] text-text-tertiary transition-colors duration-150 cursor-pointer hover:bg-bg-base/40"
       >
         <ChevronRight size={10} strokeWidth={1.8} className={cn('shrink-0 transition-transform duration-150', expanded && 'rotate-90')} />
         <Brain size={12} strokeWidth={1.8} className="shrink-0 text-brand-primary/50" />
@@ -357,13 +361,13 @@ function MessageActions({ text, onRetry, onEdit, retryDisabled, model, isError }
     <div className="flex items-center gap-1 mt-0.5 px-1 transition-opacity duration-150">
       <button
         onClick={handleCopy}
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-quaternary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
         title={t('chat.copy')}
       >
         {copied ? <span className="text-status-success">{t('chat.copied')}</span> : <Copy size={11} strokeWidth={1.5} />}
       </button>
       {model && (
-        <span className="text-[10px] text-text-quaternary/60 tabular-nums px-1 max-w-[160px] truncate" title={`模型: ${model}`}>
+        <span className="text-[10px] text-text-tertiary/70 tabular-nums px-1 max-w-[160px] truncate" title={`模型: ${model}`}>
           {model}
         </span>
       )}
@@ -373,7 +377,7 @@ function MessageActions({ text, onRetry, onEdit, retryDisabled, model, isError }
           disabled={retryDisabled}
           className={cn(
             'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors duration-150',
-            'text-text-quaternary hover:text-brand-secondary hover:bg-bg-elevated/60',
+            'text-text-tertiary hover:text-brand-secondary hover:bg-bg-elevated/60',
             retryDisabled && 'opacity-40 cursor-default',
           )}
           title={t('chat.edit')}
@@ -389,7 +393,7 @@ function MessageActions({ text, onRetry, onEdit, retryDisabled, model, isError }
             'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors duration-150',
             isError
               ? 'text-status-error hover:text-status-error hover:bg-status-error/10'
-              : 'text-text-quaternary hover:text-brand-secondary hover:bg-bg-elevated/60',
+              : 'text-text-tertiary hover:text-brand-secondary hover:bg-bg-elevated/60',
             retryDisabled && 'opacity-40 cursor-default',
           )}
           title={isError ? t('chat.retry_error') : t('chat.retry')}
@@ -495,15 +499,15 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
 function LoadingSpinner({ text }: { text: string }) {
   return (
     <div className="flex items-center justify-center py-4 gap-2">
-      <Loader2 size={14} className="animate-spin text-text-quaternary" />
-      <span className="text-[12px] text-text-quaternary">{text}</span>
+      <Loader2 size={14} className="animate-spin text-text-tertiary" />
+      <span className="text-[12px] text-text-tertiary">{text}</span>
     </div>
   )
 }
 
 export function ChatMessages({
   items, agentName, agentSpecialty, agentAvatarUrl, agentThinking, liveThinkingText,
-  historyLoading, loadingMore, hasMore, onLoadMore, className, onRetry, onEdit, retryDisabled,
+  historyLoading, loadingMore, hasMore, onLoadMore, className, onRetry, onEdit, retryDisabled, reasoningVisibility,
 }: ChatMessagesProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -589,7 +593,7 @@ export function ChatMessages({
               return (
                 <div key={msg.id} className="flex gap-3 max-w-[85%]">
                   <div className="w-7 shrink-0" />
-                  <div className="min-w-0 text-[11px] text-text-quaternary/60 px-2 py-0.5">
+                  <div className="min-w-0 text-[11px] text-text-tertiary/70 px-2 py-0.5">
                     {msg.text}
                   </div>
                 </div>
@@ -611,7 +615,7 @@ export function ChatMessages({
                   ? <User size={13} strokeWidth={1.8} className="text-brand-primary" />
                   : agentAvatarUrl
                     ? <img src={apiUrl(agentAvatarUrl)} alt={agentName} className="w-full h-full object-cover rounded-full" />
-                    : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-quaternary" /></div>
+                    : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-tertiary" /></div>
                 }
               </div>
 
@@ -638,11 +642,11 @@ export function ChatMessages({
                 ) : (
                   <>
                     {msg.role === 'assistant' && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary mb-1 px-0.5 flex-wrap">
-                        <span>{agentName}{agentSpecialty && <span className="text-text-quaternary/70">（{agentSpecialty}）</span>}</span>
-                        {msg.timestamp > 0 && <span className="text-text-quaternary/60 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
+                      <div className="flex items-center gap-1.5 text-[11px] text-text-tertiary mb-1 px-0.5 flex-wrap">
+                        <span>{agentName}{agentSpecialty && <span className="text-text-tertiary/80">（{agentSpecialty}）</span>}</span>
+                        {msg.timestamp > 0 && <span className="text-text-tertiary/80 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
                         {msg.usage && (msg.usage.input > 0 || msg.usage.output > 0) && (
-                          <span className="text-text-quaternary/50 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
+                          <span className="text-text-tertiary/70 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
                             ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
                             {(() => {
                               const cr = msg.usage!.cacheRead ?? 0
@@ -660,7 +664,7 @@ export function ChatMessages({
                         )}
                       </div>
                     )}
-                    {msg.role === 'assistant' && msg.kind === 'text' && !!(msg.reasoning || (msg.usage?.reasoningTokens && msg.usage.reasoningTokens > 0)) && (
+                    {msg.role === 'assistant' && msg.kind === 'text' && reasoningVisibility !== 'off' && !!(msg.reasoning || (msg.usage?.reasoningTokens && msg.usage.reasoningTokens > 0)) && (
                       <ReasoningBox reasoning={msg.reasoning} reasoningTokens={msg.usage?.reasoningTokens} />
                     )}
                     {msg.role === 'user' && msg.kind === 'text' && editingId === msg.id ? (
@@ -690,7 +694,7 @@ export function ChatMessages({
                       )}
                       {msg.role === 'user' ? (
                         <div className="markdown-body break-words">
-                          <MarkdownContent text={msg.text ?? ''} />
+                          <MarkdownContent text={msg.text ?? ''} breaks />
                         </div>
                       ) : (
                         <div className="markdown-body break-words">
@@ -699,7 +703,7 @@ export function ChatMessages({
                       )}
                     </div>
                     {msg.role === 'user' && msg.timestamp > 0 && (
-                      <div className="text-[10px] text-text-quaternary/60 mt-0.5 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
+                      <div className="text-[10px] text-text-tertiary/80 mt-0.5 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
                     )}
                     {msg.role === 'user' && msg.kind === 'text' && (
                       <div className="flex justify-end">
@@ -774,11 +778,11 @@ export function ChatMessages({
               <div className="w-7 h-7 rounded-full shrink-0 mt-0.5 overflow-hidden">
                 {agentAvatarUrl
                   ? <img src={apiUrl(agentAvatarUrl)} alt="" className="w-full h-full object-cover rounded-full" />
-                  : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-quaternary" /></div>
+                  : <div className="w-full h-full bg-bg-elevated flex items-center justify-center rounded-full"><Bot size={13} strokeWidth={1.8} className="text-text-tertiary" /></div>
                 }
               </div>
               <div className="flex-1 min-w-0">
-                {liveThinkingText ? (
+                {liveThinkingText && reasoningVisibility !== 'off' ? (
                   <LiveThinkingBox text={liveThinkingText} />
                 ) : (
                   <div className="rounded-2xl rounded-tl-md px-4 py-3 bg-bg-elevated border border-border-subtle">
@@ -813,7 +817,7 @@ export function ChatMessages({
         </div>
       ) : messages.length > 0 ? (
         <div className="w-full pt-2 pb-4">
-          <div className="text-center text-[11px] text-text-quaternary select-none">只展示最近 100 条 session 记录</div>
+          <div className="text-center text-[11px] text-text-tertiary select-none">只展示最近 100 条 session 记录</div>
         </div>
       ) : null}
 

@@ -89,7 +89,15 @@ export class EventTranslator {
           const e = event as Extract<AgentEvent, { type: 'world_control'; target: 'query_npc' }>
           return [{ type: 'npc_query' as const, requestId: e.requestId, query: e.query }]
         }
+        if (event.target === 'move_npc') {
+          const e = event as Extract<AgentEvent, { type: 'world_control'; target: 'move_npc' }>
+          return [{ type: 'npc_move_to' as const, npcId: e.npcId, target: e.destination, speed: e.speed }]
+        }
         return []
+      }
+      case 'fx': {
+        const e = event as Extract<AgentEvent, { type: 'fx' }>
+        return [{ type: 'fx' as const, effect: e.effect, params: e.params }]
       }
       case 'error':
         return contextNpcId

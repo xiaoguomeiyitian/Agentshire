@@ -35,6 +35,3 @@ export function extractTownSessionId(rawValue: unknown): string | null {
   return null;
 }
 
-export function resolveTownSessionId(rawValue: unknown): string {
-  return extractTownSessionId(rawValue) ?? LEGACY_TOWN_SESSION_ID;
-}

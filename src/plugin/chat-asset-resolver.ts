@@ -72,7 +72,3 @@ export function resolveAsset(filePath: string): ResolvedAsset {
   return { mediaType, fileUrl, fileName, mimeType, fileSize };
 }
 
-export function isMediaExtension(filePath: string): boolean {
-  const e = ext(filePath);
-  return IMAGE_EXTS.has(e) || VIDEO_EXTS.has(e) || AUDIO_EXTS.has(e);
-}

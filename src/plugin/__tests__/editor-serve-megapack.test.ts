@@ -2,6 +2,55 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { join } from 'node:path'
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 
+// Mock openclaw peer dependencies so editor-serve.js can be imported in test env
+vi.mock('openclaw/plugin-sdk/core', () => ({ type: {} }))
+vi.mock('openclaw/plugin-sdk/channel-inbound', () => ({
+  buildChannelInboundEventContext: () => ({}),
+}))
+vi.mock('openclaw/plugin-sdk/runtime-store', () => ({
+  createPluginRuntimeStore: () => ({
+    setRuntime: () => {},
+    getRuntime: () => ({ channel: { reply: {} }, config: { current: () => ({}) } }),
+  }),
+}))
+vi.mock('../runtime.js', () => ({
+  setTownRuntime: () => {},
+  getTownRuntime: () => ({ channel: { reply: {} }, config: { current: () => ({}) } }),
+}))
+vi.mock('../channel.js', () => ({
+  buildTownInboundContext: () => ({}),
+}))
+vi.mock('../ws-server.js', () => ({
+  broadcastAgentEvent: () => {},
+  getActiveTownSessionId: () => null,
+}))
+vi.mock('../paths.js', () => ({
+  stateDir: () => '/tmp/agentshire-test',
+  initStateDir: () => {},
+}))
+vi.mock('../auth.js', () => ({
+  parseSessionToken: () => null,
+  isValidSession: () => true,
+  isPasswordAuthEnabled: () => false,
+  requireAuth: () => false,
+}))
+vi.mock('../subagent-tracker.js', () => ({
+  getActivityLogForAgent: () => [],
+}))
+vi.mock('../session-history.js', () => ({
+  loadChatHistory: () => [],
+  loadNewMessages: () => [],
+  invalidateSessionCache: () => {},
+  loadCitizenHistory: () => [],
+  loadCitizenNewMessages: () => [],
+  loadSubagentFinalMessage: () => null,
+  loadChatItemHistory: () => [],
+  loadCitizenItemHistory: () => [],
+}))
+vi.mock('../chat-session-watcher.js', () => ({
+  ChatSessionWatcher: class { start() {} stop() {} },
+}))
+
 const TEST_PLUGIN_DIR = join(import.meta.dirname, '__fixtures_megapack__')
 const MAP1_DIR = join(TEST_PLUGIN_DIR, 'assets', 'Map_1')
 

@@ -330,25 +330,92 @@ export class TownBuilder {
     ;(mesh.material as THREE.MeshLambertMaterial).color.setHex(TERRAIN_COLORS_HEX[type])
   }
 
-  /** Expand the map grid to new dimensions. New cells default to grass. */
+  /**
+   * Resize the map grid to new dimensions.
+   * Expanding: new cells default to grass.
+   * Shrinking: terrain rows/cols beyond the new boundary are truncated, and
+   *   buildings/props/roads that fall completely outside the new boundary are
+   *   removed from the config and their 3D meshes disposed.
+   */
   expandGrid(newCols: number, newRows: number): void {
     if (!this.mapConfig) return
     const { cols: oldCols, rows: oldRows } = this.mapConfig.grid
     if (newCols === oldCols && newRows === oldRows) return
 
-    // Extend terrain array
     const terrain = this.mapConfig.terrain
+
+    // ── Shrinking: remove objects that fall completely outside the new boundary ──
+    if (newCols < oldCols || newRows < oldRows) {
+      const isOutside = (gx: number, gz: number, w: number, d: number) =>
+        gx >= newCols || gz >= newRows || gx + w <= 0 || gz + d <= 0
+
+      // Buildings
+      this.mapConfig.buildings = this.mapConfig.buildings.filter(b => {
+        if (isOutside(b.gridX, b.gridZ, b.widthCells, b.depthCells)) {
+          this.removeObjectMesh(b.id)
+          return false
+        }
+        return true
+      })
+      // Props
+      this.mapConfig.props = this.mapConfig.props.filter(p => {
+        if (isOutside(p.gridX, p.gridZ, 1, 1)) {
+          this.removeObjectMesh(p.id)
+          return false
+        }
+        return true
+      })
+      // Roads
+      this.mapConfig.roads = this.mapConfig.roads.filter(r => {
+        if (isOutside(r.gridX, r.gridZ, 1, 1)) {
+          this.removeObjectMesh(r.id)
+          return false
+        }
+        return true
+      })
+    }
+
+    // ── Resize terrain array ──
+    if (newRows < oldRows) {
+      terrain.length = newRows // truncate rows
+    }
     for (let r = 0; r < newRows; r++) {
       if (!terrain[r]) terrain[r] = []
+      if (newCols < oldCols && terrain[r].length > newCols) {
+        terrain[r].length = newCols // truncate cols in this row
+      }
       for (let c = 0; c < newCols; c++) {
         if (!terrain[r][c]) terrain[r][c] = { type: 'grass' }
       }
     }
+
     this.mapConfig.grid.cols = newCols
     this.mapConfig.grid.rows = newRows
 
     // Rebuild ground (full rebuild of terrain layer — only the ground, not buildings)
     this.buildGroundFromConfig(this.mapConfig)
+  }
+
+  /** Dispose and remove a 3D mesh (building/prop/road) by itemId from the scene. */
+  private removeObjectMesh(itemId: string): void {
+    const model = this.modelMap.get(itemId)
+    if (model) {
+      model.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry?.dispose()
+          const mat = obj.material
+          if (Array.isArray(mat)) mat.forEach(m => m.dispose())
+          else mat?.dispose()
+        }
+      })
+      this.townGroup.remove(model)
+      this.modelMap.delete(itemId)
+    }
+    const door = this.doorMarkers.get(itemId)
+    if (door) {
+      this.townGroup.remove(door)
+      this.doorMarkers.delete(itemId)
+    }
   }
 
   /** Find a placed item by objectId. */

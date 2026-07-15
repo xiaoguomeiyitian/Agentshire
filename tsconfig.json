@@ -8,7 +8,7 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
-    "declaration": true,
+    "declaration": false,
     "paths": {
       "openclaw/plugin-sdk/*": ["/home/node/lib/node_modules/openclaw/dist/plugin-sdk/*"]
     }

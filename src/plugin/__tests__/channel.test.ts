@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 
 // Mock all heavy dependencies that channel.ts pulls in at module load
 vi.mock('openclaw/plugin-sdk/core', () => ({ type: {} }))
+vi.mock('openclaw/plugin-sdk/channel-inbound', () => ({ buildChannelInboundEventContext: () => ({}) }))
 vi.mock('openclaw/plugin-sdk', () => ({ createPluginRuntimeStore: () => ({ setRuntime: () => {}, getRuntime: () => ({}) }) }))
 vi.mock('../runtime.js', () => ({ setTownRuntime: () => {}, getTownRuntime: () => ({}) }))
 vi.mock('../ws-server.js', () => ({ broadcastAgentEvent: () => {}, getActiveTownSessionId: () => null }))

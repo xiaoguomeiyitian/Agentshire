@@ -45,14 +45,14 @@ describe('requestNpcQuery', () => {
   it('rejects immediately when no frontend is connected', async () => {
     const { requestNpcQuery } = await import('../ws-server.js')
     // In test env, no WS clients are connected → immediate rejection
-    await expect(requestNpcQuery({ kind: 'self', npcId: 'x' })).rejects.toThrow('前端未连接')
+    await expect(requestNpcQuery({ kind: 'self', npcId: 'x' })).rejects.toThrow('3D 场景未连接')
   })
 
   it('rejects for nearby query too when no frontend is connected', async () => {
     const { requestNpcQuery } = await import('../ws-server.js')
     await expect(
       requestNpcQuery({ kind: 'nearby', radius: 10, callerNpcId: 'c1' }),
-    ).rejects.toThrow('前端未连接')
+    ).rejects.toThrow('3D 场景未连接')
   })
 
   it('is exported as a function from ws-server', async () => {

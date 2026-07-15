@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import { Users, AtSign, SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, Film, Music, Trash2, Archive, Copy, RotateCcw } from 'lucide-react'
 import type { AgentInfo } from '@/hooks/useAgents'
 import type { GroupChatMessageItem, GroupChatInfo } from '@/hooks/useWebSocket'
-import { MarkdownContent } from './ChatMessages'
+import { MarkdownContent, ReasoningBox } from './ChatMessages'
 import { apiUrl } from '@/utils/api-base'
 
 function formatClockTime(ts: number): string {
@@ -67,13 +67,13 @@ function GroupMessageActions({ text, onRetry, retryDisabled, model }: { text: st
     <div className="flex items-center gap-1 mt-0.5 px-1 transition-opacity duration-150">
       <button
         onClick={handleCopy}
-        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-quaternary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated/60 cursor-pointer transition-colors duration-150"
         title="复制"
       >
         {copied ? <span className="text-status-success">已复制</span> : <Copy size={11} strokeWidth={1.5} />}
       </button>
       {model && (
-        <span className="text-[10px] text-text-quaternary/60 tabular-nums px-1 max-w-[160px] truncate" title={`模型: ${model}`}>
+        <span className="text-[10px] text-text-tertiary/70 tabular-nums px-1 max-w-[160px] truncate" title={`模型: ${model}`}>
           {model}
         </span>
       )}
@@ -83,7 +83,7 @@ function GroupMessageActions({ text, onRetry, retryDisabled, model }: { text: st
           disabled={retryDisabled}
           className={cn(
             'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors duration-150',
-            'text-text-quaternary hover:text-brand-secondary hover:bg-bg-elevated/60',
+            'text-text-tertiary hover:text-brand-secondary hover:bg-bg-elevated/60',
             retryDisabled && 'opacity-40 cursor-default',
           )}
           title="重试"
@@ -127,7 +127,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (visible && messagesContainerRef.current) {
-      // Use scrollTop instead of scrollIntoView to avoid scrolling ancestor containers
+      // Use scrollTop to avoid scrolling ancestor containers
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight
     }
   }, [messages, visible])
@@ -272,8 +272,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      // Block sending while the group is thinking — the send button is
-      // disabled in this state, so Enter should not trigger a new message.
+      // Block sending while group is thinking
       if (thinking) return
       handleSend()
     }
@@ -319,11 +318,11 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
         <span className="text-[13px] font-semibold text-text-primary truncate" style={{ fontFamily: "'Trap', sans-serif" }}>
           {groupInfo?.groupName || '小镇广场'}
         </span>
-        <span className="text-[11px] text-text-quaternary shrink-0">
+        <span className="text-[11px] text-text-tertiary shrink-0">
           {groupInfo ? `${groupInfo.participants.length} 位居民` : '加载中...'}
         </span>
         {groupInfo && typeof groupInfo.compactionCount === 'number' && groupInfo.compactionCount > 0 && (
-          <span className="text-[11px] text-text-quaternary/50 tabular-nums shrink-0" title={`上下文压缩次数 ${groupInfo.compactionCount}`}>
+          <span className="text-[11px] text-text-tertiary/70 tabular-nums shrink-0" title={`上下文压缩次数 ${groupInfo.compactionCount}`}>
             · 压缩 {groupInfo.compactionCount}
           </span>
         )}
@@ -365,7 +364,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
       {/* ── Messages ── */}
       <div ref={messagesContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-3 styled-scrollbar">
         {messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-text-quaternary text-[13px]">
+          <div className="flex items-center justify-center h-full text-text-tertiary text-[13px]">
             群聊已就绪，发条消息开始对话吧
           </div>
         )}
@@ -380,7 +379,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
           if (isSystem) {
             return (
               <div key={msg.sequenceId} className="flex items-center justify-center py-2">
-                <span className="text-[12px] text-text-quaternary/80 bg-bg-elevated/60 px-3 py-1 rounded-full">
+                <span className="text-[12px] text-text-tertiary/80 bg-bg-elevated/60 px-3 py-1 rounded-full">
                   {msg.text}
                 </span>
               </div>
@@ -404,11 +403,11 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
               {/* Content */}
               <div className={cn('flex flex-col gap-1 max-w-[75%] min-w-0', isUser ? 'items-end' : 'items-start')}>
                 {!isUser && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary px-1 flex-wrap">
-                    <span>{msg.speakerName}{participant?.specialty && <span className="text-text-quaternary/70">（{participant.specialty}）</span>}</span>
-                    {msg.timestamp > 0 && <span className="text-text-quaternary/60 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
+                  <div className="flex items-center gap-1.5 text-[11px] text-text-tertiary px-1 flex-wrap">
+                    <span>{msg.speakerName}{participant?.specialty && <span className="text-text-tertiary/80">（{participant.specialty}）</span>}</span>
+                    {msg.timestamp > 0 && <span className="text-text-tertiary/80 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
                     {msg.usage && (
-                      <span className="text-text-quaternary/50 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
+                      <span className="text-text-tertiary/70 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
                         ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
                         {(() => {
                           const cr = msg.usage!.cacheRead ?? 0
@@ -425,11 +424,14 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                       </span>
                     )}
                     {msg.usage && typeof msg.contextBudget === 'number' && msg.contextBudget > 0 && (
-                      <span className="text-text-quaternary/50 tabular-nums" title={`上下文 ${formatTokens(msg.usage.input)}/${formatTokens(msg.contextBudget)}`}>
+                      <span className="text-text-tertiary/70 tabular-nums" title={`上下文 ${formatTokens(msg.usage.input)}/${formatTokens(msg.contextBudget)}`}>
                         ctx {Math.round((msg.usage.input / msg.contextBudget) * 100)}%
                       </span>
                     )}
                   </div>
+                )}
+                {!isUser && msg.reasoning && (
+                  <ReasoningBox reasoning={msg.reasoning} />
                 )}
                 <div
                   className={cn(
@@ -451,7 +453,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                   )}
                 </div>
                 {isUser && msg.timestamp > 0 && (
-                  <div className="text-[10px] text-text-quaternary/60 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
+                  <div className="text-[10px] text-text-tertiary/80 px-1 text-right tabular-nums">{formatClockTime(msg.timestamp)}</div>
                 )}
                 {isUser ? (
                   <div className="flex justify-end">
@@ -488,8 +490,8 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                   </div>
                 )}
                 <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5 text-[11px] text-text-quaternary px-1 flex-wrap">
-                    <span>{speakerName}{participant?.specialty && <span className="text-text-quaternary/70">（{participant.specialty}）</span>}</span>
+                  <div className="flex items-center gap-1.5 text-[11px] text-text-tertiary px-1 flex-wrap">
+                    <span>{speakerName}{participant?.specialty && <span className="text-text-tertiary/80">（{participant.specialty}）</span>}</span>
                   </div>
                   <div className="rounded-2xl rounded-tl-md px-4 py-3 bg-bg-elevated border border-border-subtle">
                     <div className="flex items-center gap-1">
@@ -506,7 +508,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
         {/* Fallback generic thinking indicator (when no per-citizen typing info available) */}
         {thinking && (!typingCitizens || typingCitizens.size === 0) && (
           <div className="flex gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-bg-elevated flex items-center justify-center text-[11px] text-text-quaternary shrink-0">
+            <div className="w-8 h-8 rounded-full bg-bg-elevated flex items-center justify-center text-[11px] text-text-tertiary shrink-0">
               ...
             </div>
             <div className="rounded-2xl px-4 py-3 bg-bg-elevated text-text-tertiary text-[13px]">
@@ -527,7 +529,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
           ref={mentionPickerRef}
           className="absolute bottom-16 left-4 right-4 md:left-64 md:right-4 max-w-sm bg-bg-surface border border-border-subtle rounded-2xl shadow-2xl shadow-black/60 z-50 max-h-64 overflow-hidden flex flex-col"
         >
-          <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-text-quaternary border-b border-border-subtle shrink-0">
+          <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border-subtle shrink-0">
             @提及
           </div>
           <div ref={mentionPickerListRef} className="overflow-y-auto styled-scrollbar">
@@ -562,14 +564,14 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                     {isAll ? '所有人' : citizen!.name}
                   </div>
                   {!isAll && citizen!.specialty && (
-                    <div className="text-[11px] text-text-quaternary truncate">{citizen!.specialty}</div>
+                    <div className="text-[11px] text-text-tertiary truncate">{citizen!.specialty}</div>
                   )}
                 </div>
               </button>
             )
           })}
           {filteredMentions.length === 0 && (
-            <div className="px-3 py-4 text-[13px] text-text-quaternary text-center">无匹配居民</div>
+            <div className="px-3 py-4 text-[13px] text-text-tertiary text-center">无匹配居民</div>
           )}
           </div>
         </div>
@@ -598,7 +600,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
                 <span className="max-w-[120px] truncate">{att.file.name}</span>
                 <button
                   onClick={() => removeAttachment(i)}
-                  className="ml-0.5 text-text-quaternary hover:text-text-primary cursor-pointer"
+                  className="ml-0.5 text-text-tertiary hover:text-text-primary cursor-pointer"
                 >
                   <X size={12} />
                 </button>
@@ -635,7 +637,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
             onKeyDown={handleKeyDown}
             placeholder="群聊消息，输入@提及某人..."
             rows={1}
-            className="flex-1 bg-transparent text-[16px] md:text-[14px] text-text-primary placeholder:text-text-quaternary resize-none outline-none leading-9 overflow-hidden styled-scrollbar"
+            className="flex-1 bg-transparent text-[16px] md:text-[14px] text-text-primary placeholder:text-text-tertiary resize-none outline-none leading-9 overflow-hidden styled-scrollbar"
             style={{ maxHeight: 200 }}
           />
           <button
@@ -652,7 +654,7 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
               'transition-all duration-150',
               (inputText.trim() || attachments.length > 0)
                 ? 'bg-gradient-to-br from-[#C4915E] to-[#D4A574] text-white shadow-[0_4px_12px_rgba(212,165,116,0.3)] hover:shadow-[0_4px_16px_rgba(212,165,116,0.4)] hover:brightness-110 active:scale-92'
-                : 'bg-[rgba(255,255,255,0.06)] text-text-quaternary cursor-default',
+                : 'bg-[rgba(255,255,255,0.06)] text-text-tertiary cursor-default',
             )}
             aria-label="发送"
           >

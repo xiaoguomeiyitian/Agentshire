@@ -18,6 +18,8 @@ export interface PersistedGroupMessage {
   usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number };
   contextBudget?: number;
   model?: string;
+  /** Reasoning/thinking text extracted from the citizen response (if present). */
+  reasoning?: string;
 }
 
 function groupChatDir(groupId: string): string {

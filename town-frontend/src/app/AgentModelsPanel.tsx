@@ -1,7 +1,4 @@
-// Agent Models panel — manage each resident (Agent) and its LLM model proxy.
-// Supports editing: model (primary + fallbacks), identity (name, emoji),
-// thinkingDefault, reasoningDefault, contextTokens, subagents (runTimeoutSeconds),
-// groupChat (historyLimit). All fields map to openclaw.json agents.list[] entries.
+// Agent Models panel — manage each resident's LLM model proxy and config (maps to openclaw.json agents.list[])
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
@@ -231,7 +228,12 @@ export function AgentModelsPanel() {
                 <div className="flex items-center gap-3 px-4 py-3">
                   {/* Avatar */}
                   {agent.avatarUrl ? (
-                    <img src={agent.avatarUrl} alt={agent.name} className="w-9 h-9 rounded-full object-cover shrink-0 border border-border-subtle" />
+                    <img
+                      src={apiUrl(agent.avatarUrl)}
+                      alt={agent.name}
+                      className="w-9 h-9 rounded-full object-cover shrink-0 border border-border-subtle"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-bg-elevated flex items-center justify-center shrink-0 text-[14px] font-bold text-brand-secondary">
                       {agent.name.charAt(0)}

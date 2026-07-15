@@ -1,6 +1,6 @@
 /**
  * LLM proxy for implicit NPC behaviors and soul generation.
- * Reads provider config from OpenClaw runtime (rt.config.loadConfig()),
+ * Reads provider config from OpenClaw runtime (rt.config.current()),
  * resolves env-templated API keys from the config's env section,
  * and makes direct HTTP calls. Falls back to process.env for QClaw compatibility.
  */
@@ -40,7 +40,7 @@ function resolveEnvRef(value: string, env: Record<string, string>): string {
 function loadProvider(): ProviderConfig | null {
   try {
     const rt = getTownRuntime();
-    const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
+    const cfg = rt.config.current() as any;
     const env: Record<string, string> = cfg?.env ?? {};
     const providers = cfg?.models?.providers;
     if (!providers || typeof providers !== "object") return null;
@@ -79,7 +79,7 @@ function loadProviderByModelRef(modelRef?: string): ProviderConfig | null {
   const modelId = modelRef.slice(slashIdx + 1);
   try {
     const rt = getTownRuntime();
-    const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
+    const cfg = rt.config.current() as any;
     const env: Record<string, string> = cfg?.env ?? {};
     const providers = cfg?.models?.providers;
     if (!providers || typeof providers !== "object") return loadProvider();

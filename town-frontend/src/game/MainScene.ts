@@ -1115,7 +1115,7 @@ __workflow 演出测试指令:
       const data = await res.json()
       const config = data.config as TownMapConfig | null
       if (!config) return
-      // Switch townBuilder to config-driven mode: clear hardcoded scene and rebuild from config
+      // Switch to config-driven mode: clear hardcoded scene and rebuild from config
       this.townBuilder.clear()
       this.townBuilder.buildFromConfig(config, this.assets)
       // Update vehicle road network to match the loaded map
@@ -1152,8 +1152,7 @@ __workflow 演出测试指令:
     const builder = this.townBuilder
     let config = builder.getMapConfig()
     if (!config) {
-      // No saved map config — initialize a fresh config and switch to config-driven mode.
-      // This happens when the town was built from hardcoded BUILDINGS and no town-map.json exists yet.
+      // No saved config — initialize fresh (happens when town built from hardcoded BUILDINGS)
       config = createDefaultConfig()
       builder.initFromConfig(config, this.assets)
       console.log('[MainScene] handleSceneEdit: initialized fresh TownMapConfig (no saved config found)')
@@ -1979,7 +1978,7 @@ __workflow 演出测试指令:
     }
     this._minigameUpdateCb?.(deltaTime)
 
-    // ── Forward town status (time / weather / resident count) to parent React App every ~2s ──
+    // Forward town status to parent React App every ~2s
     this.townStatusTimer += deltaTime
     if (this.platformBridge && this.townStatusTimer >= 2.0) {
       this.townStatusTimer = 0

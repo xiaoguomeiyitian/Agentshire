@@ -1,13 +1,9 @@
-// src/plugin/auth.ts —— 小镇页面密码登录鉴权核心（叶子模块，不反向依赖任何业务模块）
-// 依赖：仅 node 内置 http / crypto 类型与自身内存状态（Map）。谁都能引它，它谁都不引。
-// 负责人：小烈（后端）
-//
-// 设计要点（见 SPEC.md / MODULES.md）：
-// - 开关语义（翻转后）：env AGENTSHIRE_TOWN_PASSWORD 非空 = 开启密码登录；未设置 = 免密直进（null = 免密模式）。不再把 config.password 当密码来源。
-// - 会话：randomUUID 随机 token 存内存 Map，HttpOnly + SameSite=Lax + Path=/ + Max-Age Cookie 续命
-// - 失败计数 + 临时锁：连错 5 次锁 5 分钟（429）
-// - 密码校验用 crypto.timingSafeEqual 恒定时间比较，防计时攻击
-// - 白名单放行：GET /login、POST /api/login、GET /api/auth/status、/login-assets/*
+// src/plugin/auth.ts — 小镇页面密码登录鉴权（叶子模块，不反向依赖业务模块）
+// 设计要点：
+// - env AGENTSHIRE_TOWN_PASSWORD 非空=开启密码登录；未设置=免密直进
+// - randomUUID token 存内存 Map，HttpOnly + SameSite=Lax Cookie
+// - 连错 5 次锁 5 分钟（429）；crypto.timingSafeEqual 防计时攻击
+// - 白名单：GET /login、POST /api/login、GET /api/auth/status、/login-assets/*
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";

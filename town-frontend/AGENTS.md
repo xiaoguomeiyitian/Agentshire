@@ -80,3 +80,27 @@ The app defaults to the `#chat` route on open (`App.tsx` `getTabFromHash()`). Th
 ### Agent Models Panel
 
 Per-agent LLM model proxy management UI is in `src/app/AgentModelsPanel.tsx` (React, rendered inside the Claw Settings view). It manages each resident's `agents.list[]` entry: primary model + fallbacks, identity (name, emoji), thinking/reasoning defaults, context tokens, subagent timeout, group-chat history limit. Reads/writes via `get-agent-config` / `update-agent-config` Claw API routes in `editor-serve.ts`.
+
+### Claw Settings View
+
+The Claw Settings panel (`src/app/ClawSettingsView.tsx`, ~2700 lines) is the in-app OpenClaw runtime config UI with 11 left-nav sections:
+
+| Nav | Sections | Component |
+|---|---|---|
+| 通用设置 (General) | Gateway mode, subagent timeout, default model, agent count | `GeneralPanel` |
+| 系统 (System) | Logging, Update, Diagnostics, Audit | `AdvancedPanel group="system"` |
+| 消息 (Messaging) | Session, Messages, Commands, Cron | `AdvancedPanel group="messaging"` |
+| 工具 (Tools) | Browser, Tools, Web, Media, MCP | `AdvancedPanel group="tools"` |
+| AI | Talk/Voice, Transcripts, Commitments, Broadcast, ACP | `AdvancedPanel group="ai"` |
+| 网络 (Network) | Memory, Proxy, Env, Hooks, UI | `AdvancedPanel group="network"` |
+| 代理管理 (Providers) | Per-agent model proxy | `AgentModelsPanel` |
+| 模型管理 (Models) | LLM provider/model CRUD | `ModelPanel` |
+| 插件配置 (Plugin) | Plugin enable/bundled discovery | inline |
+| 会话列表 (Sessions) | Live session/token-usage inspection | inline |
+| 关于 (About) | Version info | inline |
+
+`AdvancedPanel` accepts a `group` prop ('system' | 'messaging' | 'tools' | 'ai' | 'network') and conditionally renders the corresponding sections. A shared `advProps` object (defined before the return statement) is spread into all 5 `AdvancedPanel` calls to avoid repeating ~100 config state variables.
+
+All `useState` default values are aligned with the actual `openclaw.json` values (not schema defaults, since most core config sections have no schema `default` property). The config is loaded from and saved to `openclaw.json` via `config/load` and `config/save` Claw API routes in `editor-serve.ts`.
+
+`noSaveSections = ['sessions', 'about', 'models', 'providers']` — these sections don't trigger the Save button (they have their own data management).

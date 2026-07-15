@@ -1,4 +1,5 @@
 import type { ChannelPlugin } from "openclaw/plugin-sdk/core";
+import { buildChannelInboundEventContext } from "openclaw/plugin-sdk/channel-inbound";
 import { getTownRuntime } from "./runtime.js";
 import { broadcastAgentEvent } from "./ws-server.js";
 import { createOutboundAdapter } from "./outbound-adapter.js";
@@ -6,6 +7,70 @@ import { createTownSessionKey, sanitizeTownSessionId } from "./town-session.js";
 
 const CHANNEL_ID = "agentshire";
 const DEBUG = process.env.AGENTSHIRE_DEBUG === "1";
+
+/**
+ * Build an inbound message context using the current SDK API
+ * (buildChannelInboundEventContext) instead of the deprecated
+ * finalizeInboundContext. Maps the flat legacy parameters into the
+ * structured facts objects expected by the new API.
+ */
+export function buildTownInboundContext(params: {
+  rt: ReturnType<typeof getTownRuntime>;
+  body: string;
+  from: string;
+  to: string;
+  sessionKey: string;
+  accountId?: string;
+  mediaPaths?: string[];
+}): ReturnType<typeof buildChannelInboundEventContext> {
+  const { rt, body, from, to, sessionKey, accountId, mediaPaths } = params;
+
+  // Extract agentId from sessionKey (format: "agent:<agentId>:<rest>")
+  // or default to "town-steward" for direct steward sessions.
+  const agentIdMatch = sessionKey.match(/^agent:([^:]+):/);
+  const agentId = agentIdMatch ? agentIdMatch[1] : "town-steward";
+
+  return buildChannelInboundEventContext({
+    channel: CHANNEL_ID,
+    accountId: accountId ?? "default",
+    provider: CHANNEL_ID,
+    surface: CHANNEL_ID,
+    from,
+    sender: { id: "user", isSelf: false, isBot: false },
+    conversation: {
+      kind: "direct",
+      id: sessionKey,
+    },
+    route: {
+      agentId,
+      accountId: accountId ?? "default",
+      routeSessionKey: sessionKey,
+      dispatchSessionKey: sessionKey,
+      createIfMissing: true,
+    },
+    reply: {
+      to,
+      originatingTo: to,
+    },
+    message: {
+      rawBody: body,
+      body,
+      bodyForAgent: body,
+      commandBody: body,
+    },
+    access: {
+      commands: {
+        authorized: true,
+        useAccessGroups: false,
+        allowTextCommands: true,
+        authorizers: [],
+      },
+    },
+    ...(mediaPaths?.length
+      ? { media: mediaPaths.map((path) => ({ path, kind: "unknown" as const })) }
+      : {}),
+  });
+}
 
 let _channelCtx: { rt: ReturnType<typeof getTownRuntime>; cfg: Record<string, unknown>; accountId: string } | null = null;
 
@@ -72,24 +137,14 @@ async function dispatchTownMessage(params: {
   const { rt, cfg, accountId, townSessionId, body, mediaPaths } = params;
   const sessionKey = createTownSessionKey(accountId, townSessionId);
 
-  const msgCtx = rt.channel.reply.finalizeInboundContext({
-    Body: body,
-    RawBody: body,
-    CommandBody: body,
-    From: `${CHANNEL_ID}:user`,
-    To: `${CHANNEL_ID}:steward`,
-    SessionKey: sessionKey,
-    AccountId: accountId,
-    OriginatingChannel: CHANNEL_ID,
-    ChatType: "direct",
-    SenderId: "user",
-    Provider: CHANNEL_ID,
-    Surface: CHANNEL_ID,
-    // Authorize slash commands (e.g. /new, /reset) so OpenClaw recognises
-    // them as session-reset triggers instead of treating them as plain text.
-    CommandAuthorized: true,
-    CommandSource: "text",
-    ...(mediaPaths?.length ? { MediaPaths: mediaPaths } : {}),
+  const msgCtx = buildTownInboundContext({
+    rt,
+    body,
+    from: `${CHANNEL_ID}:user`,
+    to: `${CHANNEL_ID}:steward`,
+    sessionKey,
+    accountId,
+    mediaPaths,
   });
 
   // Retry with backoff for "reply session initialization conflicted" errors.
@@ -190,7 +245,7 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
           let modelRef: string | undefined;
           if (payload.agentId) {
             try {
-              const cfg = (typeof rt.config.current === "function" ? rt.config.current() : rt.config.loadConfig()) as any;
+              const cfg = rt.config.current() as any;
               const agent = (cfg?.agents?.list ?? []).find((a: any) => a.id === payload.agentId);
               if (agent?.model) {
                 modelRef = typeof agent.model === "string" ? agent.model : agent.model.primary;
@@ -543,7 +598,7 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
       console.log([
         "",
         "  ┌─────────────────────────────────────────────────────────────────┐",
-        "  │  🏘️  Agentshire v2026.4.6 is live!                                │",
+        "  │  🏘️  Agentshire is live!                                          │",
         "  │                                                                 │",
         `  │  Town:     ${townUrl}  │`,
         `  │  Editor:   ${editorUrl}                          │`,

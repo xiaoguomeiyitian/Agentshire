@@ -81,7 +81,10 @@ export function hookToAgentEvent(
   payload: Record<string, unknown>,
 ): AgentEvent | AgentEvent[] | null {
   switch (hookName) {
-    case "before_agent_start":
+    case "before_model_resolve":
+      // Replaces deprecated before_agent_start for system.init broadcast.
+      // model is derived from ctx.modelProviderId/modelId by the caller,
+      // or passed directly for session_start synthetic events.
       return {
         type: "system",
         subtype: "init",

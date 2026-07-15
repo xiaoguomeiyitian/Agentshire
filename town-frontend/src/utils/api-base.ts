@@ -17,13 +17,3 @@ export function apiUrl(path: string): string {
   if (!path.startsWith('/') || /^(blob:|data:|https?:)/.test(path)) return path
   return path.slice(1)
 }
-
-/**
- * fetch 包装函数，自动把绝对路径转为相对路径。
- *
- * @example
- * const resp = await apiFetch('/citizen-workshop/_api/load', { method: 'POST', ... })
- */
-export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
-  return fetch(apiUrl(input), init)
-}

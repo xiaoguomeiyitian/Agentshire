@@ -47,6 +47,9 @@ export interface TownWsServerOptions {
 let wss: WebSocketServer | null = null;
 const clients = new Set<WebSocket>();
 const clientSessions = new Map<WebSocket, string>();
+// Clients that have a 3D scene (town.html iframe). Chat-only UIs (#chat React)
+// are NOT scene-capable and cannot respond to NPC spatial queries.
+const sceneCapableClients = new Set<WebSocket>();
 const clientChatWatchers = new Map<WebSocket, ChatSessionWatcher>();
 const clientChatBindings = new Map<WebSocket, { townSessionId: string; agentId: string }>();
 const clientChatRetryTimers = new Map<WebSocket, ReturnType<typeof setTimeout>>();
@@ -474,16 +477,16 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           const townSessionId = sanitizeTownSessionId(msg.townSessionId);
           clientSessions.set(ws, townSessionId);
           activeTownSessionId = townSessionId;
-          console.log(`${sessionLogPrefix(townSessionId)} WS bound to frontend connection`);
+          // Track scene-capable clients (town.html iframe sends sceneCapable: true)
+          if (msg.sceneCapable === true) {
+            sceneCapableClients.add(ws);
+          }
+          console.log(`${sessionLogPrefix(townSessionId)} WS bound to frontend connection${msg.sceneCapable === true ? " (scene)" : " (chat-only)"}`);
           if (ws.readyState === WebSocket.OPEN) {
             let modelName: string | undefined;
             try {
               const rt = getTownRuntime();
-              const cfg = typeof (rt.config as any)?.current === "function"
-                ? (rt.config as any).current()
-                : typeof (rt.config as any)?.loadConfig === "function"
-                  ? (rt.config as any).loadConfig()
-                  : (rt.config as any);
+              const cfg = rt.config.current() as any;
               modelName = cfg?.agents?.defaults?.model?.primary;
             } catch {}
             ws.send(JSON.stringify({ type: "town_session_bound", townSessionId, ...(modelName ? { model: modelName } : {}) }));
@@ -630,14 +633,11 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           }
         } else if (msg.type === "command" && typeof msg.command === "string") {
           const townSessionId = getClientSessionId(ws);
-          // Map /clear → /new: OpenClaw's DEFAULT_RESET_TRIGGERS are /new and /reset.
-          // /clear is not recognised and would be treated as a normal text message,
-          // wasting a model call. /new is OpenClaw's native session-reset command.
+          // Map /clear → /new: /clear is not an OpenClaw reset trigger, would be treated as text
           const effectiveCommand = msg.command === "clear" ? "new" : msg.command;
           const slashText = `/${effectiveCommand}${msg.args ? " " + msg.args : ""}`;
           console.log(`${sessionLogPrefix(townSessionId)} WS ← command "${slashText}"${effectiveCommand !== msg.command ? ` (mapped from /${msg.command})` : ""}`);
-          // Route to the currently bound agent: if a citizen is selected, route via onCitizenChat
-          // so /clear and other slash commands target the citizen's session, not steward's.
+          // Route to bound agent: if citizen selected, route via onCitizenChat
           const binding = clientChatBindings.get(ws);
           const boundAgentId = binding?.agentId;
           if (boundAgentId && boundAgentId !== "steward" && opts.onCitizenChat) {
@@ -681,6 +681,7 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
       coldStartBindings.delete(ws);
       clientChatBindings.delete(ws);
       clientSessions.delete(ws);
+      sceneCapableClients.delete(ws);
       clients.delete(ws);
       console.log(`[agentshire] Town frontend disconnected (${clients.size} remaining)`);
     });
@@ -706,7 +707,7 @@ export function stopTownWsServer(): void {
 }
 
 /**
- * Track which agents currently have an active turn (between before_agent_start
+ * Track which agents currently have an active turn (between before_model_resolve
  * and agent_end). Used to restore the thinking indicator after a page refresh.
  * Key: agentId (or "steward"), Value: true if turn is in progress.
  */
@@ -754,6 +755,20 @@ export function getConnectedClientCount(): number {
   return clients.size;
 }
 
+/** Number of connected clients with a 3D scene (town.html iframe). */
+export function getSceneCapableClientCount(): number {
+  return sceneCapableClients.size;
+}
+
+/** Broadcast an AgentEvent only to scene-capable clients (town.html iframe). */
+export function broadcastAgentEventToScene(event: AgentEvent): void {
+  if (sceneCapableClients.size === 0) return;
+  const payload = JSON.stringify({ type: "agent_event", event });
+  for (const ws of sceneCapableClients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+  }
+}
+
 // ── NPC spatial query: plugin tools → frontend → result back ──
 
 interface PendingNpcQuery {
@@ -786,8 +801,10 @@ export function requestNpcQuery(
 ): Promise<unknown> {
   const requestId = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   return new Promise<unknown>((resolve, reject) => {
-    if (clients.size === 0) {
-      reject(new Error("前端未连接，无法查询 NPC 状态"));
+    // Only scene-capable clients (town.html iframe with 3D scene) can respond
+    // to NPC spatial queries. Chat-only UIs (#chat React) cannot.
+    if (sceneCapableClients.size === 0) {
+      reject(new Error("3D 场景未连接（请先打开 Town 标签页加载场景），无法查询 NPC 状态"));
       return;
     }
     const timer = setTimeout(() => {
@@ -795,12 +812,13 @@ export function requestNpcQuery(
       reject(new Error("前端响应超时"));
     }, NPC_QUERY_TIMEOUT_MS);
     pendingNpcQueries.set(requestId, { resolve, reject, timer });
-    broadcastAgentEvent({
-      type: "world_control",
-      target: "query_npc",
-      requestId,
-      query,
-    } as any);
+    const payload = JSON.stringify({
+      type: "agent_event",
+      event: { type: "world_control", target: "query_npc", requestId, query },
+    });
+    for (const ws of sceneCapableClients) {
+      if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+    }
   });
 }
 
@@ -875,6 +893,7 @@ export function pushGroupChatMessage(townSessionId: string, payload: {
   usage?: { input: number; output: number; totalTokens?: number };
   contextBudget?: number;
   model?: string;
+  reasoning?: string;
 }): void {
   const msg = JSON.stringify({
     type: "group_chat_message",
@@ -904,6 +923,8 @@ export function pushGroupChatHistory(townSessionId: string, payload: {
     groupId: string;
     usage?: { input: number; output: number; totalTokens?: number; cacheRead?: number; cacheWrite?: number };
     contextBudget?: number;
+    model?: string;
+    reasoning?: string;
   }>;
 }): void {
   const msg = JSON.stringify({

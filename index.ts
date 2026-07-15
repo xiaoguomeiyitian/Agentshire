@@ -95,10 +95,10 @@ function notifyGroupDiscussion(hookName: string, agentId: string, payload: Recor
       if (texts.length > 0) {
         text = typeof texts[texts.length - 1] === "string" ? texts[texts.length - 1] : String(texts[texts.length - 1] ?? "");
       } else {
-        // Fallback: extract text from lastAssistant (OpenAI message format) or other fields
+        // Fallback: extract text from lastAssistant (OpenAI message format)
         const lastAssistant = (payload as any).lastAssistant;
         if (lastAssistant && typeof lastAssistant === "object") {
-          // OpenAI message format: { role: "assistant", content: [...] } or { content: "text" }
+          // OpenAI format: { role: "assistant", content: [...] } or { content: "text" }
           const content = (lastAssistant as any).content;
           if (typeof content === "string") {
             text = content;
@@ -134,7 +134,7 @@ function notifyGroupDiscussion(hookName: string, agentId: string, payload: Recor
       const model = typeof (payload as any).model === "string" ? (payload as any).model : undefined;
       if (text) onCitizenResponse(agentId, text, contextTokenBudget, usage, model);
     } else if (hookName === "agent_end") {
-      // agent_end payload lacks usage in OpenClaw 2026.6.11; usage is extracted from llm_output above
+      // agent_end lacks usage in OpenClaw 2026.6.11; usage extracted from llm_output above
       const rawUsage = (payload as any).usage as { inputTokens?: number; outputTokens?: number; input?: number; output?: number; totalTokens?: number } | undefined;
       const runId = String((payload as any).runId ?? "");
       const estInput = runId ? (groupInputEstimates.get(runId) ?? 0) : 0;
@@ -211,8 +211,12 @@ function extractAgentIdForChatBinding(ctx: any): string | undefined {
 }
 
 function registerHooks(api: OpenClawPluginApi): void {
+  // NOTE: before_agent_start is @deprecated in OpenClaw 2026.7.1.
+  // before_model_resolve replaces its per-run observation role (nudge cancel,
+  // chat watcher retry, system.init broadcast). session_start handles the
+  // session-level init event directly.
   const stewardHooks = [
-    "before_agent_start", "llm_input", "llm_output",
+    "before_model_resolve", "llm_input", "llm_output",
     "before_tool_call", "after_tool_call", "agent_end",
   ] as const;
 
@@ -225,7 +229,7 @@ function registerHooks(api: OpenClawPluginApi): void {
         if (toolCallId) recordToolCallAgent(toolCallId, agentId);
       }
       if (!isStewardDirect(ctx)) {
-        if (hookName === 'before_agent_start') {
+        if (hookName === 'before_model_resolve') {
           const sid = resolveSessionId(ctx, event as any);
           const agentId = extractAgentIdForChatBinding(ctx);
           if (sid && agentId) {
@@ -235,13 +239,13 @@ function registerHooks(api: OpenClawPluginApi): void {
         dispatchCitizen(hookName, event as any, ctx);
         return;
       }
-      if (hookName === 'before_agent_start' || hookName === 'before_tool_call' || hookName === 'llm_input') {
+      if (hookName === 'before_model_resolve' || hookName === 'before_tool_call' || hookName === 'llm_input') {
         if (pendingNudgeTimer) {
           console.log('[agentshire] nudge cancelled: steward resumed on its own');
           cancelNudge();
         }
       }
-      if (hookName === 'before_agent_start') {
+      if (hookName === 'before_model_resolve') {
         const sid = resolveSessionId(ctx, event as any);
         const agentId = extractAgentIdForChatBinding(ctx);
         if (sid && agentId) {
@@ -335,11 +339,16 @@ function registerHooks(api: OpenClawPluginApi): void {
       cleanupStaleSessionPlans(sid);
       setTimeout(() => pushNewChatMessages(sid), 200);
     }
-    dispatchSteward("before_agent_start", {
-      ...(event as any),
+    // Broadcast system.init directly (was previously dispatched via the
+    // deprecated before_agent_start hook; now constructed inline).
+    const initEvent = hookToAgentEvent("before_model_resolve", {
       sessionId: (ctx as any)?.sessionId ?? (event as any).sessionId ?? `oc-${Date.now()}`,
-      model: (event as any).model ?? "default",
-    }, ctx);
+      model: [(ctx as any)?.modelProviderId, (ctx as any)?.modelId].filter(Boolean).join("/") || "default",
+    });
+    if (initEvent) {
+      const events = Array.isArray(initEvent) ? initEvent : [initEvent];
+      for (const ev of events) broadcastAgentEvent(ev, sid);
+    }
   });
 
   api.on("session_end", (event: any, ctx: any) => {
@@ -383,7 +392,7 @@ function registerHooks(api: OpenClawPluginApi): void {
       const { loadTownSoul } = await import("./src/town-souls.js");
       const { join } = await import("node:path");
       const { fileURLToPath } = await import("node:url");
-      // import.meta.url is dist/index.js → go up two levels to project root (where town-data/ lives)
+      // dist/index.js → up two levels to project root (where town-data/ lives)
       const pluginDir = join(fileURLToPath(import.meta.url), "..", "..");
       const townSoul = loadTownSoul(agentId, pluginDir);
       if (townSoul.soul) {
@@ -444,7 +453,7 @@ function registerFull(api: OpenClawPluginApi): void {
         const { join } = await import("node:path");
         const { readFileSync, existsSync, statSync } = await import("node:fs");
         const { fileURLToPath } = await import("node:url");
-        // import.meta.url is dist/index.js → go up two levels to project root (where town-data/ lives)
+        // dist/index.js → up two levels to project root (where town-data/ lives)
         const pluginDir = join(fileURLToPath(import.meta.url), "..", "..");
         const distDir = join(pluginDir, "town-frontend", "dist");
         if (!existsSync(distDir)) {
