@@ -124,8 +124,12 @@ export function writeOpenClawConfig(cfg: any): void {
 /**
  * Read a config section via `openclaw config get <path> --json`.
  * Returns undefined if the path doesn't exist. Secrets are auto-redacted by the CLI.
+ *
+ * `path` is validated to contain only safe characters ([A-Za-z0-9._-]) to
+ * prevent shell injection — it is interpolated into a shell command string.
  */
 export function getConfigSection(path: string): any {
+  if (!path || !/^[A-Za-z0-9._-]+$/.test(path)) return undefined;
   try {
     const out = execSync(`openclaw config get ${path} --json 2>/dev/null`, { encoding: "utf-8", timeout: 5000 });
     return JSON.parse(out);

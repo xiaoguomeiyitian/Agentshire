@@ -357,18 +357,41 @@ function clearChatWatcherRetry(ws: WebSocket): void {
     clearTimeout(timer);
     clientChatRetryTimers.delete(ws);
   }
+  chatWatcherRetryCounts.delete(ws);
 }
+
+/** Max retry attempts for cold-start chat watcher (transcript file not yet created) */
+const CHAT_WATCHER_MAX_RETRIES = 15;
+/** Initial retry delay in ms; doubles each attempt up to CHAT_WATCHER_MAX_DELAY */
+const CHAT_WATCHER_INITIAL_DELAY = 400;
+const CHAT_WATCHER_MAX_DELAY = 5000;
+/** Per-WS retry counter for cold-start chat watcher */
+const chatWatcherRetryCounts = new Map<WebSocket, number>();
 
 function scheduleChatWatcherRetry(ws: WebSocket): void {
   clearChatWatcherRetry(ws);
   const binding = clientChatBindings.get(ws);
   if (!binding) return;
+
+  const attempt = chatWatcherRetryCounts.get(ws) ?? 0;
+  if (attempt >= CHAT_WATCHER_MAX_RETRIES) {
+    console.log(
+      `${sessionLogPrefix(binding.townSessionId)} Chat watcher: gave up after ${attempt} retries for ${binding.agentId} (transcript never appeared)`,
+    );
+    chatWatcherRetryCounts.delete(ws);
+    return;
+  }
+
+  // Exponential backoff: 400, 800, 1600, 3200, 5000, 5000, ...
+  const delay = Math.min(CHAT_WATCHER_INITIAL_DELAY * Math.pow(2, attempt), CHAT_WATCHER_MAX_DELAY);
+  chatWatcherRetryCounts.set(ws, attempt + 1);
+
   const timer = setTimeout(() => {
     clientChatRetryTimers.delete(ws);
     const current = clientChatBindings.get(ws);
     if (!current || clientChatWatchers.has(ws)) return;
     tryStartChatWatcher(ws, current.townSessionId, current.agentId);
-  }, 400);
+  }, delay);
   clientChatRetryTimers.set(ws, timer);
 }
 
@@ -381,6 +404,7 @@ function tryStartChatWatcher(ws: WebSocket, townSessionId: string, agentId: stri
     return false;
   }
   clearChatWatcherRetry(ws);
+  chatWatcherRetryCounts.delete(ws); // Reset on successful start
   const isColdStart = coldStartBindings.has(ws);
   coldStartBindings.delete(ws);
   const existing = clientChatWatchers.get(ws);
@@ -662,6 +686,13 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
             `${sessionLogPrefix(townSessionId)} WS ← npc_query_result requestId=${msg.requestId}`,
           );
           resolveNpcQuery(msg.requestId, msg.data);
+        } else if (msg.type === "sync_request") {
+          // Frontend reconnected and requests full state resync.
+          // town_session_init already triggers sendWorkSnapshot, but if the
+          // frontend sends sync_request after binding, re-send the snapshot.
+          const townSessionId = getClientSessionId(ws);
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← sync_request (reconnect resync)`);
+          sendWorkSnapshot(ws, townSessionId);
         } else {
           const townSessionId = getClientSessionId(ws);
           console.log(

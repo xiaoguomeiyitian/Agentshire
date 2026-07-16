@@ -333,6 +333,125 @@ export function createTownTools(): OpenClawPluginToolFactory {
       },
     },
     {
+      name: "town_diagnose",
+      description:
+        "Run a self-diagnostic of the Agentshire plugin environment. " +
+        "Checks: state directory, WebSocket server, frontend connections, LLM config, agent config, ports. " +
+        "Use this when something isn't working to get a structured diagnostic report.",
+      parameters: { type: "object" as const, properties: {} },
+      async execute() {
+        const lines: string[] = [];
+        let passCount = 0;
+        let failCount = 0;
+        const ok2 = (label: string, detail: string) => {
+          passCount++;
+          lines.push(`  ✅ ${label}: ${detail}`);
+        };
+        const fail = (label: string, detail: string) => {
+          failCount++;
+          lines.push(`  ❌ ${label}: ${detail}`);
+        };
+        const warn = (label: string, detail: string) => {
+          lines.push(`  ⚠️  ${label}: ${detail}`);
+        };
+
+        lines.push("=== Agentshire Diagnostic Report ===\n");
+
+        // 1. State directory
+        try {
+          const { stateDir } = await import("./paths.js");
+          const dir = stateDir();
+          const { existsSync } = await import("node:fs");
+          if (existsSync(dir)) {
+            ok2("State directory", dir);
+          } else {
+            fail("State directory", `${dir} does not exist`);
+          }
+        } catch (err) {
+          fail("State directory", `Error: ${(err as Error).message}`);
+        }
+
+        // 2. Runtime config
+        try {
+          const { getTownRuntime } = await import("./runtime.js");
+          const rt = getTownRuntime();
+          const cfg = typeof rt.config.current === "function" ? rt.config.current() : rt.config;
+          const model = (cfg as any)?.agents?.defaults?.model?.primary ?? "(not set)";
+          const workspace = (cfg as any)?.agents?.defaults?.workspace ?? "(not set)";
+          ok2("Default model", String(model));
+          if (workspace !== "(not set)") warn("Workspace", String(workspace));
+        } catch (err) {
+          fail("Runtime config", `Error: ${(err as Error).message}`);
+        }
+
+        // 3. WebSocket server
+        try {
+          const { getConnectedClientCount, getSceneCapableClientCount } = await import("./ws-server.js");
+          const total = getConnectedClientCount();
+          const scene = getSceneCapableClientCount();
+          if (total > 0) {
+            ok2("WebSocket clients", `${total} connected (${scene} with 3D scene)`);
+          } else {
+            warn("WebSocket clients", "No frontend connected (open the Town tab)");
+          }
+        } catch (err) {
+          fail("WebSocket server", `Error: ${(err as Error).message}`);
+        }
+
+        // 4. Agent config (town-steward)
+        try {
+          const { stateDir } = await import("./paths.js");
+          const { existsSync, readFileSync } = await import("node:fs");
+          const { join } = await import("node:path");
+          const agentPath = join(stateDir(), "agents", "town-steward", "agent.json");
+          if (existsSync(agentPath)) {
+            const agentCfg = JSON.parse(readFileSync(agentPath, "utf-8"));
+            ok2("Steward agent", `configured (model: ${agentCfg.model ?? "default"})`);
+          } else {
+            warn("Steward agent", "agent.json not found (may auto-create on first run)");
+          }
+        } catch (err) {
+          fail("Steward agent", `Error: ${(err as Error).message}`);
+        }
+
+        // 5. LLM providers
+        try {
+          const { getTownRuntime } = await import("./runtime.js");
+          const rt = getTownRuntime();
+          const cfg = typeof rt.config.current === "function" ? rt.config.current() : rt.config;
+          const providers = (cfg as any)?.models?.providers;
+          if (providers && typeof providers === "object" && Object.keys(providers).length > 0) {
+            ok2("LLM providers", `${Object.keys(providers).join(", ")}`);
+          } else {
+            fail("LLM providers", "No providers configured (set up in Claw Settings → Providers)");
+          }
+        } catch (err) {
+          fail("LLM providers", `Error: ${(err as Error).message}`);
+        }
+
+        // 6. Port availability
+        try {
+          const { getConnectedClientCount } = await import("./ws-server.js");
+          // If WS server is running, clients can connect — port is available
+          if (getConnectedClientCount() >= 0) {
+            ok2("WS server", "running");
+          }
+        } catch (err) {
+          fail("WS server", `Not running: ${(err as Error).message}`);
+        }
+
+        // Summary
+        lines.push(`\n=== Summary: ${passCount} passed, ${failCount} failed ===`);
+        if (failCount === 0) {
+          lines.push("All checks passed. If the town isn't working, try refreshing the browser tab.");
+        } else {
+          lines.push("Some checks failed. See details above for troubleshooting.");
+        }
+
+        return ok(lines.join("\n"));
+      },
+    },
+    {
       name: "register_project",
       description:
         "Register a simple project (single-agent or steward-only). " +

@@ -46,6 +46,8 @@ interface ChatMessagesProps {
   retryDisabled?: boolean
   /** Reasoning visibility setting: 'off' hides reasoning, 'on'/'stream'/undefined shows it */
   reasoningVisibility?: string
+  /** Usage footer mode: 'off' hides token stats, 'tokens' shows input/output, 'full' shows input/output/cache/reasoning */
+  usageMode?: 'off' | 'tokens' | 'full'
 }
 
 interface DerivedAttachment {
@@ -507,7 +509,7 @@ function LoadingSpinner({ text }: { text: string }) {
 
 export function ChatMessages({
   items, agentName, agentSpecialty, agentAvatarUrl, agentThinking, liveThinkingText,
-  historyLoading, loadingMore, hasMore, onLoadMore, className, onRetry, onEdit, retryDisabled, reasoningVisibility,
+  historyLoading, loadingMore, hasMore, onLoadMore, className, onRetry, onEdit, retryDisabled, reasoningVisibility, usageMode,
 }: ChatMessagesProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -645,10 +647,10 @@ export function ChatMessages({
                       <div className="flex items-center gap-1.5 text-[11px] text-text-tertiary mb-1 px-0.5 flex-wrap">
                         <span>{agentName}{agentSpecialty && <span className="text-text-tertiary/80">（{agentSpecialty}）</span>}</span>
                         {msg.timestamp > 0 && <span className="text-text-tertiary/80 tabular-nums">{formatClockTime(msg.timestamp)}</span>}
-                        {msg.usage && (msg.usage.input > 0 || msg.usage.output > 0) && (
+                        {usageMode !== 'off' && msg.usage && (msg.usage.input > 0 || msg.usage.output > 0) && (
                           <span className="text-text-tertiary/70 tabular-nums" title={`输入 ${msg.usage.input} / 输出 ${msg.usage.output} tokens`}>
                             ↑{formatTokens(msg.usage.input)} ↓{formatTokens(msg.usage.output)}
-                            {(() => {
+                            {usageMode === 'full' && (() => {
                               const cr = msg.usage!.cacheRead ?? 0
                               const inp = msg.usage!.input ?? 0
                               if (cr <= 0) return null
@@ -660,6 +662,11 @@ export function ChatMessages({
                                 </span>
                               )
                             })()}
+                            {usageMode === 'full' && msg.usage.reasoningTokens && msg.usage.reasoningTokens > 0 && (
+                              <span className="ml-1" title={`推理 ${msg.usage.reasoningTokens} tokens`}>
+                                · think {formatTokens(msg.usage.reasoningTokens)}
+                              </span>
+                            )}
                           </span>
                         )}
                       </div>

@@ -421,7 +421,7 @@ export class DirectorBridge {
         if (this.activity.isTodoWrite(event.name ?? '')) {
           this.activity.emitTodoActivity(this.stewardName, event.input ?? {})
         } else {
-          this.activity.emitActivity(this.stewardName, this.activity.toolActivityIcon(event.name ?? ''), this.activity.toolActivityMsg(event.name ?? '', event.input))
+          this.activity.emitActivity(this.stewardName, this.activity.toolActivityIcon(event.name ?? ''), this.activity.toolActivityMsg(event.name ?? '', event.input), false, event.toolUseId)
         }
         if (this.phase === 'idle' || this.phase === 'working') {
           this.activeToolCount++
@@ -434,7 +434,7 @@ export class DirectorBridge {
         return
       case 'tool_result':
         console.log('[DirectorBridge] tool_result:', event.name, 'phase:', this.phase)
-        this.activity.emitActivityStatus(this.stewardName, isToolSuccess(event.name ?? '', event.output ?? ''))
+        this.activity.emitActivityStatus(this.stewardName, isToolSuccess(event.name ?? '', event.output ?? ''), event.toolUseId)
         void this.citizens.detectPersonaSwitch(event)
         this.citizens.detectCitizenCreated(event)
         if (event.name === 'register_project') {
@@ -559,14 +559,14 @@ export class DirectorBridge {
         if (this.activity.isTodoWrite(event.name ?? '')) {
           this.activity.emitTodoActivity(npcId, event.input ?? {})
         } else {
-          this.activity.emitActivity(npcId, this.activity.toolActivityIcon(event.name ?? ''), this.activity.toolActivityMsg(event.name ?? '', event.input))
+          this.activity.emitActivity(npcId, this.activity.toolActivityIcon(event.name ?? ''), this.activity.toolActivityMsg(event.name ?? '', event.input), false, event.toolUseId)
         }
         q.enqueuePhase([
           { type: 'npc_phase', npcId, phase: 'working' as NPCPhase },
         ])
         return
       case 'tool_result':
-        this.activity.emitActivityStatus(npcId, isToolSuccess(event.name ?? '', event.output ?? ''))
+        this.activity.emitActivityStatus(npcId, isToolSuccess(event.name ?? '', event.output ?? ''), event.toolUseId)
         q.enqueuePhase([
           { type: 'npc_phase', npcId, phase: 'thinking' as NPCPhase },
         ])
@@ -761,7 +761,7 @@ export class DirectorBridge {
           if (this.activity.isTodoWrite(inner.name)) {
             this.activity.emitTodoActivity(npcId, inner.input ?? {})
           } else {
-            this.activity.emitActivity(npcId, this.activity.toolActivityIcon(inner.name), this.activity.toolActivityMsg(inner.name, inner.input ?? {}), isThinking)
+            this.activity.emitActivity(npcId, this.activity.toolActivityIcon(inner.name), this.activity.toolActivityMsg(inner.name, inner.input ?? {}), isThinking, inner.toolUseId)
           }
           if (!isThinking && canDriveNpcWorkingState) {
             const toolEmojiStr = toolEmoji(inner.name)
@@ -775,7 +775,7 @@ export class DirectorBridge {
         case 'tool_result': {
           const isThinkingResult = inner.name === '__thinking__'
           if (!isThinkingResult) {
-            this.activity.emitActivityStatus(npcId, isToolSuccess(inner.name ?? '', inner.output ?? ''))
+            this.activity.emitActivityStatus(npcId, isToolSuccess(inner.name ?? '', inner.output ?? ''), inner.toolUseId)
           }
           if (inWorkPhase) {
             q.enqueuePhase([{ type: 'npc_emoji', npcId, emoji: null }])

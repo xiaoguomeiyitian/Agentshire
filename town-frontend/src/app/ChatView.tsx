@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react'
-import { Trash2, AlertTriangle, Cpu, ChevronDown, Archive, PanelLeftClose, PanelLeftOpen, Brain } from 'lucide-react'
+import { Cpu, ChevronDown, PanelLeftClose, PanelLeftOpen, Brain } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAgents, type AgentInfo } from '@/hooks/useAgents'
 import { useWebSocket, type ChatItem, type GroupChatMessageItem, type GroupChatInfo } from '@/hooks/useWebSocket'
@@ -7,7 +7,7 @@ import { AgentList } from './AgentList'
 import { ChatMessages } from './ChatMessages'
 import { ChatInputBar } from './ChatInputBar'
 import { GroupChatView } from './GroupChatView'
-import { getHelpText, type ParsedCommand } from '@/utils/command-parser'
+import { getHelpText, parseCommand, type ParsedCommand } from '@/utils/command-parser'
 import { resolveWsUrl } from '@/utils/ws-url'
 import { apiUrl } from '@/utils/api-base'
 import { t } from '../i18n'
@@ -86,6 +86,7 @@ const CHAT_VIEW_MODE_STORAGE_KEY = 'agentshire_chat_view_mode' // 'agent' | 'gro
 const CLEARED_AGENTS_STORAGE_KEY = 'agentshire_cleared_agents' // Map<routingKey, clearTimestamp>
 const GROUP_CLEARED_STORAGE_KEY = 'agentshire_group_cleared_at' // number | null
 const AGENT_LIST_COLLAPSED_KEY = 'agentshire_agent_list_collapsed' // 'true' | 'false'
+const USAGE_MODE_STORAGE_KEY = 'agentshire_usage_mode' // 'off' | 'tokens' | 'full'
 
 /** Load persisted clear timestamps from localStorage (survives page refresh / server restart). */
 function loadClearedAgents(): Map<string, number> {
@@ -155,9 +156,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const [modelRefOverride, setModelRefOverride] = useState<Map<string, string | undefined>>(new Map())
   // Per-agent thinking/reasoning config from openclaw.json
   const [agentConfigs, setAgentConfigs] = useState<Record<string, { thinkingDefault?: string; reasoningDefault?: string }>>({})
-  const [thinkingMenuOpen, setThinkingMenuOpen] = useState(false)
   const [thinkingUpdating, setThinkingUpdating] = useState(false)
-  const thinkingMenuRef = useRef<HTMLDivElement>(null)
   // Agent list collapsed state (avatar-only mode)
   const [agentListCollapsed, setAgentListCollapsed] = useState(() => {
     try { return localStorage.getItem(AGENT_LIST_COLLAPSED_KEY) === 'true' } catch { return false }
@@ -228,6 +227,10 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     try { return localStorage.getItem(CHAT_VIEW_MODE_STORAGE_KEY) === 'group' } catch { return false }
   })
   const [groupInfo, setGroupInfo] = useState<GroupChatInfo | null>(null)
+  const groupChatActiveRef = useRef(groupChatActive)
+  groupChatActiveRef.current = groupChatActive
+  const groupInfoRef = useRef(groupInfo)
+  groupInfoRef.current = groupInfo
   const [groupMessages, setGroupMessages] = useState<GroupChatMessageItem[]>([])
   const [groupThinking, setGroupThinking] = useState(false)
   // Citizens composing a reply in group chat (npcId → speakerName)
@@ -236,8 +239,17 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   const groupThinkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Tracks manual navigation to prevent group chat auto-activation from re-triggering
   const userNavigatedRef = useRef(false)
-  const [showClearConfirm, setShowClearConfirm] = useState(false)
+
   const [compacting, setCompacting] = useState(false)
+  // Compaction instructions modal state
+
+  // Usage footer mode: 'off' hides token stats, 'tokens' shows input/output, 'full' shows input/output/cache/reasoning
+  const [usageMode, setUsageMode] = useState<'off' | 'tokens' | 'full'>(() => {
+    try { return (localStorage.getItem(USAGE_MODE_STORAGE_KEY) as 'off' | 'tokens' | 'full') || 'tokens' } catch { return 'tokens' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(USAGE_MODE_STORAGE_KEY, usageMode) } catch { /* ignore */ }
+  }, [usageMode])
 
   // Notify parent of groupChatActive changes (for mobile back button)
   useEffect(() => {
@@ -454,9 +466,44 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     })
   }, [])
 
+  /** Add a centered status-line message (e.g. reset markers, session events) */
+  const addStatusMessage = useCallback((routingKey: string, text: string) => {
+    setItems((prev) => {
+      const existing = [...(prev.get(routingKey) || [])]
+      existing.push({
+        id: `status-${++globalMsgId}`,
+        agentId: routingKey,
+        timestamp: Date.now(),
+        kind: 'status',
+        role: 'assistant',
+        text,
+        source: 'system',
+      })
+      return new Map(prev).set(routingKey, existing)
+    })
+  }, [])
+
   const handleAgentEvent = useCallback((event: any) => {
+    // ── Compaction lifecycle: system.compacting → compaction_detail ──
+    // before_compaction hook fires → system.compacting event (set compacting state)
+    if (event.type === 'system' && event.subtype === 'compacting') {
+      setCompacting(true)
+      return
+    }
+    // after_compaction hook fires → compaction_detail event (clear state + show result)
+    if (event.type === 'compaction_detail') {
+      setCompacting(false)
+      const agent = selectedAgentRef.current
+      const routingKey = agent ? getAgentRoutingKey(agent) : 'steward'
+      const reasonLabel = event.reason === 'manual' ? t('chat.compact') : t('chat.autoCompact')
+      const detail = `${reasonLabel}: ${event.tokensBefore} → ${event.tokensAfter} tokens, ${event.messagesRemoved} messages removed`
+      addStatusMessage(routingKey, `─── ${detail} ───`)
+      return
+    }
     // ── Error event: display in chat with retry button ──
     if (event.type === 'error') {
+      // Compaction failure sends error text; clear compacting state
+      setCompacting(false)
       const routingKey = (event.agentId as string | undefined)
         ?? (event.npcId as string | undefined)
         ?? 'steward'
@@ -487,6 +534,8 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
       return
     }
     if (event.type === 'turn_end' || event.type === 'end') {
+      // Compaction may end without after_compaction hook (e.g. failure); clear state
+      setCompacting(false)
       // Use agentId as routing key (matches setThinkingFor in handleSend); fall back to npcId, then 'steward'
       const routingKey = (event.agentId as string | undefined)
         ?? (event.npcId as string | undefined)
@@ -564,7 +613,7 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         })
       }
     }
-  }, [])
+  }, [addStatusMessage, t])
 
   // ── Group chat WS callbacks ──
   const handleGroupChatMessage = useCallback((msg: GroupChatMessageItem) => {
@@ -674,8 +723,16 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
   }, [groupInfo, onAgentChange, sendGroupChatInit])
 
   // Send group chat message
+  // handleCommand is defined later but we need it here — use a ref to bridge
+  const handleCommandRef = useRef<((cmd: ParsedCommand) => void) | null>(null)
   const handleSendGroupMessage = useCallback((text: string, mentions: string[]) => {
     if (!groupInfo) return
+    // Detect slash commands in group chat input
+    const cmd = parseCommand(text)
+    if (cmd) {
+      handleCommandRef.current?.(cmd)
+      return
+    }
     if (!connectedRef.current) {
       setGroupMessages(prev => [...prev, {
         sequenceId: Date.now(),
@@ -784,18 +841,6 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [modelMenuOpen])
-
-  // Close thinking menu on outside click
-  useEffect(() => {
-    if (!thinkingMenuOpen) return
-    function handleClickOutside(e: MouseEvent) {
-      if (thinkingMenuRef.current && !thinkingMenuRef.current.contains(e.target as Node)) {
-        setThinkingMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [thinkingMenuOpen])
 
   useEffect(() => {
     if (!connected || !visible || !selectedAgent) {
@@ -1122,35 +1167,6 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     addSystemMessage(routingKey, '会话已清空。')
   }, [groupChatActive, groupInfo, sendGroupChatClear, sendCommand, addSystemMessage])
 
-  const handleClearChat = useCallback(() => {
-    setShowClearConfirm(true)
-  }, [])
-
-  const confirmClearChat = useCallback(() => {
-    setShowClearConfirm(false)
-    performClearChat()
-  }, [performClearChat])
-
-  // Compact current chat session: sends /compact to Gateway to compress conversation history
-  const handleCompactChat = useCallback(() => {
-    if (compacting) return
-    // Group chat compact
-    if (groupChatActive) {
-      setCompacting(true)
-      // /compact for group chat: route as regular command through steward session
-      sendCommand('compact', '')
-      setTimeout(() => setCompacting(false), 3000)
-      return
-    }
-    // Single agent compact
-    const agent = selectedAgentRef.current
-    const routingKey = agent ? getAgentRoutingKey(agent) : 'steward'
-    setCompacting(true)
-    sendCommand('compact', '')
-    addSystemMessage(routingKey, t('chat.compact') + '...')
-    setTimeout(() => setCompacting(false), 3000)
-  }, [compacting, groupChatActive, sendCommand, addSystemMessage])
-
   // Retry: delete the agent's previous reply after the user message,
   // then re-send the user message to get a fresh response (no new user message added)
   const handleRetry = useCallback((text: string) => {
@@ -1245,6 +1261,42 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
     const agent = selectedAgentRef.current
     const routingKey = agent ? getAgentRoutingKey(agent) : 'steward'
 
+    // In group chat, system/status messages go to the group message list
+    const addCmdSystemMessage = (text: string) => {
+      const gi = groupInfoRef.current
+      if (groupChatActiveRef.current && gi) {
+        setGroupMessages(prev => [...prev, {
+          sequenceId: Date.now(),
+          timestamp: Date.now(),
+          speakerNpcId: 'system',
+          speakerName: '系统',
+          text,
+          mentions: [],
+          groupId: gi.groupId,
+          groupName: gi.groupName,
+        }])
+      } else {
+        addSystemMessage(routingKey, text)
+      }
+    }
+    const addCmdStatusMessage = (text: string) => {
+      const gi = groupInfoRef.current
+      if (groupChatActiveRef.current && gi) {
+        setGroupMessages(prev => [...prev, {
+          sequenceId: Date.now(),
+          timestamp: Date.now(),
+          speakerNpcId: 'system',
+          speakerName: '系统',
+          text,
+          mentions: [],
+          groupId: gi.groupId,
+          groupName: gi.groupName,
+        }])
+      } else {
+        addStatusMessage(routingKey, text)
+      }
+    }
+
     switch (cmd.command) {
       case 'new': {
         const nextId = `town-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`}`
@@ -1258,8 +1310,35 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         performClearChat()
         return
       }
+      case 'reset': {
+        // /reset [soft [message]] — OpenClaw in-place reset (keeps session ID, clears context)
+        sendCommand('reset', cmd.args)
+        // Add a visible reset marker with timestamp so the user can distinguish pre/post-reset messages
+        const ts = new Date()
+        const timeStr = `${String(ts.getHours()).padStart(2, '0')}:${String(ts.getMinutes()).padStart(2, '0')}`
+        addCmdStatusMessage(`─── ${t('chat.reset')} · ${timeStr} ───`)
+        return
+      }
+      case 'usage': {
+        // /usage [off|tokens|full|reset|cost] — control per-response usage footer
+        const mode = cmd.args.trim().toLowerCase()
+        if (mode === 'off' || mode === 'tokens' || mode === 'full') {
+          setUsageMode(mode)
+          addCmdSystemMessage(`${t('chat.usage_mode')}: ${mode}`)
+        } else if (mode === 'reset' || mode === 'inherit' || mode === 'clear' || mode === 'default') {
+          setUsageMode('tokens')
+          addCmdSystemMessage(`${t('chat.usage_mode')}: tokens (reset)`)
+        } else if (!mode) {
+          addCmdSystemMessage(`${t('chat.usage_mode')}: ${usageMode}`)
+        } else {
+          // Unknown subcommand — forward to Gateway (e.g. /usage cost)
+          sendCommand('usage', cmd.args)
+          addCmdSystemMessage(`正在执行 /usage ${cmd.args}...`)
+        }
+        return
+      }
       case 'help': {
-        addSystemMessage(routingKey, getHelpText())
+        addCmdSystemMessage(getHelpText())
         return
       }
       case 'stop': {
@@ -1267,16 +1346,19 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         abortTimestampRef.current.set(routingKey, Date.now())
         sendAbort(!agent || agent.type === 'steward' ? undefined : { agentId: routingKey, npcId: agent.id })
         setThinkingFor(routingKey, false)
-        addSystemMessage(routingKey, '已发送中止请求。')
+        addCmdSystemMessage('已发送中止请求。')
         return
       }
       default: {
         sendCommand(cmd.command, cmd.args)
-        addSystemMessage(routingKey, `正在执行 /${cmd.command}${cmd.args ? ' ' + cmd.args : ''}...`)
+        addCmdSystemMessage(`正在执行 /${cmd.command}${cmd.args ? ' ' + cmd.args : ''}...`)
         return
       }
     }
-  }, [sendAbort, sendCommand, addSystemMessage, performClearChat])
+  }, [sendAbort, sendCommand, addSystemMessage, addStatusMessage, performClearChat, setUsageMode, usageMode, t])
+
+  // Keep handleCommandRef in sync so handleSendGroupMessage can invoke commands
+  useEffect(() => { handleCommandRef.current = handleCommand }, [handleCommand])
 
   const handleSelectAgent = useCallback((agent: AgentInfo) => {
     userNavigatedRef.current = true
@@ -1371,8 +1453,6 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
             groupInfo={groupInfo}
             messages={groupMessages}
             onSend={handleSendGroupMessage}
-            onClear={handleClearChat}
-            onCompact={handleCompactChat}
             compacting={compacting}
             thinking={groupThinking}
             typingCitizens={groupTypingCitizens}
@@ -1458,93 +1538,46 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
                   )}
                 </div>
               )}
-              {/* Thinking & reasoning selector */}
-              <div ref={thinkingMenuRef} className="relative">
-                <button
-                  onClick={() => setThinkingMenuOpen(o => !o)}
+              {/* Thinking level selector */}
+              <div className="relative flex items-center gap-1">
+                <Brain size={11} strokeWidth={1.8} className="text-text-tertiary shrink-0" />
+                <select
+                  value={currentThinkingDefault ?? ''}
+                  onChange={(e) => handleUpdateThinking({ thinkingDefault: e.target.value || null })}
                   disabled={thinkingUpdating}
+                  title={t('claw.am_thinking_default')}
                   className={cn(
-                    'flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px]',
-                    'transition-colors duration-150 cursor-pointer',
-                    thinkingMenuOpen
-                      ? 'bg-bg-elevated text-text-primary'
-                      : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-elevated/40',
+                    'bg-transparent text-[11px] text-text-tertiary hover:text-text-secondary cursor-pointer',
+                    'border-0 outline-none transition-colors duration-150',
+                    'max-w-[90px] truncate',
                     thinkingUpdating && 'opacity-50 cursor-default',
+                    currentThinkingDefault && 'text-text-secondary font-medium',
                   )}
-                  title={t('claw.am_thinking')}
                 >
-                  <Brain size={11} strokeWidth={1.8} />
-                  <span className="max-w-[120px] truncate">
-                    {currentThinkingDefault || currentReasoningDefault
-                      ? `${currentThinkingDefault || '—'} / ${currentReasoningDefault || '—'}`
-                      : t('claw.am_inherit')}
-                  </span>
-                  <ChevronDown size={10} strokeWidth={1.8} className="shrink-0" />
-                </button>
-                {thinkingMenuOpen && (
-                  <div className="absolute left-0 top-full mt-1.5 w-[240px] py-3 px-3 rounded-2xl bg-bg-surface border border-border-subtle shadow-2xl shadow-black/60 z-50 space-y-3">
-                    <div className="flex items-center gap-1.5 text-text-secondary">
-                      <Brain size={12} strokeWidth={1.8} className="text-brand-secondary" />
-                      <span className="text-[12px] font-medium">{t('claw.am_thinking')}</span>
-                    </div>
-                    <div className="flex flex-col gap-2 pl-5">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-[12px] text-text-tertiary shrink-0">{t('claw.am_thinking_default')}</span>
-                        <select
-                          value={currentThinkingDefault ?? ''}
-                          onChange={(e) => handleUpdateThinking({ thinkingDefault: e.target.value || null })}
-                          disabled={thinkingUpdating}
-                          className="w-full sm:w-40 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-1.5 text-[12px] text-text-primary outline-none focus:border-brand-primary cursor-pointer"
-                        >
-                          <option value="">{t('claw.am_inherit')}</option>
-                          {['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'adaptive', 'max'].map(l => <option key={l} value={l}>{l}</option>)}
-                        </select>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-[12px] text-text-tertiary shrink-0">{t('claw.am_reasoning_default')}</span>
-                        <select
-                          value={currentReasoningDefault ?? ''}
-                          onChange={(e) => handleUpdateThinking({ reasoningDefault: e.target.value || null })}
-                          disabled={thinkingUpdating}
-                          className="w-full sm:w-40 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-1.5 text-[12px] text-text-primary outline-none focus:border-brand-primary cursor-pointer"
-                        >
-                          <option value="">{t('claw.am_inherit')}</option>
-                          {['on', 'off', 'stream'].map(l => <option key={l} value={l}>{l}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                  <option value="">{t('claw.am_thinking_short') || t('claw.am_inherit')}</option>
+                  {['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'adaptive', 'max'].map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              {/* Reasoning visibility selector */}
+              <div className="relative flex items-center gap-1">
+                <select
+                  value={currentReasoningDefault ?? ''}
+                  onChange={(e) => handleUpdateThinking({ reasoningDefault: e.target.value || null })}
+                  disabled={thinkingUpdating}
+                  title={t('claw.am_reasoning_default')}
+                  className={cn(
+                    'bg-transparent text-[11px] text-text-tertiary hover:text-text-secondary cursor-pointer',
+                    'border-0 outline-none transition-colors duration-150',
+                    'max-w-[80px] truncate',
+                    thinkingUpdating && 'opacity-50 cursor-default',
+                    currentReasoningDefault && 'text-text-secondary font-medium',
+                  )}
+                >
+                  <option value="">{t('claw.am_reasoning_short') || t('claw.am_inherit')}</option>
+                  {['on', 'off', 'stream'].map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
               </div>
               <div className="flex-1" />
-              <button
-                onClick={handleCompactChat}
-                disabled={compacting || currentThinking || !canSend}
-                className={cn(
-                  'flex items-center justify-center w-7 h-7 rounded-lg cursor-pointer',
-                  'transition-colors duration-150',
-                  'text-text-tertiary hover:text-brand-secondary hover:bg-[rgba(212,165,116,0.08)]',
-                  (compacting || currentThinking || !canSend) && 'opacity-40 cursor-default',
-                )}
-                aria-label={t('chat.compact')}
-                title={t('chat.compact')}
-              >
-                <Archive size={14} strokeWidth={1.5} className={compacting ? 'animate-pulse' : ''} />
-              </button>
-              <button
-                onClick={handleClearChat}
-                disabled={currentThinking || !canSend}
-                className={cn(
-                  'flex items-center justify-center w-7 h-7 rounded-lg cursor-pointer',
-                  'transition-colors duration-150',
-                  'text-text-tertiary hover:text-status-error hover:bg-[rgba(248,113,113,0.08)]',
-                  (currentThinking || !canSend) && 'opacity-40 cursor-default',
-                )}
-                aria-label="清空会话"
-                title="清空当前会话"
-              >
-                <Trash2 size={14} strokeWidth={1.5} />
-              </button>
             </div>
             <ChatMessages
               key={currentRoutingKey}
@@ -1565,12 +1598,13 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
               onEdit={handleEdit}
               retryDisabled={currentThinking || !canSend}
               reasoningVisibility={currentReasoningDefault}
+              usageMode={usageMode}
             />
             <ChatInputBar
               onSend={handleSend}
               onSendMultimodal={handleSendMultimodal}
               onCommand={handleCommand}
-              disabled={(!canSend && isLive) || currentThinking}
+              disabled={(!canSend && isLive) || currentThinking || compacting}
               thinking={currentThinking}
               onAbort={() => {
                 // Increment abort counter — late turn_end/error events from
@@ -1598,36 +1632,6 @@ export function ChatView({ visible, selectedAgent, onAgentChange, onConnectedCha
         )}
       </div>
 
-      {/* ── Clear session confirmation dialog ── */}
-      {showClearConfirm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-[320px] rounded-2xl bg-bg-surface border border-border-default shadow-2xl shadow-black/60 p-5">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-[rgba(248,113,113,0.10)] shrink-0">
-                <AlertTriangle size={18} className="text-status-error" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[15px] font-semibold text-text-primary">清空当前会话</div>
-                <div className="text-[12px] text-text-tertiary mt-0.5">将清除所有聊天记录，此操作不可撤销</div>
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setShowClearConfirm(false)}
-                className="flex-1 h-9 rounded-lg bg-bg-elevated text-[13px] text-text-secondary hover:bg-bg-hover cursor-pointer transition-colors duration-150"
-              >
-                取消
-              </button>
-              <button
-                onClick={confirmClearChat}
-                className="flex-1 h-9 rounded-lg bg-status-error/90 text-[13px] text-white hover:bg-status-error cursor-pointer transition-colors duration-150 font-medium"
-              >
-                确认清空
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

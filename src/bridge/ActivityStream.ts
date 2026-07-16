@@ -2,6 +2,8 @@
 import type { GameEvent } from '../../town-frontend/src/data/GameProtocol.js'
 
 const MAX_ACTIVITY_LOG = 500
+/** Max time (ms) to wait for a tool_result before auto-closing the activity as "in progress" stale */
+const TOOL_RESULT_TIMEOUT_MS = 30_000
 
 /** Manages the activity log panel: emits activity entries, streams thinking text in batches, and tracks tool result success/failure */
 export class ActivityStream {
@@ -9,6 +11,10 @@ export class ActivityStream {
   private thinkingFlushTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private activityLog: any[] = []
   private emitFn: (events: GameEvent[]) => void
+  /** Maps toolUseId → index in activityLog, for precise tool_use ↔ tool_result pairing */
+  private pendingToolActivities = new Map<string, number>()
+  /** Maps npcId → array of { toolUseId, timer } for timeout-based stale cleanup */
+  private pendingToolTimeouts = new Map<string, Array<{ toolUseId: string; timer: ReturnType<typeof setTimeout> }>>()
 
   constructor(emitFn: (events: GameEvent[]) => void) {
     this.emitFn = emitFn
@@ -28,21 +34,76 @@ export class ActivityStream {
     return this.activityLog.slice()
   }
 
-  /** Emit an activity log entry with icon, message, and timestamp */
-  emitActivity(npcId: string, icon: string, message: string, noStatus?: boolean): void {
+  /** Emit an activity log entry with icon, message, and timestamp.
+   *  If toolUseId is provided, the entry is registered for precise tool_result pairing. */
+  emitActivity(npcId: string, icon: string, message: string, noStatus?: boolean, toolUseId?: string): void {
     const ev: GameEvent = { type: 'npc_activity', npcId, icon, message, time: this.nowHHMM() }
     if (noStatus) (ev as any).status = null
     this.cacheActivity(ev)
+    // Register for tool_result pairing if a toolUseId is available
+    if (toolUseId && !noStatus) {
+      const idx = this.activityLog.length - 1
+      this.pendingToolActivities.set(toolUseId, idx)
+      this.scheduleToolTimeout(npcId, toolUseId)
+    }
     this.emitFn([ev])
   }
 
-  /** Mark the most recent activity entry for an NPC as success or failure */
-  emitActivityStatus(npcId: string, success: boolean): void {
-    for (let i = 0; i < this.activityLog.length; i++) {
-      const cached = this.activityLog[i]
-      if (cached.npcId === npcId && cached.type === 'npc_activity' && cached.status === undefined) {
-        cached.status = success
-        break
+  /** Schedule a timeout to auto-clean a pending tool activity if no tool_result arrives */
+  private scheduleToolTimeout(npcId: string, toolUseId: string): void {
+    const timer = setTimeout(() => {
+      // Stale: remove from pending map so it doesn't block future status matching
+      this.pendingToolActivities.delete(toolUseId)
+      // Remove from per-npc timeout list
+      const list = this.pendingToolTimeouts.get(npcId)
+      if (list) {
+        const idx = list.findIndex(e => e.toolUseId === toolUseId)
+        if (idx >= 0) list.splice(idx, 1)
+        if (list.length === 0) this.pendingToolTimeouts.delete(npcId)
+      }
+    }, TOOL_RESULT_TIMEOUT_MS)
+    let list = this.pendingToolTimeouts.get(npcId)
+    if (!list) { list = []; this.pendingToolTimeouts.set(npcId, list) }
+    list.push({ toolUseId, timer })
+  }
+
+  /** Clear a pending tool timeout (called when tool_result arrives) */
+  private clearToolTimeout(npcId: string, toolUseId: string): void {
+    const list = this.pendingToolTimeouts.get(npcId)
+    if (!list) return
+    const idx = list.findIndex(e => e.toolUseId === toolUseId)
+    if (idx >= 0) {
+      clearTimeout(list[idx].timer)
+      list.splice(idx, 1)
+      if (list.length === 0) this.pendingToolTimeouts.delete(npcId)
+    }
+  }
+
+  /** Mark a tool activity entry as success or failure.
+   *  If toolUseId is provided, pairs precisely with the matching tool_use entry.
+   *  Falls back to "most recent undefined-status entry for this NPC" if no ID match. */
+  emitActivityStatus(npcId: string, success: boolean, toolUseId?: string): void {
+    let matched = false
+    if (toolUseId) {
+      const idx = this.pendingToolActivities.get(toolUseId)
+      if (idx !== undefined && idx < this.activityLog.length) {
+        const cached = this.activityLog[idx]
+        if (cached && cached.npcId === npcId && cached.type === 'npc_activity' && cached.status === undefined) {
+          cached.status = success
+          matched = true
+        }
+        this.pendingToolActivities.delete(toolUseId)
+        this.clearToolTimeout(npcId, toolUseId)
+      }
+    }
+    if (!matched) {
+      // Fallback: mark the most recent undefined-status activity for this NPC
+      for (let i = this.activityLog.length - 1; i >= 0; i--) {
+        const cached = this.activityLog[i]
+        if (cached.npcId === npcId && cached.type === 'npc_activity' && cached.status === undefined) {
+          cached.status = success
+          break
+        }
       }
     }
     const ev: GameEvent = { type: 'npc_activity_status', npcId, success }

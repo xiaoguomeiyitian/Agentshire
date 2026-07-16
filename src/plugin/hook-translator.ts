@@ -287,6 +287,30 @@ export function hookToAgentEvent(
         sessionId: String(payload.sessionId ?? ""),
       };
 
+    case "before_compaction": {
+      // Determine compaction reason: manual (/compact command) vs auto (threshold)
+      const reason = (payload.reason as "auto" | "manual" | "micro") ?? "auto";
+      return {
+        type: "system",
+        subtype: "compacting",
+        reason,
+      };
+    }
+
+    case "after_compaction": {
+      const reason = (payload.reason as "auto" | "manual" | "micro") ?? "auto";
+      // PluginHookAfterCompactionEvent: { messageCount, tokenCount, compactedCount, sessionFile, previousSessionId }
+      // tokensBefore is not directly available; use messageCount as proxy for "after" state
+      return {
+        type: "compaction_detail",
+        reason,
+        tokensBefore: 0,
+        tokensAfter: (payload.tokenCount as number) ?? 0,
+        messagesRemoved: (payload.messageCount as number) ?? 0,
+        transcriptPath: payload.sessionFile as string | undefined,
+      };
+    }
+
     default:
       return null;
   }

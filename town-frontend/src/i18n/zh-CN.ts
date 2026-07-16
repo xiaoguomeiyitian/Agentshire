@@ -113,7 +113,9 @@ const zhCN: Record<string, string> = {
 
   // ── Chat action buttons ──
   'chat.compact': '压缩会话',
+  'chat.compact_with_instr': '带指导压缩...',
   'chat.compacting': '压缩中...',
+  'chat.autoCompact': '自动压缩',
   'chat.copy': '复制',
   'chat.copied': '已复制',
   'chat.retry': '重试',
@@ -123,6 +125,13 @@ const zhCN: Record<string, string> = {
   'chat.save_edit': '保存',
   'chat.cancel_edit': '取消',
   'chat.clear': '清空会话',
+  'chat.reset': '原地重置',
+  'chat.reset_confirm': '原地重置会话？上下文将被清空，但会话 ID 保持不变。',
+  'chat.usage_mode': '用量显示',
+  'chat.usage_off': '关闭',
+  'chat.usage_tokens': 'Tokens',
+  'chat.usage_full': '完整',
+  'chat.compact_instr_placeholder': '输入压缩指导（可选）...',
   'chat.collapse_list': '折叠居民列表',
   'chat.expand_list': '展开居民列表',
 
@@ -250,7 +259,9 @@ const zhCN: Record<string, string> = {
   'claw.am_fallbacks': '备用模型',
   'claw.am_thinking': '思考与推理',
   'claw.am_thinking_default': '思考级别',
+  'claw.am_thinking_short': '思考',
   'claw.am_reasoning_default': '推理可见性',
+  'claw.am_reasoning_short': '推理',
   'claw.am_context': '上下文',
   'claw.am_context_tokens': '上下文 Token',
   'claw.am_subagents': '子代理',

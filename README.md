@@ -63,7 +63,7 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 ### Tri-Mode Interface
 
 - **Town Mode** — Low-poly 3D town where you watch NPCs live, work, collaborate, and celebrate in real time (lazy-loaded on first visit to save resources)
-- **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), commands (`/new` `/help` `/stop` `/clear`), group chat with @mention, and clear-session with confirmation. Default route on app open.
+- **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), full OpenClaw slash-command autocomplete (40+ commands: sessions, model controls, discovery, skills, subagents, admin, voice), group chat with @mention, and inline thinking-level / reasoning-visibility dropdowns in the header. Default route on app open.
 - **Claw Settings** — In-app panel for OpenClaw runtime config with 11 organized nav sections: General (gateway mode, subagent timeout, default model), System (logging, update, diagnostics, audit), Messaging (session, messages, commands, cron), Tools (browser, tools, web, media, MCP), AI (talk/voice, transcripts, commitments, broadcast, ACP), Network (memory, proxy, env, hooks, UI), plus Providers (per-agent model proxy), Models (LLM provider/model CRUD), Plugin config, Sessions (live token-usage inspection), and About — all defaults aligned with `openclaw.json` values
 - **Top Navigation** — One-click switch between Town / Chat / Claw, with a quick menu (Citizen Workshop / Town Editor / Skill Store / Settings)
 - **Bilingual UI** — Full Chinese and English interface, auto-detected or manually switchable

@@ -602,7 +602,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     }
   }, [visible, loadConfig, loadSessions])
 
-  const handleSave = useCallback(async () => {
+  const handleSave = async () => {
     setSaving(true)
     setError(null)
     setSaved(false)
@@ -642,6 +642,8 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
             auto: { enabled: updateAutoEnabled },
           },
           session: {
+            maxHistoryTurns: sessionMaxHistory || undefined,
+            compactionThresholdTokens: sessionCompactionThreshold || undefined,
             scope: sessionScope,
             idleMinutes: sessionIdleMinutes || undefined,
             dmScope: sessionDmScope,
@@ -772,12 +774,7 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     } finally {
       setSaving(false)
     }
-  }, [gatewayMode, subagentsTimeout, pluginEnabled, autoLaunch, allowConversationAccess,
-    loggingLevel, loggingConsoleLevel, loggingConsoleStyle, loggingRedact,
-    browserEnabled, browserHeadless, browserNoSandbox, browserCdpUrl, browserActionTimeout,
-    updateChannel, updateCheckOnStart, updateAutoEnabled,
-    sessionMaxHistory, sessionCompactionThreshold,
-    diagEnabled, diagStuckWarn, diagStuckAbort])
+  }
 
   const toggleAgent = useCallback((agentId: string) => {
     setExpandedAgents((prev) => {

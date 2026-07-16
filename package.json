@@ -1,6 +1,6 @@
 {
   "name": "agentshire",
-  "version": "2026.7.15",
+  "version": "2026.7.16",
   "description": "OpenClaw/QClaw plugin for building a living 3D town with social NPCs, a map editor, a character workshop, and citizen spatial-aware AI tools.",
   "main": "./index.ts",
   "exports": {
@@ -53,7 +53,7 @@
   ],
   "scripts": {
     "build:backend": "tsc && npm run copy-assets",
-    "build:town": "cd town-frontend && npm run build",
+    "build:town": "cd town-frontend && npm run build && cd .. && util copy ./town-frontend/dist ./dist/town-frontend",
     "build": "npm run build:backend && npm run build:town",
     "copy-assets": "util copy ./town-data ./dist/town-data",
     "dev:town": "cd town-frontend && npm run dev",

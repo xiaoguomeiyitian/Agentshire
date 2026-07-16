@@ -291,7 +291,7 @@ export class InputBar {
     if (images.length === 0) {
       const cmd = parseCommand(text)
       if (cmd) {
-        if (cmd.command === 'new' || cmd.command === 'reset') {
+        if (cmd.command === 'new') {
           this.textarea.value = ''
           this.textarea.style.height = 'auto'
           this.opts.onNewSession?.()

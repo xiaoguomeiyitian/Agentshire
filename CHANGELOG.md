@@ -1,5 +1,125 @@
 # Changelog
 
+## 2026.7.16 — Chat UX Polish
+
+### Chat Header Refactor & Command Sync
+
+Four user-facing improvements to the Chat view, focused on cleaner header UX and full parity with OpenClaw's slash-command surface.
+
+#### 1. Header Button Cleanup
+
+Removed three header buttons that duplicated slash-command functionality and added visual clutter:
+- **压缩会话** (compact) — replaced by `/compact` command
+- **原地重置** (reset) — replaced by `/reset` command
+- **清空会话** (clear) — replaced by `/clear` command
+
+Also removed the three associated confirmation dialogs, their handlers (`handleClearChat`, `confirmClearChat`, `handleResetChat`, `confirmResetChat`, `doCompact`, `handleCompactChat`, `handleCompactWithInstr`, `confirmCompactWithInstr`), state variables (`showClearConfirm`, `showResetConfirm`, `showCompactInstr`, `compactInstr`), and unused icon imports (`Trash2`, `Archive`, `RotateCcw`, `AlertTriangle`). The underlying `performClearChat` and `sendCommand('reset')` helpers are retained because they are still used by the command handler.
+
+#### 2. Thinking & Reasoning Inline Dropdowns
+
+Replaced the popup panel (triggered by a Brain button with `thinkingMenuOpen` state + outside-click handler) with two inline native `<select>` dropdowns directly in the chat header:
+- **思考级别** (Think) — options: off / minimal / low / medium / high / xhigh / adaptive / max (empty = inherit)
+- **推理可见性** (Reason) — options: on / off / stream (empty = inherit)
+
+This removes the `thinkingMenuOpen` state, `thinkingMenuRef`, and the outside-click `useEffect`, simplifying the component and improving mobile UX (native selects handle focus/blur correctly on iOS).
+
+#### 3. Slash Command Autocomplete — Full OpenClaw Parity
+
+Expanded the command suggestion list from 17 to 40+ entries, matching the full OpenClaw slash-command surface documented at `openclaw/docs/tools/slash-commands.md`:
+
+| Category | Commands |
+|---|---|
+| Frontend-only | `/new`, `/clear`, `/help` |
+| Sessions | `/reset`, `/compact`, `/stop`, `/name`, `/export-session`, `/export-trajectory` |
+| Model controls | `/model`, `/models`, `/think`, `/reasoning`, `/fast`, `/verbose`, `/trace`, `/elevated`, `/queue`, `/steer` |
+| Discovery | `/commands`, `/tools`, `/status`, `/context`, `/usage`, `/whoami`, `/tasks`, `/goal` |
+| Skills | `/skill`, `/learn`, `/btw`, `/approve` |
+| Subagents | `/subagents`, `/agents` |
+| Admin | `/config`, `/mcp`, `/plugins`, `/debug`, `/restart` |
+| Voice | `/tts`, `/bash` |
+
+`HELP_TEXT` and `HELP_TEXT_EN` updated with the full listing.
+
+#### 4. Group Chat Command Routing Fix
+
+**Problem**: When running slash commands inside a group chat, status/system messages (e.g. "会话已重置") were routed to the steward's `routingKey` instead of the active group's message list — so the user saw no feedback.
+
+**Fix**: Added `groupChatActiveRef` and `groupInfoRef` refs that mirror the `groupChatActive` / `groupInfo` state. Introduced `addCmdSystemMessage` / `addCmdStatusMessage` helpers in `handleCommand` that check `groupChatActiveRef.current` and route the message to the group list (with the correct `groupId`) when in a group chat, falling back to the steward routingKey otherwise.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `town-frontend/src/app/ChatView.tsx` | Header button removal, thinking/reasoning inline dropdowns, group-chat command routing refs + helpers |
+| `town-frontend/src/utils/command-parser.ts` | Expanded command suggestions (17 → 40+), updated help text |
+| `town-frontend/src/i18n/zh-CN.ts` | Added `claw.am_thinking_short`, `claw.am_reasoning_short` |
+| `town-frontend/src/i18n/en.ts` | Added `claw.am_thinking_short`, `claw.am_reasoning_short` |
+
+### Tests
+
+- Backend: 179 passed (13 files)
+- Frontend: 244 passed (21 files)
+
+## 2026.7.15 (rev 3) — Plugin Stability
+
+### Plugin Stability (ROADMAP #3)
+
+Four stability improvements landed, addressing the highest-priority items from the roadmap.
+
+#### 1. ActivityStream Out-of-Order `tool_result` Fix
+
+**Problem**: When multiple tools ran concurrently, `tool_result` events could arrive out of order. The old code marked the *most recent undefined-status activity* for an NPC, which was often the wrong tool — causing "step forever in progress" in the activity panel.
+
+**Fix**: Introduced `toolUseId`-based pairing in `ActivityStream`:
+- `emitActivity()` now accepts an optional `toolUseId` parameter, registering the activity index in a `pendingToolActivities` map.
+- `emitActivityStatus()` first tries to match by `toolUseId` (precise), then falls back to the old "most recent undefined" heuristic.
+- A 30-second timeout (`TOOL_RESULT_TIMEOUT_MS`) auto-cleans stale pending entries so they don't block future matching.
+- All 4 call sites in `DirectorBridge.ts` (steward, citizen, sub-agent) now pass `event.toolUseId`.
+
+**Tests**: Added 4 new test cases in `ActivityStream.test.ts` covering: concurrent out-of-order pairing, fallback for unknown IDs, fallback for no ID, and timeout auto-cleanup. Total: 13 tests pass.
+
+#### 2. WebSocket Reconnect + State Recovery
+
+**Problem**: The Town frontend's WebSocket (`main.ts`) had **no reconnection logic** — on disconnect, it showed an error banner and stayed dead. The backend had `ReconnectManager` and `sendWorkSnapshot` but they were never triggered on reconnect.
+
+**Fix**:
+- **Frontend** (`main.ts`): Refactored WS connection into `connectWs()` + `attachWsHandlers()` with exponential backoff reconnection (3s initial, 1.5× growth, 30s cap, 20 max attempts). On reconnect, re-sends `town_session_init` which triggers backend `sendWorkSnapshot`.
+- **Backend** (`ws-server.ts`): Added `sync_request` message handler — frontend can explicitly request state resync after reconnect, which re-sends the work snapshot (phase + agents + activity logs).
+- **Chat WS** (`useWebSocket.ts`): Already had reconnection; no changes needed.
+
+#### 3. ChatSessionWatcher Cold-Start Retry Improvement
+
+**Problem**: `scheduleChatWatcherRetry()` retried only once after 400ms. If the transcript file took longer than 400ms to appear (common in cold-start scenarios), the watcher never started and chat messages were silently lost.
+
+**Fix**: Replaced single retry with exponential backoff:
+- 15 max attempts, delay doubling from 400ms to 5s cap.
+- Retry counter reset on successful watcher start.
+- Counter cleaned up on WS disconnect (`clearChatWatcherRetry`).
+
+#### 4. Diagnostic Command (`town_diagnose`)
+
+**New AI tool** that lets the steward self-check the plugin environment:
+- State directory existence
+- Runtime config (default model, workspace)
+- WebSocket server status + connected client count
+- Steward agent config (`agent.json`)
+- LLM providers configured
+- WS server running status
+
+Outputs a structured report with ✅/❌/⚠️ indicators and a pass/fail summary. Users can ask the steward "诊断一下环境" to trigger it.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/bridge/ActivityStream.ts` | `toolUseId` pairing + timeout cleanup |
+| `src/bridge/DirectorBridge.ts` | Pass `event.toolUseId` at 4 call sites |
+| `src/bridge/__tests__/ActivityStream.test.ts` | 4 new test cases |
+| `town-frontend/src/main.ts` | WS reconnect with exponential backoff + `attachWsHandlers` refactor |
+| `src/plugin/ws-server.ts` | `sync_request` handler + cold-start retry backoff |
+| `src/plugin/tools.ts` | `town_diagnose` diagnostic tool |
+| `ROADMAP.md` | Mark 4 items as done |
+
 ## 2026.7.15 (rev 2)
 
 ### Dependencies — Full Upgrade to Latest

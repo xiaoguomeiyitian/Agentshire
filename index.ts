@@ -218,6 +218,7 @@ function registerHooks(api: OpenClawPluginApi): void {
   const stewardHooks = [
     "before_model_resolve", "llm_input", "llm_output",
     "before_tool_call", "after_tool_call", "agent_end",
+    "before_compaction", "after_compaction",
   ] as const;
 
   for (const hookName of stewardHooks) {
@@ -476,8 +477,17 @@ function registerFull(api: OpenClawPluginApi): void {
           const stewardPrefix = "/steward-workspace/";
           if (urlPath.startsWith(stewardPrefix)) {
             const { stateDir } = await import("./src/plugin/paths.js");
+            const { sep: pathSep } = await import("node:path");
+            const wsRoot = join(stateDir(), "workspace-town-steward");
             const relPath = decodeURIComponent(urlPath.slice(stewardPrefix.length));
-            const wsFile = join(stateDir(), "workspace-town-steward", relPath);
+            const wsFile = join(wsRoot, relPath);
+            // Path traversal guard: resolved path must stay inside wsRoot.
+            // Use sep suffix to avoid prefix collisions (e.g. /app vs /app-evil).
+            if (!wsFile.startsWith(wsRoot + pathSep) && wsFile !== wsRoot) {
+              res.writeHead(403);
+              res.end("Forbidden");
+              return;
+            }
             if (existsSync(wsFile) && statSync(wsFile).isFile()) {
               const ext = wsFile.substring(wsFile.lastIndexOf("."));
               res.writeHead(200, {
@@ -490,7 +500,14 @@ function registerFull(api: OpenClawPluginApi): void {
           }
 
           // Fallback: serve from dist/
+          const { sep: distSep } = await import("node:path");
           const filePath = join(distDir, decodeURIComponent(urlPath));
+          // Path traversal guard: resolved path must stay inside distDir.
+          if (!filePath.startsWith(distDir + distSep) && filePath !== distDir) {
+            res.writeHead(403);
+            res.end("Forbidden");
+            return;
+          }
           if (existsSync(filePath) && statSync(filePath).isFile()) {
             const ext = filePath.substring(filePath.lastIndexOf("."));
             res.writeHead(200, {
@@ -504,6 +521,12 @@ function registerFull(api: OpenClawPluginApi): void {
           // SPA fallback for HTML pages
           const htmlFile = urlPath.endsWith(".html") ? join(distDir, urlPath) : null;
           if (htmlFile && existsSync(htmlFile)) {
+            // Path traversal guard (same as dist fallback above).
+            if (!htmlFile.startsWith(distDir + distSep) && htmlFile !== distDir) {
+              res.writeHead(403);
+              res.end("Forbidden");
+              return;
+            }
             res.writeHead(200, { "Content-Type": "text/html" });
             res.end(readFileSync(htmlFile));
             return;

@@ -74,11 +74,11 @@ The plugin has not been published to npm or ClawHub yet. Users must clone → bu
 
 Make existing features truly reliable.
 
-- [ ] ActivityStream state matching fix: out-of-order `tool_result` arrivals cause "step forever in progress"
-- [ ] ChatSessionWatcher reliability in cold-start scenarios
-- [ ] Full state recovery after WebSocket reconnect (workflow phase + NPC positions + dialog context)
+- [x] ~~ActivityStream state matching fix: out-of-order `tool_result` arrivals cause "step forever in progress"~~ — Fixed: `toolUseId`-based pairing + 30s timeout auto-cleanup
+- [x] ~~ChatSessionWatcher reliability in cold-start scenarios~~ — Fixed: exponential backoff retry (400ms → 5s, up to 15 attempts)
+- [x] ~~Full state recovery after WebSocket reconnect~~ — Fixed: frontend auto-reconnect with exponential backoff + `sync_request` resync + `work_snapshot` replay
 - [ ] Better error messages: clear diagnostics for install failure / connection failure / missing LLM config
-- [ ] Diagnostic command: help users self-check their environment
+- [x] ~~Diagnostic command: help users self-check their environment~~ — Added `town_diagnose` AI tool (checks state dir, runtime config, WS server, agents, LLM providers)
 - [x] ~~Group chat clear-session: stale message reload after switching citizens~~ — Fixed: timestamp filtering (`clearedAgentsRef` / `groupClearedAtRef`)
 - [x] ~~Brand color unification across all UI~~ — Done: `#D4A574` brand color applied to 13+ style files
 

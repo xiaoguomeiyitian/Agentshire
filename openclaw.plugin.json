@@ -43,6 +43,7 @@
       "town_set_time",
       "town_set_weather",
       "town_status",
+      "town_diagnose",
       "register_project",
       "create_project",
       "create_task",

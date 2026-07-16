@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { SendHorizonal, Paperclip, Mic, X, FileText, ImageIcon, Film, Music, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { parseCommand, type ParsedCommand } from '@/utils/command-parser'
+import { parseCommand, getCommandSuggestions, type ParsedCommand, type CommandSuggestion } from '@/utils/command-parser'
 
 interface AttachedFile {
   file: File
@@ -34,9 +34,19 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
   const [text, setText] = useState('')
   const [multiline, setMultiline] = useState(false)
   const [attachments, setAttachments] = useState<AttachedFile[]>([])
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composingRef = useRef(false)
+
+  // Command autocomplete suggestions (filtered by current input)
+  const suggestions = useMemo(() => getCommandSuggestions(text), [text])
+  const showSuggestions = suggestions.length > 0 && !disabled
+
+  // Reset selection when suggestions change
+  useEffect(() => {
+    setSelectedSuggestion(0)
+  }, [suggestions])
 
   const submit = useCallback(() => {
     const trimmed = text.trim()
@@ -89,14 +99,52 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }, [text, attachments, onSend, onSendMultimodal, onCommand])
 
+  /** Apply a command suggestion: replace the current "/" prefix with "/<name> " */
+  const applySuggestion = useCallback((s: CommandSuggestion) => {
+    const newText = '/' + s.name + ' '
+    setText(newText)
+    // Focus the textarea and move cursor to end
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (el) {
+        el.focus()
+        el.setSelectionRange(newText.length, newText.length)
+      }
+    })
+  }, [])
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // Command autocomplete keyboard navigation
+    if (showSuggestions) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSelectedSuggestion(i => (i + 1) % suggestions.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSelectedSuggestion(i => (i - 1 + suggestions.length) % suggestions.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !composingRef.current)) {
+        e.preventDefault()
+        applySuggestion(suggestions[selectedSuggestion])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        // Clear the "/" to dismiss suggestions
+        setText('')
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey && !composingRef.current) {
       e.preventDefault()
       // Block sending while thinking (send button is replaced by stop button)
       if (thinking) return
       submit()
     }
-  }, [submit, thinking])
+  }, [submit, thinking, showSuggestions, suggestions, selectedSuggestion, applySuggestion])
 
   const handleInput = useCallback(() => {
     const el = textareaRef.current
@@ -153,7 +201,42 @@ export function ChatInputBar({ onSend, onSendMultimodal, onCommand, disabled, pl
   }, [])
 
   return (
-    <div className={cn('px-4 pb-4 pt-1 w-full max-w-3xl mx-auto', className)}>
+    <div className={cn('px-4 pb-4 pt-1 w-full max-w-3xl mx-auto relative', className)}>
+      {/* Command autocomplete popup */}
+      {showSuggestions && (
+        <div className="absolute bottom-full left-4 right-4 max-w-3xl mx-auto mb-1 z-50">
+          <div className="max-h-[280px] overflow-y-auto rounded-xl bg-bg-surface border border-border-default shadow-2xl shadow-black/60 backdrop-blur-xl styled-scrollbar">
+            {suggestions.map((s, i) => (
+              <button
+                key={s.name}
+                onClick={() => applySuggestion(s)}
+                onMouseEnter={() => setSelectedSuggestion(i)}
+                className={cn(
+                  'w-full flex items-center gap-3 px-3 py-2 text-left cursor-pointer transition-colors duration-100',
+                  i === selectedSuggestion
+                    ? 'bg-brand-primary/10'
+                    : 'hover:bg-bg-hover',
+                )}
+              >
+                <span className={cn(
+                  'text-[13px] font-mono font-medium shrink-0',
+                  i === selectedSuggestion ? 'text-brand-primary' : 'text-text-secondary',
+                )}>
+                  /{s.name}
+                </span>
+                {s.argsHint && (
+                  <span className="text-[11px] text-text-quaternary font-mono shrink-0">
+                    {s.argsHint}
+                  </span>
+                )}
+                <span className="text-[12px] text-text-tertiary truncate flex-1">
+                  {s.description}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {attachments.length > 0 && (
         <div className="flex gap-2 mb-2 flex-wrap">
           {attachments.map((att, i) => (

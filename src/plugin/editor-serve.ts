@@ -203,13 +203,30 @@ function jsonRes(res: any, data: any, status = 200): void {
   res.end(JSON.stringify(data));
 }
 
+/** Map a readBody/JSON.parse error to the appropriate HTTP status + message. */
+function bodyError(err: unknown): { status: number; message: string } {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg === "Body too large") return { status: 413, message: "请求体过大" };
+  return { status: 400, message: "Invalid JSON body" };
+}
+
+const MAX_BODY_BYTES = 50 * 1024 * 1024; // 50MB: accommodates base64-encoded 30MB uploads
+
 function readBody(req: any): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let b = "";
+    let tooLarge = false;
     req.on("data", (c: Buffer) => {
+      if (tooLarge) return;
       b += c.toString();
+      if (b.length > MAX_BODY_BYTES) {
+        tooLarge = true;
+        req.destroy();
+        reject(new Error("Body too large"));
+      }
     });
     req.on("end", () => resolve(b));
+    req.on("error", () => resolve(b));
   });
 }
 
@@ -219,8 +236,10 @@ function serveFile(
   baseDir: string,
   cache?: string,
 ): boolean {
+  // Path traversal guard: resolved path must stay inside baseDir.
+  // Use sep suffix to avoid prefix collisions (e.g. /app vs /app-evil).
   if (
-    !filePath.startsWith(baseDir) ||
+    (!filePath.startsWith(baseDir + sep) && filePath !== baseDir) ||
     !existsSync(filePath) ||
     !statSync(filePath).isFile()
   ) {
@@ -408,8 +427,9 @@ async function handleCustomAssetsApi(
   let body: any;
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
-    jsonRes(res, { error: "Invalid JSON body" }, 400);
+  } catch (err) {
+    const e = bodyError(err);
+    jsonRes(res, { error: e.message }, e.status);
     return true;
   }
 
@@ -1098,8 +1118,9 @@ async function handleCitizenWorkshopApi(
   let body: any;
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
-    jsonRes(res, { error: "Invalid JSON body" }, 400);
+  } catch (err) {
+    const e = bodyError(err);
+    jsonRes(res, { error: e.message }, e.status);
     return true;
   }
 
@@ -1518,8 +1539,9 @@ async function handleModelsApi(
   try {
     const raw = await readBody(req);
     if (raw) body = JSON.parse(raw);
-  } catch {
-    jsonRes(res, { error: "Invalid JSON body" }, 400);
+  } catch (err) {
+    const e = bodyError(err);
+    jsonRes(res, { error: e.message }, e.status);
     return true;
   }
 
@@ -1703,8 +1725,9 @@ async function handleClawApi(
     try {
       const raw = await readBody(req);
       if (raw) body = JSON.parse(raw);
-    } catch {
-      jsonRes(res, { error: "Invalid JSON body" }, 400);
+    } catch (err) {
+      const e = bodyError(err);
+      jsonRes(res, { error: e.message }, e.status);
       return true;
     }
   }
@@ -2488,6 +2511,7 @@ export async function handleEditorRequest(
       writeFileSync(join(d.townDataDir, "town-map.json"), JSON.stringify(body.config, null, 2), "utf-8");
       jsonRes(res, { success: true });
     } catch (err: any) {
+      if (err?.message === "Body too large") { jsonRes(res, { error: "请求体过大" }, 413); return true; }
       jsonRes(res, { error: err?.message ?? "Save failed" }, 500);
     }
     return true;

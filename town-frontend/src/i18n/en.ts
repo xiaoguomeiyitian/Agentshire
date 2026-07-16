@@ -113,7 +113,9 @@ const en: Record<string, string> = {
 
   // ── Chat action buttons ──
   'chat.compact': 'Compact session',
+  'chat.compact_with_instr': 'Compact with instructions...',
   'chat.compacting': 'Compacting...',
+  'chat.autoCompact': 'Auto-compacted',
   'chat.copy': 'Copy',
   'chat.copied': 'Copied',
   'chat.retry': 'Retry',
@@ -123,6 +125,13 @@ const en: Record<string, string> = {
   'chat.save_edit': 'Save',
   'chat.cancel_edit': 'Cancel',
   'chat.clear': 'Clear chat',
+  'chat.reset': 'Reset in place',
+  'chat.reset_confirm': 'Reset session in place? Context will be cleared but session ID stays.',
+  'chat.usage_mode': 'Usage display',
+  'chat.usage_off': 'Off',
+  'chat.usage_tokens': 'Tokens',
+  'chat.usage_full': 'Full',
+  'chat.compact_instr_placeholder': 'Enter compaction instructions (optional)...',
   'chat.collapse_list': 'Collapse agent list',
   'chat.expand_list': 'Expand agent list',
 
@@ -250,7 +259,9 @@ const en: Record<string, string> = {
   'claw.am_fallbacks': 'Fallback Models',
   'claw.am_thinking': 'Thinking & Reasoning',
   'claw.am_thinking_default': 'Thinking Level',
+  'claw.am_thinking_short': 'Think',
   'claw.am_reasoning_default': 'Reasoning Visibility',
+  'claw.am_reasoning_short': 'Reason',
   'claw.am_context': 'Context',
   'claw.am_context_tokens': 'Context Tokens',
   'claw.am_subagents': 'Sub-agents',

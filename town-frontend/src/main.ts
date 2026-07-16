@@ -133,10 +133,15 @@ const syncTownSessionUrl = (townSessionId: string) => {
     const { DirectorBridge } = bridgeModule
     const director = new DirectorBridge()
 
-    const ws = new WebSocket(wsUrl)
-    townWs = ws
+    let ws: WebSocket | null = null
+    townWs = null
     let wsReady = false
     let wsEverConnected = false
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectCount = 0
+    const RECONNECT_DELAY = 3000
+    const RECONNECT_MAX_DELAY = 30000
+    const RECONNECT_MAX_ATTEMPTS = 20
 
     const showWsError = () => {
       if (document.getElementById('ws-error-banner')) return
@@ -155,7 +160,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
     }
 
     const bindTownSession = (townSessionId: string) => {
-      if (ws.readyState !== WebSocket.OPEN) return
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
       ws.send(JSON.stringify({ type: 'town_session_init', townSessionId, sceneCapable: true }))
     }
 
@@ -179,9 +184,11 @@ const syncTownSessionUrl = (townSessionId: string) => {
       }
     }
 
-    ws.onopen = () => {
+    function attachWsHandlers(socket: WebSocket) {
+    socket.onopen = () => {
       wsReady = true
       wsEverConnected = true
+      reconnectCount = 0
       hideWsError()
       console.log('[main] DirectorBridge WS connected')
       bindTownSession(configStore.getSessionId() || initialTownSessionId)
@@ -189,7 +196,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
       setTimeout(() => wsSend({ type: 'group_chat_init' }), 100)
     }
 
-    ws.onmessage = (msg: MessageEvent) => {
+    socket.onmessage = (msg: MessageEvent) => {
       try {
         const data = JSON.parse(msg.data)
         if (data.type === 'agent_event' && data.event) {
@@ -265,11 +272,53 @@ const syncTownSessionUrl = (townSessionId: string) => {
       } catch { /* ignore malformed */ }
     }
 
-    ws.onclose = () => {
+    socket.onclose = () => {
       wsReady = false
+      ws = null
+      townWs = null
       console.log('[main] DirectorBridge WS closed')
-      if (!wsEverConnected) showWsError()
+      if (!wsEverConnected) {
+        showWsError()
+      } else {
+        // Auto-reconnect with exponential backoff (capped)
+        scheduleReconnect()
+      }
     }
+
+    // Don't setConnected(false) on error: let onclose handle it (avoids flicker)
+    socket.onerror = () => {}
+    } // end attachWsHandlers
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return
+      if (reconnectCount >= RECONNECT_MAX_ATTEMPTS) {
+        console.log('[main] Max reconnect attempts reached, showing error banner')
+        showWsError()
+        return
+      }
+      const delay = Math.min(RECONNECT_DELAY * Math.pow(1.5, reconnectCount), RECONNECT_MAX_DELAY)
+      reconnectCount++
+      console.log(`[main] Reconnecting in ${Math.round(delay)}ms (attempt ${reconnectCount})`)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connectWs()
+      }, delay)
+    }
+
+    function connectWs() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
+      try {
+        ws = new WebSocket(wsUrl)
+        townWs = ws
+        attachWsHandlers(ws)
+      } catch {
+        wsReady = false
+        scheduleReconnect()
+      }
+    }
+
+    // Initial connection
+    connectWs()
 
     let sceneRef: MainScene | null = null
 
@@ -284,7 +333,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
         }
         return { hasWorkRestore }
       },
-      disconnect() { ws.close() },
+      disconnect() { if (ws) ws.close() },
       get connected() { return wsReady },
       onGameEvent(_handler: (e: any) => void) {},
       sendAction(action: any) {

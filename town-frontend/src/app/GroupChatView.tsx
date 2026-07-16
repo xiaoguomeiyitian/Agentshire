@@ -5,6 +5,7 @@ import type { AgentInfo } from '@/hooks/useAgents'
 import type { GroupChatMessageItem, GroupChatInfo } from '@/hooks/useWebSocket'
 import { MarkdownContent, ReasoningBox } from './ChatMessages'
 import { apiUrl } from '@/utils/api-base'
+import { getCommandSuggestions, type CommandSuggestion } from '@/utils/command-parser'
 
 function formatClockTime(ts: number): string {
   const d = new Date(ts)
@@ -102,6 +103,22 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
   const [mentionIndex, setMentionIndex] = useState(0)
   const [activeMentions, setActiveMentions] = useState<string[]>([])
   const [attachments, setAttachments] = useState<Array<{ file: File; preview?: string }>>([])
+  // Command autocomplete state
+  const cmdSuggestions = useMemo(() => getCommandSuggestions(inputText), [inputText])
+  const showCmdSuggestions = cmdSuggestions.length > 0 && !showMentionPicker
+  const [cmdSelected, setCmdSelected] = useState(0)
+  useEffect(() => { setCmdSelected(0) }, [cmdSuggestions])
+  const applyCmdSuggestion = useCallback((s: CommandSuggestion) => {
+    const newText = '/' + s.name + ' '
+    setInputText(newText)
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (el) {
+        el.focus()
+        el.setSelectionRange(newText.length, newText.length)
+      }
+    })
+  }, [])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -270,13 +287,36 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
         return
       }
     }
+    // Command autocomplete keyboard navigation (only when not in mention picker)
+    if (showCmdSuggestions) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setCmdSelected(i => (i + 1) % cmdSuggestions.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setCmdSelected(i => (i - 1 + cmdSuggestions.length) % cmdSuggestions.length)
+        return
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        applyCmdSuggestion(cmdSuggestions[cmdSelected])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setInputText('')
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       // Block sending while group is thinking
       if (thinking) return
       handleSend()
     }
-  }, [showMentionPicker, handleSend, insertMention, getFilteredMentions, mentionIndex, thinking])
+  }, [showMentionPicker, handleSend, insertMention, getFilteredMentions, mentionIndex, thinking, showCmdSuggestions, cmdSuggestions, cmdSelected, applyCmdSuggestion])
 
   // Reset mention index when filter changes or picker closes
   useEffect(() => {
@@ -578,7 +618,42 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
       )}
 
       {/* ── Input ── */}
-      <div className="px-4 pb-4 pt-1 w-full max-w-3xl mx-auto shrink-0">
+      <div className="px-4 pb-4 pt-1 w-full max-w-3xl mx-auto shrink-0 relative">
+        {/* Command autocomplete popup */}
+        {showCmdSuggestions && (
+          <div className="absolute bottom-full left-4 right-4 max-w-3xl mx-auto mb-1 z-50">
+            <div className="max-h-[280px] overflow-y-auto rounded-xl bg-bg-surface border border-border-default shadow-2xl shadow-black/60 backdrop-blur-xl styled-scrollbar">
+              {cmdSuggestions.map((s, i) => (
+                <button
+                  key={s.name}
+                  onClick={() => applyCmdSuggestion(s)}
+                  onMouseEnter={() => setCmdSelected(i)}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-3 py-2 text-left cursor-pointer transition-colors duration-100',
+                    i === cmdSelected
+                      ? 'bg-brand-primary/10'
+                      : 'hover:bg-bg-hover',
+                  )}
+                >
+                  <span className={cn(
+                    'text-[13px] font-mono font-medium shrink-0',
+                    i === cmdSelected ? 'text-brand-primary' : 'text-text-secondary',
+                  )}>
+                    /{s.name}
+                  </span>
+                  {s.argsHint && (
+                    <span className="text-[11px] text-text-quaternary font-mono shrink-0">
+                      {s.argsHint}
+                    </span>
+                  )}
+                  <span className="text-[12px] text-text-tertiary truncate flex-1">
+                    {s.description}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="flex gap-2 mb-2 flex-wrap">
             {attachments.map((att, i) => (
@@ -635,8 +710,9 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
             value={inputText}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="群聊消息，输入@提及某人..."
+            placeholder={compacting ? '压缩中...' : '群聊消息，输入@提及某人...'}
             rows={1}
+            readOnly={compacting}
             className="flex-1 bg-transparent text-[16px] md:text-[14px] text-text-primary placeholder:text-text-tertiary resize-none outline-none leading-9 overflow-hidden styled-scrollbar"
             style={{ maxHeight: 200 }}
           />

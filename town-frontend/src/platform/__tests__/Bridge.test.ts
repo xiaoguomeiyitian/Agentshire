@@ -8,6 +8,7 @@ const mockParent = { postMessage: vi.fn((data: any) => postedMessages.push(data)
 vi.stubGlobal('window', {
   parent: mockParent,
   addEventListener: vi.fn(),
+  location: { origin: 'http://localhost' },
 })
 
 const { PlatformBridge } = await import('../Bridge')

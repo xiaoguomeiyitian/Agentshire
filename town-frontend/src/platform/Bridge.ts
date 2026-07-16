@@ -43,9 +43,18 @@ type MessageHandler = (msg: PlatformMessage) => void
 export class PlatformBridge {
   private handlers: MessageHandler[] = []
   private isEmbedded: boolean
+  /** Allowed origin for parent frame messages. When embedded, this is the
+   *  iframe's own origin (parent is same-origin in the Agentshire deployment).
+   *  Stored once at construction so it cannot be spoofed later. */
+  private parentOrigin: string
 
   constructor() {
     this.isEmbedded = window.parent !== window
+    // In the Agentshire deployment the town iframe and the parent React App
+    // are served from the same origin, so the parent's origin equals ours.
+    // Using a concrete origin instead of '*' prevents message leakage if the
+    // iframe is ever embedded by a malicious host.
+    this.parentOrigin = window.location.origin
     if (this.isEmbedded) {
       window.addEventListener('message', this.handleMessage.bind(this))
     }
@@ -76,12 +85,15 @@ export class PlatformBridge {
   onMessage(handler: MessageHandler): void { this.handlers.push(handler) }
 
   private handleMessage(event: MessageEvent): void {
+    // Only accept messages from the same origin (parent is same-origin in
+    // the Agentshire deployment). This blocks cross-origin spoofing.
+    if (event.origin !== this.parentOrigin) return
     const data = event.data
     if (!data || typeof data.type !== 'string') return
     for (const handler of this.handlers) handler(data as PlatformMessage)
   }
 
   private sendToParent(data: Record<string, unknown>): void {
-    if (this.isEmbedded) window.parent.postMessage(data, '*')
+    if (this.isEmbedded) window.parent.postMessage(data, this.parentOrigin)
   }
 }
