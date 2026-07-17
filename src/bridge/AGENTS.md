@@ -61,10 +61,10 @@ idle → summoning → assigning → going_to_office → working → publishing 
 | idle | 初始/返回完成 | — | — |
 | summoning | 首个 `sub_agent.started` | `workflow_summon`（收集窗口3s后） | SummonOrchestrator |
 | assigning | 前端 `workflow_phase_complete(summoning)` | `workflow_assign` | BriefingOrchestrator |
-| going_to_office | 前端 `workflow_phase_complete(assigning)` | `workflow_go_office` + 工位分配 | SceneSwitcher + WorkflowHandler |
+| going_to_office | 前端 `workflow_phase_complete(assigning)` | `workflow_go_office` + 工位分配 | MainScene 场景切换 |
 | working | 前端 `workflow_phase_complete(going_to_office)` | `progress` + 转发sub_agent事件 | 工位屏幕 + 小游戏 |
-| publishing | `project_complete` tool_result | `workflow_publish` + deliverable_card | CelebrationOrchestrator |
-| returning | 前端 `workflow_phase_complete(publishing)` | `workflow_return` | Choreographer散场 |
+| publishing | `project_complete` tool_result | `workflow_publish` + deliverable_card | MainScene VFX |
+| returning | 前端 `workflow_phase_complete(publishing)` | `workflow_return` | MainScene 散场 |
 
 **迟到者处理**：working 阶段到达的 `sub_agent.started` 不走 summoning，直接分配工位。
 
@@ -107,7 +107,7 @@ idle → summoning → assigning → going_to_office → working → publishing 
 
 ## 编排原则
 
-- **Bridge 发高级意图事件，不做 setTimeout 微操**：NPC 完成时发 `npc_work_done`，前端 `WorkflowHandler.handleNpcWorkDone()` 用 async/await 编排完整序列
+- **Bridge 发高级意图事件，不做 setTimeout 微操**：NPC 完成时发 `npc_work_done`，前端 MainScene 用 async/await 编排完整序列
 - **工位延迟释放**：Bridge 在 `sub_agent.done` 时不立即释放，等前端 `workstation_released` action 回传后才释放（12s安全网兜底）
 - **Phase 前进靠前端回传**：前端通过 `workflow_phase_complete` 推动状态机，Bridge 不假设动画时长
 

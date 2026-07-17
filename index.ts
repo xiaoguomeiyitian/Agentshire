@@ -174,9 +174,15 @@ function dispatchSteward(hookName: string, payload: Record<string, unknown>, ctx
   const result = hookToAgentEvent(hookName, payload);
   if (!result) return;
   const sid = resolveSessionId(ctx, payload);
+  const sk = (ctx as any)?.sessionKey as string | undefined;
+  const isImplicit = sk?.includes(":implicit:") ?? false;
   console.log(`[agentshire][session:${sid ?? "unscoped"}] hook → ${hookName}`);
   const events = Array.isArray(result) ? result : [result];
   for (const event of events) {
+    // Suppress text events for implicit (Animal Mode L2) sessions
+    if (isImplicit && (event.type === "text" || event.type === "text_delta")) {
+      continue;
+    }
     broadcastAgentEvent(event, sid);
   }
 }
@@ -193,7 +199,13 @@ function dispatchCitizen(hookName: string, payload: Record<string, unknown>, ctx
   if (!result) return;
   const sid = resolveSessionId(ctx, payload);
   const events = Array.isArray(result) ? result : [result];
+  // Suppress text/llm_output events for implicit (Animal Mode L2) sessions:
+  // their LLM reply contains JSON decisions, not chat messages for bubbles.
+  const isImplicit = sk.includes(":implicit:");
   for (const event of events) {
+    if (isImplicit && (event.type === "text" || event.type === "text_delta")) {
+      continue;
+    }
     (event as any).npcId = npcId;
     (event as any).agentId = agentId;
     broadcastAgentEvent(event, sid);

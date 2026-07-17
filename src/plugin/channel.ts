@@ -242,24 +242,46 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
         port: account.wsPort,
         customAssetManager,
         onImplicitChat: async (payload) => {
-          let modelRef: string | undefined;
-          if (payload.agentId) {
-            try {
-              const cfg = rt.config.current() as any;
-              const agent = (cfg?.agents?.list ?? []).find((a: any) => a.id === payload.agentId);
-              if (agent?.model) {
-                modelRef = typeof agent.model === "string" ? agent.model : agent.model.primary;
-              }
-            } catch { /* fall back to default */ }
-          }
-          return llmChat({
-            system: payload.system,
-            user: payload.user,
-            maxTokens: payload.maxTokens,
-            temperature: payload.temperature,
-            stop: payload.stop,
-            ...(modelRef ? { modelRef } : {}),
+          // Use the standard OpenClaw reply dispatch chain (same as citizen chat)
+          // so LLM request format/parameters are identical to chat interface calls.
+          const { system, user, maxTokens, temperature, stop, agentId } = payload;
+
+          // Build a unique implicit session key to avoid polluting chat sessions
+          const implicitAgentId = agentId ?? "town-steward";
+          const implicitSessionKey = `agent:${implicitAgentId}:implicit:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+
+          // Compose the message body: system prompt is prepended as instructions,
+          // user prompt is the actual query. This mirrors how the agent receives
+          // messages in the standard chat flow (body → bodyForAgent).
+          const composedBody = `${system}\n\n---\n\n${user}`;
+
+          const msgCtx = buildTownInboundContext({
+            rt,
+            body: composedBody,
+            from: `${CHANNEL_ID}:system`,
+            to: `${CHANNEL_ID}:${implicitAgentId}`,
+            sessionKey: implicitSessionKey,
+            accountId: account.accountId,
           });
+
+          // Collect reply text from the deliver callback
+          let replyText = "";
+          try {
+            await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+              ctx: msgCtx,
+              cfg: ctx.cfg,
+              dispatcherOptions: {
+                deliver: async (replyPayload: any) => {
+                  const text = replyPayload?.text ?? replyPayload?.body ?? "";
+                  if (text) replyText += text;
+                },
+              },
+            });
+          } catch (err) {
+            console.warn("[agentshire] onImplicitChat dispatch error:", (err as Error).message);
+          }
+
+          return { text: replyText };
         },
         onChat: async ({ message, townSessionId }) => {
           if (!message) return;

@@ -45,6 +45,11 @@ const en: Record<string, string> = {
   'menu.enter_group': 'Town Square (Group)',
   'menu.exit_group': 'Exit Group',
   'menu.settings': 'Settings',
+  'menu.citizen_detail': 'Citizen Detail',
+  'menu.topic_detail': 'Topic Detail',
+  'topic_detail.title': 'Topic Detail',
+  'topic_detail.empty': 'No messages',
+  'topic_detail.no_topic': 'No active topic',
 
   // ── Buttons / Popups ──
   'back_to_town': '← Back',
@@ -105,11 +110,22 @@ const en: Record<string, string> = {
   'card.task_list': 'Tasks',
   'card.work_logs': 'Logs',
   'card.thinking': 'Thinking',
+  'card.chat_history': 'Chat History',
+  'card.no_chat': 'No chat history',
+  'card.sessions': 'Sessions',
+  'card.sessions_empty': 'No sessions',
+  'card.sessions_no_agent': 'No agent bound to this NPC',
+  'card.select_all': 'Select all',
+  'card.batch_delete': 'Batch delete',
+  'card.delete_session': 'Delete session',
+  'card.confirm_delete_session': 'Delete this session?',
+  'card.confirm_batch_delete': 'Delete {n} selected sessions?',
 
   // ── Agent model selector (chat header) ──
   'chat.change_model': 'Change resident model',
   'chat.default_model': 'Default model',
   'chat.updating_model': 'Updating...',
+  'chat.walking_to': 'Walking to',
 
   // ── Chat action buttons ──
   'chat.compact': 'Compact session',

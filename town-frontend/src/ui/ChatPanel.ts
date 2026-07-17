@@ -55,6 +55,16 @@ export class ChatPanel {
     return this.activeView
   }
 
+  /** Get all single-chat messages (for display in NPC card detail). */
+  getChatMessages(): DialogMessage[] {
+    return this.chatMessages
+  }
+
+  /** Get all group-chat messages (for topic detail display). */
+  getGroupChatMessages(): GroupChatMessage[] {
+    return this.groupChatMessages
+  }
+
   /** Clear all group chat messages. */
   clearGroupMessages(): void {
     this.groupChatMessages = []
@@ -86,7 +96,8 @@ export class ChatPanel {
 
   /** Append a single-chat message bubble. */
   private appendSingleMessageEl(msg: DialogMessage): void {
-    const isUser = msg.from === 'user' || msg.from === '你' || msg.from === 'Jin' || msg.from === 'Mayor'
+    const mayorLabel = t('mayor')
+    const isUser = msg.from === 'user' || msg.from === '你' || msg.from === 'Jin' || msg.from === 'Mayor' || msg.from === mayorLabel
     const div = document.createElement('div')
     div.className = 'chat-msg ' + (isUser ? 'user' : 'npc')
     const bgColor = isUser ? '#DDA444' : '#4488CC'
@@ -171,10 +182,32 @@ export class ChatPanel {
 
   /** Append a message bubble and auto-scroll to bottom. (single-chat) */
   addChatMessage(msg: DialogMessage): void {
-    if (!this.chatPanelEl) return
+    // Always store the message so NPC card detail can display chat history
     this.chatMessages.push(msg)
-    if (this.activeView === 'single') {
+    // Only render to DOM if the panel element exists and single view is active
+    if (this.chatPanelEl && this.activeView === 'single') {
       this.appendSingleMessageEl(msg)
+    }
+  }
+
+  /**
+   * Issue 3: Attach usage/model/contextInfo to the last assistant message
+   * matching `fromName` (the citizen's display name). Called when the backend
+   * sends turn_end / context_update / llm_call events for that citizen.
+   */
+  updateLastAssistantMeta(fromName: string, meta: {
+    usage?: { input: number; output: number; totalTokens?: number; reasoningTokens?: number; cacheRead?: number; cacheWrite?: number }
+    model?: string
+    contextInfo?: { used: number; limit: number; percent: number }
+  }): void {
+    for (let i = this.chatMessages.length - 1; i >= 0; i--) {
+      const m = this.chatMessages[i]
+      if (m.from === fromName) {
+        if (meta.usage) m.usage = { ...(m.usage ?? {}), ...meta.usage }
+        if (meta.model) m.model = meta.model
+        if (meta.contextInfo) m.contextInfo = meta.contextInfo
+        return
+      }
     }
   }
 }

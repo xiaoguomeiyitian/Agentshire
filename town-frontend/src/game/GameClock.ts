@@ -75,6 +75,21 @@ export class GameClock {
     } catch { /* ignore */ }
   }
 
+  /** Restore clock state from plugin-side persistence (server-side source of truth). */
+  restoreFromPlugin(dayCount: number, gameSeconds: number): void {
+    if (typeof dayCount === 'number' && typeof gameSeconds === 'number') {
+      this.dayCount = dayCount
+      this.gameSeconds = gameSeconds
+      this.lastPeriod = this.getPeriod()
+      this.persistToStorage() // sync to localStorage too
+    }
+  }
+
+  /** Get raw game seconds (for plugin persistence). */
+  getGameSeconds(): number {
+    return this.gameSeconds
+  }
+
   update(deltaTime: number): void {
     if (this.config.paused) return
 

@@ -42,6 +42,56 @@ export class ActivityJournal {
     }
   }
 
+  /** Record that a need became urgent (Phase 2). */
+  recordNeedUrgent(needLabel: string, location: string, locationName: string): void {
+    this.record({
+      location,
+      locationName,
+      action: 'need_urgent',
+      detail: `${needLabel}需求迫切`,
+    })
+  }
+
+  /** Record that a need was satisfied (Phase 2). */
+  recordNeedSatisfied(needLabel: string, location: string, locationName: string): void {
+    this.record({
+      location,
+      locationName,
+      action: 'need_satisfied',
+      detail: `满足了${needLabel}需求`,
+    })
+  }
+
+  /** Record a mood change (Phase 2). */
+  recordMoodChange(moodLabel: string, moodValue: number, location: string, locationName: string): void {
+    this.record({
+      location,
+      locationName,
+      action: 'mood_changed',
+      detail: `心情变为${moodLabel}（${moodValue.toFixed(0)}）`,
+    })
+  }
+
+  /** Record that citizen went indoors (became invisible, Phase 2). */
+  recordWentIndoor(buildingKey: string, buildingName: string): void {
+    this.record({
+      location: buildingKey,
+      locationName: buildingName,
+      action: 'went_indoor',
+      detail: `进入${buildingName}`,
+    })
+  }
+
+  /** Record that citizen left indoors (became visible again, Phase 2). */
+  recordLeftIndoor(buildingKey: string, buildingName: string): void {
+    this.record({
+      location: buildingKey,
+      locationName: buildingName,
+      action: 'left_indoor',
+      detail: `离开${buildingName}`,
+    })
+  }
+
   recordDialogue(dialogue: DialogueRecord): void {
     this.dialogues.push(dialogue)
     if (this.dialogues.length > MAX_DIALOGUES) {

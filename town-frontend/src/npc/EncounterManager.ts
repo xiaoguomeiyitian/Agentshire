@@ -1,7 +1,6 @@
 import type { NPC } from './NPC'
 import type { GameClock } from '../game/GameClock'
 import type { ActivityJournal } from './ActivityJournal'
-import type { DailyBehavior } from './DailyBehavior'
 import type { PersonaCache, PersonaStore } from './PersonaStore'
 import { getLocale } from '../i18n'
 
@@ -73,7 +72,8 @@ export class EncounterManager {
   private onBubble: ((npc: NPC, text: string, durationMs: number) => void) | null = null
   private onBubbleEnd: ((npc: NPC) => void) | null = null
   private getJournal: ((npcId: string) => ActivityJournal | undefined) | null = null
-  private getBehavior: ((npcId: string) => DailyBehavior | undefined) | null = null
+  // DailyBehavior removed; accessor kept for API compat but returns undefined.
+  private getBehavior: ((npcId: string) => unknown) | null = null
   private onDialogueComplete: ((initiatorId: string, responderId: string, turns: Array<{ speaker: string; text: string }>, summary: string) => void) | null = null
 
   constructor(_gameClock: GameClock) {
@@ -95,7 +95,7 @@ export class EncounterManager {
     this.getJournal = fn
   }
 
-  setBehaviorAccessor(fn: (npcId: string) => DailyBehavior | undefined): void {
+  setBehaviorAccessor(fn: (npcId: string) => unknown): void {
     this.getBehavior = fn
   }
 
@@ -164,12 +164,10 @@ export class EncounterManager {
     )
   }
 
-  private isEligibleState(npcId: string): boolean {
-    const behavior = this.getBehavior?.(npcId)
-    if (!behavior) return false
-    if (behavior.inDialogue) return false
-    const s = behavior.getState()
-    return s === 'roaming' || s === 'at_building'
+  private isEligibleState(_npcId: string): boolean {
+    // DailyBehavior removed; AutonomyEngine now manages NPC state.
+    // Always allow encounters — AutonomyEngine decides who can talk.
+    return true
   }
 
   // ── Dialogue orchestration ──
@@ -365,16 +363,14 @@ export class EncounterManager {
     )
   }
 
-  // ── NPC pause/resume via DailyBehavior ──
+  // ── NPC pause/resume (DailyBehavior removed; no-op) ──
 
-  private pauseNpcForDialogue(a: NPC, b: NPC): void {
-    this.getBehavior?.(a.id)?.pauseForDialogue()
-    this.getBehavior?.(b.id)?.pauseForDialogue()
+  private pauseNpcForDialogue(_a: NPC, _b: NPC): void {
+    // DailyBehavior removed; AutonomyEngine handles movement.
   }
 
-  private resumeNpcFromDialogue(a: NPC, b: NPC): void {
-    this.getBehavior?.(a.id)?.resumeFromDialogue()
-    this.getBehavior?.(b.id)?.resumeFromDialogue()
+  private resumeNpcFromDialogue(_a: NPC, _b: NPC): void {
+    // DailyBehavior removed; AutonomyEngine handles movement.
   }
 
   // ── Cooldowns ──

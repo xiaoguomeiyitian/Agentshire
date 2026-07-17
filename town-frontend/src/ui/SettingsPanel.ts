@@ -1,10 +1,10 @@
-import { t } from '../i18n'
+import { t, getLocale } from '../i18n'
 
 export interface SettingsState {
   language: string
   music: boolean
   soulMode: boolean
-  autoWalk: boolean
+  animalMode: boolean
 }
 
 const SETTINGS_KEY = 'agentshire_settings'
@@ -19,11 +19,11 @@ export function loadSettings(): SettingsState {
         language: s.language ?? 'zh-CN',
         music: s.music !== false,
         soulMode: s.soulMode !== false,
-        autoWalk: s.autoWalk !== false,
+        animalMode: s.animalMode === true,
       }
     }
   } catch { /* ignore */ }
-  return { language: 'zh-CN', music: true, soulMode: true, autoWalk: true }
+  return { language: 'zh-CN', music: true, soulMode: true, animalMode: true }
 }
 
 export function saveSettings(state: SettingsState): void {
@@ -33,7 +33,7 @@ export function saveSettings(state: SettingsState): void {
 export function showSettingsPanel(opts: {
   onMusicChange: (enabled: boolean) => void
   onSoulModeChange: (enabled: boolean) => void
-  onAutoWalkChange: (enabled: boolean) => void
+  onAnimalModeChange?: (enabled: boolean) => void
   onReset: () => void
 }): void {
   if (document.getElementById('agentshire-settings-overlay')) return
@@ -159,12 +159,15 @@ export function showSettingsPanel(opts: {
     markDirty()
   })))
 
-  // ── Auto-walk toggle ──
+  // ── Animal Mode toggle (动森模式) ──
 
-  card.appendChild(createRow(t('settings.auto_walk'), createToggle(draft.autoWalk, (v) => {
-    draft.autoWalk = v
-    markDirty()
-  })))
+  card.appendChild(createRow(
+    getLocale() === 'en' ? 'Animal Mode' : '动森模式',
+    createToggle(draft.animalMode, (v) => {
+      draft.animalMode = v
+      markDirty()
+    }),
+  ))
 
   // ── Bottom buttons: Cancel + Save ──
 
@@ -200,7 +203,7 @@ export function showSettingsPanel(opts: {
     saveSettings(draft)
     if (draft.music !== saved.music) opts.onMusicChange(draft.music)
     if (draft.soulMode !== saved.soulMode) opts.onSoulModeChange(draft.soulMode)
-    if (draft.autoWalk !== saved.autoWalk) opts.onAutoWalkChange(draft.autoWalk)
+    if (draft.animalMode !== saved.animalMode && opts.onAnimalModeChange) opts.onAnimalModeChange(draft.animalMode)
     if (draft.language !== saved.language) {
       location.reload()
       return

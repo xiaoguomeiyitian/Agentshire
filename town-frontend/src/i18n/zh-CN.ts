@@ -45,6 +45,11 @@ const zhCN: Record<string, string> = {
   'menu.enter_group': '小镇广场（群聊）',
   'menu.exit_group': '退出群聊',
   'menu.settings': '设置',
+  'menu.citizen_detail': '居民详情',
+  'menu.topic_detail': '话题详情',
+  'topic_detail.title': '话题详情',
+  'topic_detail.empty': '暂无发言',
+  'topic_detail.no_topic': '当前没有进行中的话题',
 
   // ── Buttons / Popups ──
   'back_to_town': '← 返回小镇',
@@ -105,11 +110,22 @@ const zhCN: Record<string, string> = {
   'card.task_list': '任务列表',
   'card.work_logs': '最近工作日志',
   'card.thinking': '正在思考',
+  'card.chat_history': '聊天记录',
+  'card.no_chat': '暂无聊天记录',
+  'card.sessions': '会话',
+  'card.sessions_empty': '暂无会话',
+  'card.sessions_no_agent': '该居民未绑定 Agent',
+  'card.select_all': '全选',
+  'card.batch_delete': '批量删除',
+  'card.delete_session': '删除会话',
+  'card.confirm_delete_session': '确定删除此会话吗？',
+  'card.confirm_batch_delete': '确定删除选中的 {n} 个会话吗？',
 
   // ── Agent model selector (chat header) ──
   'chat.change_model': '修改居民对应的大模型',
   'chat.default_model': '默认模型',
   'chat.updating_model': '更新中...',
+  'chat.walking_to': '正在走向',
 
   // ── Chat action buttons ──
   'chat.compact': '压缩会话',

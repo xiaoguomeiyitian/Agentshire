@@ -89,3 +89,40 @@ body.embedded-mode #tab-settings { display: none; }
 @keyframes si-pop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
 @keyframes si-blink { 0%,100% { opacity:1; } 50% { opacity:0.2; } }
 @keyframes si-spin { to { transform: rotate(360deg); } }
+
+/* ═══════════════════════════════════════════
+   Issue 7: Responsive design — mobile & tablet
+   ═══════════════════════════════════════════ */
+
+/* Tablet (≤ 1024px) */
+@media (max-width: 1024px) {
+  #npc-card { left: 12px; right: 12px; }
+  #town-bottom-panel { left: 12px; right: 12px; }
+}
+
+/* Mobile (≤ 640px) */
+@media (max-width: 640px) {
+  :root { --tab-height: 40px; --input-height: 52px; }
+  #npc-card {
+    left: 8px; right: 8px; bottom: 120px;
+    padding: 12px; border-radius: 16px;
+  }
+  #npc-card.has-logs { top: 12%; bottom: 120px; }
+  #town-bottom-panel {
+    left: 8px; right: 8px; bottom: 8px;
+    border-radius: 16px;
+  }
+  #tab-bar .tab-item { font-size: 12px; }
+}
+
+/* Small phones (≤ 380px) */
+@media (max-width: 380px) {
+  #npc-card { left: 4px; right: 4px; padding: 10px; }
+  #town-bottom-panel { left: 4px; right: 4px; }
+}
+
+/* Landscape phones (short height) */
+@media (max-height: 500px) and (orientation: landscape) {
+  #npc-card.has-logs { top: 6%; bottom: 110px; }
+  :root { --tab-height: 36px; }
+}

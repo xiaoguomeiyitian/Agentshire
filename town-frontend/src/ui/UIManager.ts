@@ -277,7 +277,8 @@ export class UIManager {
       this.stewardConfig = { ...this.stewardConfig, name, label: name }
     }
     if (this.tasNameEl && !this.activeCitizenTarget) {
-      this.tasNameEl.textContent = name
+      const spec = this.stewardConfig?.specialty || '管家'
+      this.tasNameEl.textContent = `${name} · ${spec}`
       this.rebuildAvatar(this.stewardConfig)
     }
   }
@@ -294,15 +295,21 @@ export class UIManager {
   private stewardConfig: NPCConfig | null = null
   private onSwitchToSteward: (() => void) | null = null
   private onSwitchToCitizen: (() => void) | null = null
+  private onSwitchToSpecificCitizen: ((npcId: string) => void) | null = null
+  private getAllCitizenTargets: (() => NPCConfig[]) | null = null
 
   initChatTargetIndicator(opts: {
     onSwitchToSteward: () => void
     onSwitchToCitizen: () => void
+    onSwitchToSpecificCitizen?: (npcId: string) => void
+    getAllCitizenTargets?: () => NPCConfig[]
     stewardName?: string
     stewardConfig?: NPCConfig
   }): void {
     this.onSwitchToSteward = opts.onSwitchToSteward
     this.onSwitchToCitizen = opts.onSwitchToCitizen
+    this.onSwitchToSpecificCitizen = opts.onSwitchToSpecificCitizen ?? null
+    this.getAllCitizenTargets = opts.getAllCitizenTargets ?? null
     if (opts.stewardName) this.stewardName = opts.stewardName
     if (opts.stewardConfig) this.stewardConfig = opts.stewardConfig
 
@@ -343,7 +350,7 @@ export class UIManager {
 
     wrap.addEventListener('click', (e) => {
       e.stopPropagation()
-      if (this.topicTargets || this.activeCitizenTarget) this.toggleDropdown()
+      if (this.topicTargets || this.activeCitizenTarget || this.getAllCitizenTargets) this.toggleDropdown()
     })
 
     document.addEventListener('click', () => this.hideDropdown())
@@ -369,14 +376,18 @@ export class UIManager {
 
     if (showingCitizen && this.activeCitizenTarget) {
       const name = this.activeCitizenTarget.label || this.activeCitizenTarget.name
-      this.tasNameEl.textContent = name
+      // Issue 2: append specialty (occupation) to the name display
+      const spec = this.activeCitizenTarget.specialty
+      this.tasNameEl.textContent = spec ? `${name} · ${spec}` : name
       this.rebuildAvatar(this.activeCitizenTarget)
     } else {
-      this.tasNameEl.textContent = this.stewardName
+      // Issue 2: show steward specialty too
+      const spec = this.stewardConfig?.specialty || '管家'
+      this.tasNameEl.textContent = `${this.stewardName} · ${spec}`
       this.rebuildAvatar(this.stewardConfig)
     }
 
-    this.tasArrowEl.style.display = this.activeCitizenTarget ? 'inline' : 'none'
+    this.tasArrowEl.style.display = (this.activeCitizenTarget || this.getAllCitizenTargets) ? 'inline' : 'none'
   }
 
   clearChatTarget(): void {
@@ -458,16 +469,37 @@ export class UIManager {
       return
     }
 
-    if (!this.activeCitizenTarget) return
+    if (!this.activeCitizenTarget && !this.getAllCitizenTargets) return
     this.tasDropdown.innerHTML = ''
 
     const currentName = this.tasNameEl?.textContent ?? ''
-    const citizenName = this.activeCitizenTarget.label || this.activeCitizenTarget.name
+    const citizenName = this.activeCitizenTarget
+      ? (this.activeCitizenTarget.label || this.activeCitizenTarget.name)
+      : ''
 
+    // Build item list: steward first, then all citizens
     const items: Array<{ label: string; npc: NPCConfig | null; action: () => void }> = [
       { label: this.stewardName, npc: this.stewardConfig, action: () => this.onSwitchToSteward?.() },
-      { label: citizenName, npc: this.activeCitizenTarget, action: () => this.onSwitchToCitizen?.() },
     ]
+
+    if (this.activeCitizenTarget) {
+      items.push({ label: citizenName, npc: this.activeCitizenTarget, action: () => this.onSwitchToCitizen?.() })
+    }
+
+    // Add all citizens from config
+    if (this.getAllCitizenTargets) {
+      const allCitizens = this.getAllCitizenTargets()
+      for (const c of allCitizens) {
+        const cName = c.label || c.name
+        // Skip if already in list (active citizen)
+        if (this.activeCitizenTarget && c.id === this.activeCitizenTarget.id) continue
+        items.push({
+          label: cName,
+          npc: c,
+          action: () => this.onSwitchToSpecificCitizen?.(c.id),
+        })
+      }
+    }
 
     for (const item of items) {
       const el = document.createElement('div')
@@ -481,6 +513,13 @@ export class UIManager {
       const nameSpan = document.createElement('span')
       nameSpan.textContent = item.label
       el.appendChild(nameSpan)
+      // Issue 2: show specialty (occupation) for citizens
+      if (item.npc?.specialty) {
+        const specSpan = document.createElement('span')
+        specSpan.className = 'tas-dropdown-specialty'
+        specSpan.textContent = item.npc.specialty
+        el.appendChild(specSpan)
+      }
 
       el.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -546,6 +585,17 @@ export class UIManager {
 
   addChatMessage(msg: DialogMessage): void {
     this.chatPanel.addChatMessage(msg)
+    // Issue 2 (user msg visibility): live-refresh NPC card chat tab
+    this.npcCardPanel.refreshChat()
+  }
+
+  /** Issue 3: Attach usage/model/contextInfo to last assistant message for a citizen. */
+  updateLastAssistantMeta(fromName: string, meta: {
+    usage?: { input: number; output: number; totalTokens?: number; reasoningTokens?: number; cacheRead?: number; cacheWrite?: number }
+    model?: string
+    contextInfo?: { used: number; limit: number; percent: number }
+  }): void {
+    this.chatPanel.updateLastAssistantMeta(fromName, meta)
   }
 
   // ── Delegates to NpcCardPanel ──
@@ -555,11 +605,21 @@ export class UIManager {
     workLogs?: Array<{ type: string; icon: string; message: string; time?: string }>;
     agentOnline?: boolean;
     isWorking?: boolean;
+    recentActivities?: import('./NpcCardPanel').RecentActivity[];
+    mood?: import('./NpcCardPanel').MoodInfo | null;
+    needs?: import('./NpcCardPanel').NeedsInfo | null;
+    relationships?: import('./NpcCardPanel').RelationshipInfo[];
+    chatMessages?: Array<{ from: string; text: string; timestamp: number }>;
+    chatFetcher?: () => Array<{ from: string; text: string; timestamp: number; targetNpcId?: string }>;
+    agentId?: string;
   }): void {
     this.npcCardPanel.show(opts)
   }
 
   hideNPCCard(): void { this.npcCardPanel.hide() }
+
+  /** Issue 2: reposition the NPC card so it doesn't overlap the (resized) input panel. */
+  adjustNPCCardForInputPanel(): void { this.npcCardPanel.adjustBottomForInputPanel() }
 
   appendActivity(npcId: string, log: { type: string; icon: string; message: string; time?: string; status?: boolean | null }): void {
     this.npcCardPanel.appendActivity(npcId, log)

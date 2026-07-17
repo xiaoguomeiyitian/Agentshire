@@ -9,6 +9,7 @@ export type ImplicitScene =
   | 'encounter_init' | 'encounter_reply' | 'dialogue_summary'
   | 'town_journal'
   | 'task_assign' | 'work_thought' | 'supervision_comment'
+  | 'autonomy_decide' | 'knock_door'
 
 export interface ImplicitChatRequest {
   scene: ImplicitScene
@@ -54,6 +55,8 @@ const SCENE_MAX_TOKENS: Record<ImplicitScene, number> = {
   task_assign: 100,
   work_thought: 60,
   supervision_comment: 80,
+  autonomy_decide: 100,
+  knock_door: 60,
 }
 
 const DEFAULT_STOP = ['\n\n']
@@ -65,6 +68,8 @@ const FALLBACK: Partial<Record<ImplicitScene, string[]>> = {
   daily_reflection: ['今天过得还不错', '充实的一天', '平淡但安心'],
   daily_plan: [],
   tactical_decision: [],
+  autonomy_decide: [],
+  knock_door: ['请问有人在家吗？'],
 }
 
 function pickFallback(scene: ImplicitScene): string {

@@ -160,6 +160,13 @@
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
 }
+/* Issue 2: specialty (occupation) label in citizen dropdown items */
+.tas-dropdown-specialty {
+  margin-left: auto;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
 
 /* ── Agent Status Row (persona name + model) ── */
 #town-agent-status {

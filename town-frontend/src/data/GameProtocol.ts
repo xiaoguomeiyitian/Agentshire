@@ -223,6 +223,13 @@ export type GameAction =
   | { type: 'workstation_released'; npcId: string; stationId?: string }
   | { type: 'workflow_phase_complete'; phase: string }
 
+  // Animal Mode persistence (World → Plugin via WS)
+  | { type: 'animal_memory_event'; npcId: string; entry: { type: 'dialogue'; partnerName: string; summary: string; timestamp: number } | { type: 'activity'; action: string; location: string; detail?: string; timestamp: number } }
+  | { type: 'animal_snapshot_save'; npcId: string; snapshot: unknown }
+  | { type: 'animal_clock_save'; state: { dayCount: number; gameSeconds: number; savedAt: number } }
+  | { type: 'animal_state_load' }
+  | { type: 'animal_memory_clear_all' }
+
 // Re-export config types used in GameAction
 import type { StewardConfig, CitizenConfig, TownConfig } from './TownConfig'
 export type { StewardConfig, CitizenConfig }

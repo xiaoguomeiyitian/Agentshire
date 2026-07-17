@@ -1184,5 +1184,217 @@ export function createTownTools(): OpenClawPluginToolFactory {
         return ok(`已发出移动指令：前往坐标 (${x}, ${z})，速度 ${speed}。角色正在移动中。`);
       },
     },
+    // ── Animal Mode tools (Phase 3) ──
+    {
+      name: "town_knock_door",
+      description:
+        "Knock on a citizen's home door to visit them (Animal Mode). " +
+        "Checks if the resident is home via IndoorTracker. " +
+        "If home, triggers a knock-door dialogue; if not, returns 'no one home'. " +
+        "Only usable by citizens (not steward).",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          targetNpcId: { type: "string", description: "The NPC ID of the resident to visit" },
+        },
+        required: ["targetNpcId"],
+      },
+      async execute(toolUseId: string, args: { targetNpcId: string }) {
+        const caller = await resolveCallerNpcId(toolUseId);
+        if (!caller) return ok("错误：无法识别调用者身份。");
+        if (caller.npcId === "steward") return ok("管家不串门，请使用其他方式。");
+        const target = String(args.targetNpcId ?? "");
+        if (!target) return ok("错误：缺少 targetNpcId。");
+        // Emit knock-door event to frontend (IndoorTracker check happens there)
+        broadcastAgentEventToScene({
+          type: "world_control",
+          target: "knock_door",
+          npcId: caller.npcId,
+          targetNpcId: target,
+        } as any);
+        return ok(`已发出敲门请求：拜访 ${target}。等待回应中。`);
+      },
+    },
+    {
+      name: "town_query_place",
+      description:
+        "Query who is currently inside a building (Animal Mode). " +
+        "Returns the list of citizen IDs currently indoors at the specified building. " +
+        "Useful for checking if someone is home before visiting.",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          buildingKey: { type: "string", description: "Building key (e.g. 'house_a_door', 'cafe_door')" },
+        },
+        required: ["buildingKey"],
+      },
+      async execute(_toolUseId: string, args: { buildingKey: string }) {
+        const buildingKey = String(args.buildingKey ?? "");
+        if (!buildingKey) return ok("错误：缺少 buildingKey。");
+        try {
+          const data = await requestNpcQuery({ kind: "place_occupants", buildingKey });
+          const result = data as { occupants?: string[]; error?: string };
+          if (result.error) return ok(`错误：${result.error}`);
+          const occupants = result.occupants ?? [];
+          if (occupants.length === 0) return ok(`${buildingKey} 内目前没有人。`);
+          return ok(`${buildingKey} 内有 ${occupants.length} 人：${occupants.join("、")}。`);
+        } catch (err) {
+          return ok(`查询失败：${(err as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "town_query_citizen",
+      description:
+        "Query a citizen's current status (Animal Mode): needs, mood, location. " +
+        "Returns the citizen's 8 need levels, mood value, and current location. " +
+        "Useful for understanding a citizen's state before interacting.",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          npcId: { type: "string", description: "The NPC ID to query" },
+        },
+        required: ["npcId"],
+      },
+      async execute(_toolUseId: string, args: { npcId: string }) {
+        const npcId = String(args.npcId ?? "");
+        if (!npcId) return ok("错误：缺少 npcId。");
+        try {
+          const data = await requestNpcQuery({ kind: "citizen_status", npcId });
+          const result = data as { needs?: any; mood?: any; location?: string; error?: string };
+          if (result.error) return ok(`错误：${result.error}`);
+          const lines = [`居民 ${npcId} 状态：`];
+          if (result.location) lines.push(`位置：${result.location}`);
+          if (result.needs) {
+            const needs = result.needs as Record<string, number>;
+            lines.push(`需求：${Object.entries(needs).map(([k, v]) => `${k}=${v.toFixed(0)}`).join("，")}`);
+          }
+          if (result.mood) {
+            lines.push(`心情：${result.mood.level ?? "?"}（${(result.mood.value ?? 0).toFixed(0)}）`);
+          }
+          return ok(lines.join("\n"));
+        } catch (err) {
+          return ok(`查询失败：${(err as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "town_recall_memory",
+      description:
+        "Recall a memory from a citizen's past interactions (Animal Mode). " +
+        "Returns recent dialogue summaries and activity entries for the citizen. " +
+        "Used by citizens to remember past conversations and relationships.",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          npcId: { type: "string", description: "The NPC ID whose memories to recall" },
+          topic: { type: "string", description: "Optional topic to filter memories by" },
+        },
+        required: ["npcId"],
+      },
+      async execute(_toolUseId: string, args: { npcId: string; topic?: string }) {
+        const npcId = String(args.npcId ?? "");
+        if (!npcId) return ok("错误：缺少 npcId。");
+        try {
+          // Read directly from plugin-side JSONL persistence (no frontend dependency)
+          const { loadRecentMemories } = await import("./animal-memory.js");
+          const result = loadRecentMemories(npcId, { topic: args.topic });
+          const lines = [`居民 ${npcId} 的记忆：`];
+          if (result.dialogues.length > 0) {
+            lines.push(`近期对话：${result.dialogues.map((d) => `与${d.partnerName}聊${d.summary}`).join("；")}`);
+          } else {
+            lines.push("近期对话：无");
+          }
+          if (result.activities.length > 0) {
+            lines.push(`近期活动：${result.activities.map((a) => a.detail ?? a.action).join("；")}`);
+          }
+          return ok(lines.join("\n"));
+        } catch (err) {
+          return ok(`回忆失败：${(err as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "town_give_gift",
+      description:
+        "Give a gift to another citizen to improve relationship (Animal Mode). " +
+        "Higher gift value increases sentiment more. " +
+        "Only usable by citizens (not steward).",
+      parameters: {
+        type: "object" as const,
+        properties: {
+          targetNpcId: { type: "string", description: "The NPC ID of the gift recipient" },
+          giftName: { type: "string", description: "Name of the gift item" },
+          giftValue: { type: "number", description: "Gift value 1-10 (higher = more sentiment gain)" },
+        },
+        required: ["targetNpcId", "giftName"],
+      },
+      async execute(toolUseId: string, args: { targetNpcId: string; giftName: string; giftValue?: number }) {
+        const caller = await resolveCallerNpcId(toolUseId);
+        if (!caller) return ok("错误：无法识别调用者身份。");
+        if (caller.npcId === "steward") return ok("管家不送礼，请使用其他方式。");
+        const target = String(args.targetNpcId ?? "");
+        const giftName = String(args.giftName ?? "");
+        const giftValue = Math.max(1, Math.min(10, Number(args.giftValue ?? 5)));
+        if (!target || !giftName) return ok("错误：缺少 targetNpcId 或 giftName。");
+        // Emit gift event to frontend (RelationshipEngine handles sentiment update)
+        broadcastAgentEventToScene({
+          type: "world_control",
+          target: "give_gift",
+          npcId: caller.npcId,
+          targetNpcId: target,
+          giftName,
+          giftValue,
+        } as any);
+        return ok(`已送出礼物「${giftName}」给 ${target}（价值 ${giftValue}）。好感度提升中。`);
+      },
+    },
+    {
+      name: "town_query_festival",
+      description:
+        "Query the current festival status (Animal Mode). " +
+        "Returns whether a festival is active, the festival type, and remaining time. " +
+        "If no festival is active, returns the next scheduled festival day.",
+      parameters: {
+        type: "object" as const,
+        properties: {},
+      },
+      async execute(_toolUseId: string, _args: Record<string, never>) {
+        try {
+          const data = await requestNpcQuery({ kind: "festival_status" });
+          const result = data as { active?: boolean; type?: string; label?: string; remainingMs?: number; nextDay?: number; error?: string };
+          if (result.error) return ok(`错误：${result.error}`);
+          if (result.active) {
+            const remaining = result.remainingMs ? Math.ceil(result.remainingMs / 1000) : 0;
+            return ok(`当前节日：${result.label ?? result.type}（剩余 ${remaining} 秒）。居民正在广场庆祝！`);
+          }
+          return ok(`当前没有节日。下一个节日在第 ${result.nextDay ?? '?'} 天。`);
+        } catch (err) {
+          return ok(`查询失败：${(err as Error).message}`);
+        }
+      },
+    },
+    {
+      name: "town_join_festival",
+      description:
+        "Join the current festival (Animal Mode). " +
+        "The citizen walks to the plaza and participates in the celebration. " +
+        "Only works when a festival is active.",
+      parameters: {
+        type: "object" as const,
+        properties: {},
+      },
+      async execute(toolUseId: string, _args: Record<string, never>) {
+        const caller = await resolveCallerNpcId(toolUseId);
+        if (!caller) return ok("错误：无法识别调用者身份。");
+        // Emit join-festival event to frontend
+        broadcastAgentEventToScene({
+          type: "world_control",
+          target: "join_festival",
+          npcId: caller.npcId,
+        } as any);
+        return ok(`${caller.npcId} 正在前往广场参加节日庆典。`);
+      },
+    },
   ] as any);
 }

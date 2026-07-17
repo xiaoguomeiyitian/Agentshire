@@ -2,12 +2,21 @@
 import type { GameEvent, ScreenState } from '../data/GameProtocol'
 import type { TownConfig } from '../data/TownConfig'
 
+/** Query types supported by onNpcQuery (plugin tools → frontend → result back). */
+export type NpcQuery =
+  | { kind: 'self'; npcId: string }
+  | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string }
+  | { kind: 'citizen_status'; npcId: string }
+  | { kind: 'citizen_memory'; npcId: string; topic?: string }
+  | { kind: 'place_occupants'; buildingKey: string }
+  | { kind: 'festival_status' }
+
 export interface EventHandlers {
   onNpcSpawn(event: GameEvent & { type: 'npc_spawn' }): void
   onNpcDespawn(npcId: string): void
   onNpcPhase(npcId: string, phase: string): void
   onNpcMoveTo(npcId: string, target: { x: number; y: number; z: number }, speed?: number, requestId?: string): void
-  onNpcQuery(requestId: string, query: { kind: 'self'; npcId: string } | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string }): void
+  onNpcQuery(requestId: string, query: NpcQuery): void
   onNpcDailyBehaviorReady(npcId: string): void
   onNpcEmote(event: GameEvent & { type: 'npc_emote' }): void
   onNpcEmoji(npcId: string, emoji: string | null): void

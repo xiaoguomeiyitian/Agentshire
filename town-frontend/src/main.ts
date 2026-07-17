@@ -13,6 +13,7 @@ import type { IWorldDataSource } from './data/IWorldDataSource'
 import { InputBar, type TownMessage } from './ui/InputBar'
 import { loadSettings } from './ui/SettingsPanel'
 import { resolveWsUrl } from './utils/ws-url'
+import { apiUrl } from './utils/api-base'
 
 interface WsHistoryMessage {
   role?: 'user' | 'assistant'
@@ -124,6 +125,35 @@ const syncTownSessionUrl = (townSessionId: string) => {
   const implicitChatPending = new Map<string, { resolve: (v: { text: string; usage?: { input: number; output: number } }) => void; timer: ReturnType<typeof setTimeout> }>()
   const seenCitizenMessageKeys = new Set<string>()
 
+  // implicitChat: sends implicit_chat_request via WS, awaits implicit_chat_response
+  // Used by AgentBrain / AutonomyEngine / TownJournal for LLM-driven NPC behavior.
+  const implicitChat = (req: {
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
+  }): Promise<{ text: string; fallback: boolean }> => {
+    const id = `${req.scene}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        implicitChatPending.delete(id)
+        console.warn(`[main] implicitChat timeout scene=${req.scene} npcId=${req.npcId ?? '-'}`)
+        resolve({ text: '', fallback: true })
+      }, 120000)
+      implicitChatPending.set(id, {
+        resolve: (v) => resolve({ text: v.text ?? '', fallback: !v.text }),
+        timer,
+      })
+      wsSend({
+        type: 'implicit_chat_request',
+        id,
+        scene: req.scene,
+        system: req.system,
+        user: req.user,
+        maxTokens: req.maxTokens ?? 200,
+        stop: req.extraStop ?? [],
+        ...(req.agentId ? { agentId: req.agentId } : {}),
+      })
+    })
+  }
+
   if (!useMock) {
     // @ts-ignore -- resolved by Vite alias at runtime
     bridgeModule = await import('agentshire_bridge')
@@ -172,6 +202,11 @@ const syncTownSessionUrl = (townSessionId: string) => {
       const assistantMessages = Array.isArray(payload.messages)
         ? payload.messages.filter((msg) => msg?.role === 'assistant')
         : []
+      // Issue 1: get existing chat messages to deduplicate against the live stream path
+      const npc = scene.getNpcManager().get(payload.npcId)
+      const displayName = npc?.label ?? payload.npcId
+      const existingMsgs = scene.getUIManager().getChatPanel().getChatMessages()
+      const existingTexts = new Set(existingMsgs.map(m => m.text))
 
       for (const msg of assistantMessages) {
         const text = summarizeHistoryMessage(msg)
@@ -179,6 +214,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
         const key = `${payload.npcId}:${msg.timestamp ?? 0}:${msg.type ?? 'text'}:${text}`
         if (seenCitizenMessageKeys.has(key)) continue
         seenCitizenMessageKeys.add(key)
+        // Issue 1: skip if the live stream path already added this exact text
+        if (existingTexts.has(text)) continue
         scene.handleGameEvent({ type: 'npc_look_at', npcId: payload.npcId, targetNpcId: 'user' })
         scene.handleGameEvent({ type: 'dialog_message', npcId: payload.npcId, text, isStreaming: false })
       }
@@ -192,6 +229,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
       hideWsError()
       console.log('[main] DirectorBridge WS connected')
       bindTownSession(configStore.getSessionId() || initialTownSessionId)
+      // Notify scene that gateway is online
+      if (sceneRef) sceneRef.onConnectionChange(true)
       // Initialize default group chat (deferred to avoid TDZ)
       setTimeout(() => wsSend({ type: 'group_chat_init' }), 100)
     }
@@ -213,6 +252,42 @@ const syncTownSessionUrl = (townSessionId: string) => {
             director.processCitizenEvent(evt.npcId, evt)
           } else {
             director.processAgentEvent(evt)
+          }
+          // Issue 3: capture usage/model/contextInfo from turn_end / context_update / llm_call
+          // and attach to the last assistant message for the current dialog target.
+          if (sceneRef) {
+            const targetName = sceneRef.getDialogTargetDisplayName()
+            if (targetName) {
+              if (evt.type === 'turn_end' && evt.usage) {
+                const u = evt.usage
+                sceneRef.getUIManager().updateLastAssistantMeta(targetName, {
+                  usage: {
+                    input: u.inputTokens,
+                    output: u.outputTokens,
+                    totalTokens: u.inputTokens + u.outputTokens,
+                    reasoningTokens: u.thinkingTokens,
+                    cacheRead: u.cacheRead,
+                    cacheWrite: u.cacheWrite,
+                  },
+                })
+              } else if (evt.type === 'context_update' && evt.tokens) {
+                sceneRef.getUIManager().updateLastAssistantMeta(targetName, {
+                  contextInfo: { used: evt.tokens.used, limit: evt.tokens.limit, percent: evt.tokens.percent },
+                  ...(evt.usage ? {
+                    usage: {
+                      input: evt.usage.inputTokens,
+                      output: evt.usage.outputTokens,
+                      totalTokens: evt.usage.inputTokens + evt.usage.outputTokens,
+                      reasoningTokens: evt.usage.thinkingTokens,
+                      cacheRead: evt.usage.cacheRead,
+                      cacheWrite: evt.usage.cacheWrite,
+                    },
+                  } : {}),
+                })
+              } else if (evt.type === 'llm_call' && evt.subtype === 'start' && evt.model) {
+                sceneRef.getUIManager().updateLastAssistantMeta(targetName, { model: evt.model })
+              }
+            }
           }
         } else if (data.type === 'chat_new_messages' && data.npcId) {
           forwardCitizenMessagesToScene(sceneRef, data)
@@ -268,6 +343,12 @@ const syncTownSessionUrl = (townSessionId: string) => {
             clearTimeout(pending.timer)
             pending.resolve({ text: data.text ?? '', usage: data.usage })
           }
+        } else if (data.type === 'animal_state') {
+          // Plugin returns persisted Animal Mode state (snapshots + clock)
+          console.log(`[main] animal_state received: snapshots=${data.snapshots?.length ?? 0} clock=${data.clock ? 'yes' : 'no'}`)
+          if (sceneRef) {
+            ;(sceneRef as any).restoreAnimalState(data.snapshots ?? [], data.clock ?? null)
+          }
         }
       } catch { /* ignore malformed */ }
     }
@@ -277,6 +358,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
       ws = null
       townWs = null
       console.log('[main] DirectorBridge WS closed')
+      // Notify scene that gateway is offline
+      if (sceneRef) sceneRef.onConnectionChange(false)
       if (!wsEverConnected) {
         showWsError()
       } else {
@@ -352,6 +435,21 @@ const syncTownSessionUrl = (townSessionId: string) => {
         } else if (action.type === 'npc_query_result') {
           // NPC spatial query result → backend (bypasses DirectorBridge)
           wsSend({ type: 'npc_query_result', requestId: action.requestId, data: action.data })
+        } else if (action.type === 'animal_memory_event') {
+          // Animal Mode memory event → plugin persistence
+          wsSend({ type: 'animal_memory_event', npcId: action.npcId, entry: action.entry })
+        } else if (action.type === 'animal_snapshot_save') {
+          // Animal Mode ActivityJournal snapshot → plugin persistence
+          wsSend({ type: 'animal_snapshot_save', npcId: action.npcId, snapshot: action.snapshot })
+        } else if (action.type === 'animal_clock_save') {
+          // Animal Mode GameClock state → plugin persistence
+          wsSend({ type: 'animal_clock_save', state: action.state })
+        } else if (action.type === 'animal_state_load') {
+          // Request persisted state from plugin (on reconnect)
+          wsSend({ type: 'animal_state_load' })
+        } else if (action.type === 'animal_memory_clear_all') {
+          // Clear all memories on plugin side
+          wsSend({ type: 'animal_memory_clear_all' })
         } else {
           const wsMsg = director.processWorldAction(action)
           if (wsMsg) wsSend(wsMsg)
@@ -382,6 +480,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
   await engine.loadScene(scene)
 
+  // Inject implicitChat function so AgentBrain / AutonomyEngine / TownJournal can call LLM via WS.
+  // Must be after loadScene because dailyScheduler is initialized in scene.init().
+  scene.setImplicitChatFn(implicitChat)
 
   // ── Send function for InputBar — routes messages via dataSource ──
 
@@ -511,6 +612,115 @@ const syncTownSessionUrl = (townSessionId: string) => {
     scene.getUIManager().showEndTopicConfirm()
   })
 
+  // Issue 2: observe bottom panel resize (textarea grows) and reposition NPC card.
+  const bottomPanelEl = document.getElementById('town-bottom-panel')
+  if (bottomPanelEl && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => {
+      scene.getUIManager().adjustNPCCardForInputPanel()
+    })
+    ro.observe(bottomPanelEl)
+  }
+
+  // ── Model switching (click tas-model to change current target's model) ──
+  let modelOptionsCache: Array<{ value: string; label: string }> | null = null
+  const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+
+  const fetchModelOptions = async (): Promise<Array<{ value: string; label: string }>> => {
+    if (modelOptionsCache) return modelOptionsCache
+    try {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/models'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      })
+      const data = await resp.json()
+      if (data.options) {
+        modelOptionsCache = data.options
+        return data.options
+      }
+    } catch { /* ignore */ }
+    return []
+  }
+
+  const updateAgentModel = async (agentId: string, model: string): Promise<boolean> => {
+    try {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/update-agent-config'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, patch: { model } }),
+      })
+      const data = await resp.json()
+      return !!data.success
+    } catch { return false }
+  }
+
+  const showModelDropdown = async (anchorEl: HTMLElement) => {
+    const existing = document.getElementById('town-model-dropdown')
+    if (existing) { existing.remove(); return }
+
+    const dropdown = document.createElement('div')
+    dropdown.id = 'town-model-dropdown'
+    dropdown.className = 'town-model-dropdown'
+
+    const loading = document.createElement('div')
+    loading.className = 'town-model-loading'
+    loading.textContent = '...'
+    dropdown.appendChild(loading)
+
+    // Position relative to anchor
+    const rect = anchorEl.getBoundingClientRect()
+    dropdown.style.position = 'fixed'
+    dropdown.style.left = `${rect.left}px`
+    dropdown.style.bottom = `${window.innerHeight - rect.top + 4}px`
+
+    document.body.appendChild(dropdown)
+
+    const options = await fetchModelOptions()
+    dropdown.innerHTML = ''
+
+    if (options.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'town-model-empty'
+      empty.textContent = 'No models'
+      dropdown.appendChild(empty)
+    } else {
+      for (const opt of options) {
+        const item = document.createElement('div')
+        item.className = 'town-model-item'
+        item.textContent = opt.label || opt.value
+        item.addEventListener('click', async (e) => {
+          e.stopPropagation()
+          dropdown.remove()
+          const targetNpcId = scene.getDialogTarget()
+          const agentId = scene.getAgentIdForNpc(targetNpcId) || (targetNpcId === 'steward' ? 'steward' : `citizen-${targetNpcId}`)
+          if (!agentId) return
+          if (tasModelEl) tasModelEl.textContent = t('chat.updating_model')
+          const ok = await updateAgentModel(agentId, opt.value)
+          if (ok) {
+            if (tasModelEl) tasModelEl.textContent = opt.value
+            scene.getUIManager().showToast(t('claw.am_model_updated'))
+          } else {
+            scene.getUIManager().showToast(t('claw.am_model_update_failed'))
+          }
+        })
+        dropdown.appendChild(item)
+      }
+    }
+
+    // Close on outside click
+    setTimeout(() => {
+      const handler = (ev: MouseEvent) => {
+        if (!dropdown.contains(ev.target as Node)) {
+          dropdown.remove()
+          document.removeEventListener('click', handler)
+        }
+      }
+      document.addEventListener('click', handler)
+    }, 0)
+  }
+
+  tasModelEl?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    showModelDropdown(tasModelEl)
+  })
+
   // ── "More" dropdown ──
   const moreBtn = document.getElementById('town-more-btn')
   const actionDropdown = document.getElementById('town-action-dropdown')
@@ -521,21 +731,112 @@ const syncTownSessionUrl = (townSessionId: string) => {
     dropdownOpen = false
   }
 
+  const showCitizenDetailPanel = () => {
+    scene.showCurrentTargetDetail()
+  }
+
+  const showTopicDetailPanel = () => {
+    if (!topicState || topicState.phase !== 'active') {
+      scene.getUIManager().showToast(t('topic_detail.no_topic'))
+      return
+    }
+
+    // Get group chat messages from ChatPanel
+    const chatPanel = scene.getUIManager().getChatPanel()
+    const groupMessages = chatPanel.getGroupChatMessages()
+
+    // Remove existing panel
+    const existing = document.getElementById('topic-detail-panel')
+    if (existing) existing.remove()
+
+    const panel = document.createElement('div')
+    panel.id = 'topic-detail-panel'
+
+    const inner = document.createElement('div')
+    inner.className = 'tdp-inner'
+
+    const header = document.createElement('div')
+    header.className = 'tdp-header'
+    const title = document.createElement('div')
+    title.className = 'tdp-title'
+    title.textContent = t('topic_detail.title')
+    header.appendChild(title)
+    const closeBtn = document.createElement('button')
+    closeBtn.className = 'tdp-close'
+    closeBtn.textContent = '✕'
+    closeBtn.onclick = () => panel.remove()
+    header.appendChild(closeBtn)
+    inner.appendChild(header)
+
+    const body = document.createElement('div')
+    body.className = 'tdp-body'
+
+    if (groupMessages.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'tdp-empty'
+      empty.textContent = t('topic_detail.empty')
+      body.appendChild(empty)
+    } else {
+      // Group messages by speaker
+      const bySpeaker = new Map<string, Array<{ text: string; timestamp: number }>>()
+      const speakerOrder: string[] = []
+      for (const msg of groupMessages) {
+        const key = msg.speakerName || msg.speakerNpcId
+        if (!bySpeaker.has(key)) {
+          bySpeaker.set(key, [])
+          speakerOrder.push(key)
+        }
+        bySpeaker.get(key)!.push({ text: msg.text, timestamp: msg.timestamp })
+      }
+
+      for (const speaker of speakerOrder) {
+        const msgs = bySpeaker.get(speaker)!
+        const group = document.createElement('div')
+        group.className = 'tdp-speaker-group'
+
+        const speakerEl = document.createElement('div')
+        speakerEl.className = 'tdp-speaker-name'
+        speakerEl.textContent = `${speaker} (${msgs.length})`
+        group.appendChild(speakerEl)
+
+        for (const m of msgs) {
+          const msgEl = document.createElement('div')
+          msgEl.className = 'tdp-message'
+          const textEl = document.createElement('div')
+          textEl.className = 'tdp-message-text'
+          textEl.textContent = m.text
+          msgEl.appendChild(textEl)
+          if (m.timestamp) {
+            const timeEl = document.createElement('div')
+            timeEl.className = 'tdp-message-time'
+            const d = new Date(m.timestamp)
+            timeEl.textContent = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+            msgEl.appendChild(timeEl)
+          }
+          group.appendChild(msgEl)
+        }
+
+        body.appendChild(group)
+      }
+    }
+
+    inner.appendChild(body)
+    panel.appendChild(inner)
+    document.body.appendChild(panel)
+
+    // Close on outside click
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel) panel.remove()
+    })
+  }
+
   const openActionDropdown = () => {
     if (!actionDropdown) return
     actionDropdown.innerHTML = ''
 
-    const isWork = scene.getModeManager()?.getMode() === 'work'
+    // Old work mode removed; always false in Animal Mode.
+    const isWork = false
     const isTopic = !!topicState
-
-    const newTaskItem = document.createElement('div')
-    newTaskItem.className = 'town-action-item' + (isTopic ? ' disabled' : '')
-    newTaskItem.textContent = t('menu.new_task')
-    newTaskItem.addEventListener('click', () => {
-      closeActionDropdown()
-      if (!isTopic) startNewTownSession()
-    })
-    actionDropdown.appendChild(newTaskItem)
 
     const topicItem = document.createElement('div')
     topicItem.className = 'town-action-item' + (isWork || isTopic ? ' disabled' : '')
@@ -581,37 +882,27 @@ const syncTownSessionUrl = (townSessionId: string) => {
     })
     actionDropdown.appendChild(topicItem)
 
-    // ── Group chat (小镇广场) ──
-    const isGroupActive = groupChatState?.active ?? false
-    const groupItem = document.createElement('div')
-    groupItem.className = 'town-action-item' + (isTopic ? ' disabled' : '')
-    groupItem.textContent = isGroupActive ? t('menu.exit_group') : t('menu.enter_group')
-    groupItem.addEventListener('click', () => {
+    // ── Citizen detail panel ──
+    const detailItem = document.createElement('div')
+    detailItem.className = 'town-action-item'
+    detailItem.textContent = t('menu.citizen_detail')
+    detailItem.addEventListener('click', () => {
       closeActionDropdown()
-      if (isTopic) return
-      if (isGroupActive) {
-        // Exit group chat → back to single chat
-        if (groupChatState) groupChatState.active = false
-        switchToSingleChat()
-      } else {
-        // Enter group chat (default town-square)
-        if (groupChatState) {
-          groupChatState.active = true
-          switchToGroupChat()
-        } else {
-          // Request group init first
-          wsSend({ type: 'group_chat_init' })
-          // Will switch after info arrives
-          setTimeout(() => {
-            if (groupChatState) {
-              groupChatState.active = true
-              switchToGroupChat()
-            }
-          }, 1000)
-        }
-      }
+      showCitizenDetailPanel()
     })
-    actionDropdown.appendChild(groupItem)
+    actionDropdown.appendChild(detailItem)
+
+    // ── Topic detail (only when topic is active) ──
+    if (isTopic && topicState?.phase === 'active') {
+      const topicDetailItem = document.createElement('div')
+      topicDetailItem.className = 'town-action-item'
+      topicDetailItem.textContent = t('menu.topic_detail')
+      topicDetailItem.addEventListener('click', () => {
+        closeActionDropdown()
+        showTopicDetailPanel()
+      })
+      actionDropdown.appendChild(topicDetailItem)
+    }
 
     actionDropdown.style.display = 'block'
     dropdownOpen = true
@@ -652,7 +943,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
   // Apply saved music setting on startup
   const savedSettings = loadSettings()
   if (!savedSettings.music) scene.setMusicEnabled(false)
-  if (!savedSettings.autoWalk) scene.setAutoWalkEnabled(false)
+  // Issue 1: enable Animal Mode on startup so citizens become visible & active
+  scene.setAnimalModeEnabled(savedSettings.animalMode !== false)
 
   document.addEventListener('agentshire:music', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail
@@ -662,9 +954,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
     const { enabled } = (e as CustomEvent).detail
     scene.setSoulModeEnabled(enabled)
   })
-  document.addEventListener('agentshire:autowalk', (e: Event) => {
+  document.addEventListener('agentshire:animalmode', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail
-    scene.setAutoWalkEnabled(enabled)
+    scene.setAnimalModeEnabled(enabled)
   })
 
   // Listen for cross-iframe messages from parent React App (settings changes)
@@ -675,12 +967,13 @@ const syncTownSessionUrl = (townSessionId: string) => {
       scene.setMusicEnabled(!!data.enabled)
     } else if (data.type === 'agentshire:soulmode') {
       scene.setSoulModeEnabled(!!data.enabled)
-    } else if (data.type === 'agentshire:autowalk') {
-      scene.setAutoWalkEnabled(!!data.enabled)
+    } else if (data.type === 'agentshire:animalmode') {
+      scene.setAnimalModeEnabled(!!data.enabled)
     }
   })
 
   ;(window as any).engine = engine
+  ;(window as any).__scene = scene
 }
 
 main().catch(console.error)

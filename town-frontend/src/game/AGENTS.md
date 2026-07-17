@@ -6,30 +6,34 @@
 
 ```
 town-frontend/src/game/
-├── MainScene.ts           # 场景总控（1622行）：init + update循环 + 子系统编排
+├── MainScene.ts           # 场景总控（1600+行）：init + update循环 + 子系统编排
 ├── EventDispatcher.ts     # 65种GameEvent纯路由（switch → handler回调，零逻辑）
-├── DialogManager.ts       # 对话流式显示 + 工作日志面板(activity/thinking/todo)
-├── DailyScheduler.ts      # NPC日常调度 + AgentBrain绑定 + 夜间反思编排
+├── DialogManager.ts       # 对话流式显示 + 工作日志面板(activity/thinking/todo) + recentlyFlushed去重
 ├── SceneBootstrap.ts      # 启动流程（mock/live分支 + PublishedCitizenConfig加载）
 ├── GameClock.ts           # 24h循环（6时段，夜间3x加速，localStorage持久化）
 ├── WeatherSystem.ts       # 12种天气 + 10种日主题 + seeded random
 ├── DebugBindings.ts       # console调试绑定
+│
+├── animal-mode/           # ★ 动物模式自治系统（取代旧 workflow/ + DailyScheduler + AgentBrain）
+│   ├── AnimalModeManager.ts  # 总控：注册/注销居民 + 引擎生命周期 + L2决策循环(30s)
+│   ├── AutonomyEngine.ts     # L2决策循环：每30s扫描到期居民 → 生成行动 → 执行
+│   ├── NeedsEngine.ts        # 需求系统：饥饿/社交/休息/娱乐/探索 5维需求 + 衰减
+│   ├── MoodEngine.ts         # 心情系统：需求满足度 → 心情值 + 事件修正
+│   ├── RelationshipEngine.ts # 关系系统：居民间互动 → 关系值 + 好感度
+│   ├── MoveEngine.ts         # 移动引擎：需求 → 目标地点 → A*寻路 → 移动执行
+│   ├── NeedActionMapper.ts   # 需求 → 行动映射（纯函数：需求类型 → NPC状态/动画/对话）
+│   ├── MoodAnimator.ts       # 心情 → 视觉表现（表情/姿态/光环色调）
+│   ├── IndoorTracker.ts      # 室内追踪：居民是否在建筑内 + 室内外状态切换
+│   ├── FestivalEngine.ts     # 节日系统：特殊日期触发节日事件 + 全镇氛围
+│   ├── RulesEngine.ts        # 规则引擎：动物模式行为规则（animal-rules.md驱动）
+│   ├── MemoryStore.ts        # 记忆存储：居民短期/长期记忆 + 事件日志
+│   └── index.ts              # Barrel export
 │
 ├── minigame/              # ★ 小游戏系统
 │   ├── MinigameSlot.ts        # 小游戏插槽接口（mount/start/stop/addWorkingNpc）
 │   ├── BanweiGame.ts          # "班味消除"：orb生成/combo/boss/NPC压力/语音池
 │   ├── BanweiRenderer.ts      # DOM渲染层：orb/boss/smoke/HUD/屏幕震动/粒子
 │   └── BanweiNpcEffects.ts    # NPC压力视觉（去饱和+紫光+变形+减速）
-│
-├── workflow/              # 工作流编排
-│   ├── Choreographer.ts       # 编排总控：接收Bridge的5种workflow_*意图事件
-│   ├── BaseOrchestrator.ts    # 编排器基类（abort/delay/waitNpcArrival三级超时）
-│   ├── WorkflowHandler.ts     # 状态存储 + 编排（工位分配/进场/完工/离场/恢复）
-│   ├── SummonOrchestrator.ts  # 召唤集结（半弧形阵型+障碍物回避+传送兜底）
-│   ├── BriefingOrchestrator.ts # 任务分配（逐个分配+列队行军+场景切换）
-│   ├── CelebrationOrchestrator.ts # 庆祝（屏幕切换+彩纸+光柱+成果弹窗）
-│   ├── SceneSwitcher.ts       # town/office/museum切换（fade+NPC迁移+防重入队列）
-│   └── ModeManager.ts         # life/work模式 + 7个工作子状态
 │
 ├── scene/                 # 3D 场景构建
 │   ├── TownBuilder.ts         # 小镇（8建筑/14组路灯/20棵树/喷泉/花坛/长椅）
@@ -56,9 +60,7 @@ town-frontend/src/game/
 └── __tests__/
     ├── EventDispatcher.test.ts
     ├── DialogManager.test.ts
-    ├── SceneSwitcher.test.ts
     ├── GameClock.test.ts
-    ├── ModeManager.test.ts
     └── SceneBootstrap.loadConfig.test.ts
 ```
 
@@ -73,14 +75,9 @@ MainScene.handleGameEvent()
  ▼
 EventDispatcher.dispatch(event)
  ├─ npc_spawn/despawn/phase/emoji/glow/anim  → MainScene NPC操作
- ├─ npc_work_done                             → WorkflowHandler.handleNpcWorkDone()
- ├─ workflow_summon/assign/go_office/publish/return → Choreographer.handleIntent()
  ├─ dialog_message/dialog_end                 → DialogManager
  ├─ npc_activity/activity_stream/activity_todo → DialogManager（工作日志）
- ├─ scene_switch                              → SceneSwitcher
- ├─ mode_change                               → ModeManager
  ├─ fx                                        → MainScene.onFx → VFXSystem
- ├─ restore_work_state                        → WorkflowHandler
  ├─ deliverable_card                          → MediaPreview
  ├─ skill_learned                             → SkillLearnCard + 技能仪式VFX
  └─ set_time/set_weather                      → GameClock / WeatherSystem
@@ -100,8 +97,24 @@ update(deltaTime):
   5. timeHUD
   6. 音频：ambientSound(仅town) + bgm(天气/时段/场景)
   7. npcManager.update()
-  8. 仅town: DailyBehavior.update（受 autoWalk 开关控制：关闭时跳过行走决策但保持可见）+ encounterManager + casualEncounter
+  8. 仅town: encounterManager + casualEncounter（轻量社交）
   9. vfx + bubbles + officeBuilder.updateScreens + minigame
+
+## 动物模式（Animal Mode）
+
+`AnimalModeManager` 取代旧的 workflow/ + DailyScheduler + AgentBrain，驱动居民自治行为：
+
+- **L2 决策循环**：每 30s 扫描到期居民 → `AutonomyEngine.decide()` 调用 LLM 生成行动
+- **行动执行**：`MainScene.executeAutonomyAction()` → NPC 移动/对话/进入建筑
+- **需求系统**：8 维需求（饥饿/疲劳/社交/娱乐/卫生/安全/自我实现/归属）+ 衰减
+- **心情系统**：需求满足度 → 心情值 + 事件修正 → 视觉表现
+- **关系系统**：居民间互动 → 关系值 + 好感度
+- **室内追踪**：居民进入/离开建筑时切换可见性
+- **节日系统**：特殊日期触发全镇节日事件
+- **规则引擎**：`animal-rules.md` 驱动 LLM 提示词
+
+启用方式：`MainScene.setAnimalModeEnabled(true)` → 注册居民到 NeedsEngine → 启动 L2 循环。
+居民在 `onNpcSpawn` 时自动注册到 Animal Mode（若已启用）。
 ```
 
 ## 小游戏系统
@@ -114,16 +127,6 @@ update(deltaTime):
 - **NPC 压力**：orb 数量 → stress 值 → 去饱和+紫光+变形+减速
 - **生命周期**：work 模式进入 working 时 `start()`，离开时 `stop()`
 
-## NPC 完成工作离场序列
-
-Bridge 发 `npc_work_done`，前端 `WorkflowHandler.handleNpcWorkDone()` 编排：
-
-1. 失败 → emoting(frustrated) + error VFX + 工位屏 error
-2. 成功 → celebrating(cheer) + completionFirework + 绿色 glow
-3. 等 LoopOnce 播完自动回 idle
-4. 清除状态（emoji/glow/indicator）
-5. 临时工 → fadeOut + despawn；常驻居民 → 说收工语 → walk 到门口 → fadeOut → 迁回小镇 → 恢复 DailyBehavior
-6. 清工位屏 + 发 `workstation_released` 通知 Bridge 释放
 
 ## NPC 状态机
 

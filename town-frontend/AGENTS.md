@@ -71,7 +71,10 @@ function getLabels() {
 
 Settings UI is in `src/ui/SettingsPanel.ts`. Language switch requires Save button click → `location.reload()`. No immediate application of changes.
 
-The Settings panel also includes a **Citizen Auto-Walk** toggle (`autoWalk: boolean`, default `true`). When toggled, a `CustomEvent('town-auto-walk-change', { detail: { enabled } })` is dispatched (and posted to the town iframe via `postMessage`); `main.ts` listens and calls `scene.setAutoWalkEnabled(enabled)`, which iterates all `DailyBehavior` instances calling `behavior.setAutoWalkEnabled()`. When disabled, NPCs stop scheduling new walks but **stay visible** at their current positions; sleeping NPCs are woken immediately. Toggling does not remove any NPC from the map.
+The Settings panel includes three boolean toggles (persisted in `localStorage` key `town-settings`):
+- **背景音乐** (`music`, default `true`) — toggles BGM playback.
+- **灵魂模式** (`soulMode`, default `true`) — enables soul-file-driven persona for citizens.
+- **动物模式** (`animalMode`, default `true`) — enables the Animal Mode autonomy system (`AnimalModeManager`). When enabled, `main.ts` calls `scene.setAnimalModeEnabled(true)` which boots the `AutonomyEngine` / `NeedsEngine` / `MoodEngine` / `RelationshipEngine` loop. Citizens are registered into the needs engine on spawn (`MainScene.onNpcSpawn` → `animalMode.registerCitizen(npcId)`) so the L2 decision loop has citizens to act on. When disabled, citizens remain visible but stop autonomous behavior.
 
 ### Town lazy-loading
 

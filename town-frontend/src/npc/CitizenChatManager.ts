@@ -2,14 +2,14 @@
 
 import type { NPC } from './NPC'
 import type { NPCManager } from './NPCManager'
-import type { DailyBehavior } from './DailyBehavior'
 import type { CameraController } from '../game/visual/CameraController'
 import type { FollowBehavior } from './FollowBehavior'
 import type { SceneType, NPCConfig } from '../types'
 
 export interface CitizenChatDeps {
   npcManager: NPCManager
-  getBehavior: (npcId: string) => DailyBehavior | undefined
+  // DailyBehavior removed; getBehavior kept for API compat but returns undefined.
+  getBehavior: (npcId: string) => unknown
   getUser: () => NPC | undefined
   getSteward: () => NPC | undefined
   getCameraCtrl: () => CameraController
@@ -18,6 +18,8 @@ export interface CitizenChatDeps {
   getAvatarUrl: (npcId: string) => string | undefined
   onDialogTargetChange: (npcId: string) => void
   onInputTargetChange: (npc: NPCConfig | null) => void
+  /** Issue 7: called when user starts walking toward a citizen (approaching state). */
+  onApproachingStart?: (npcId: string) => void
 }
 
 interface ActiveInteraction {
@@ -51,8 +53,7 @@ export class CitizenChatManager {
     const user = this.deps.getUser()
     if (!npc || !user) return
 
-    const behavior = this.deps.getBehavior(npcId)
-    if (behavior) behavior.pauseForDialogue()
+    // DailyBehavior removed; pauseForDialogue is a no-op now.
     npc.stopMoving()
 
     this.interaction = {
@@ -86,26 +87,22 @@ export class CitizenChatManager {
         follow.setTarget(user, steward)
         if (!follow.isActive()) follow.start()
       }
+
+      // Issue 7: notify UI that user is walking toward this citizen
+      this.deps.onApproachingStart?.(npcId)
     }
   }
 
   private disconnectSilent(): void {
     if (!this.interaction) return
     const { npcId } = this.interaction
-    const behavior = this.deps.getBehavior(npcId)
-    if (behavior && behavior.inDialogue) {
-      behavior.resumeFromDialogue()
-    }
+    // DailyBehavior removed; resumeFromDialogue is a no-op now.
     this.interaction = null
   }
 
   disconnect(): void {
     if (!this.interaction) return
-    const { npcId } = this.interaction
-    const behavior = this.deps.getBehavior(npcId)
-    if (behavior && behavior.inDialogue) {
-      behavior.resumeFromDialogue()
-    }
+    // DailyBehavior removed; resumeFromDialogue is a no-op now.
 
     this.interaction = null
     this.deps.onDialogTargetChange('steward')

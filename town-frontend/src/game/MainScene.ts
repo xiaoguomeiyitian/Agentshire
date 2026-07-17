@@ -29,21 +29,18 @@ import { TimeOfDayLighting } from './visual/TimeOfDayLighting'
 import { WeatherSystem } from './WeatherSystem'
 import { TimeHUD } from '../ui/TimeHUD'
 import { ModeIndicator } from '../ui/ModeIndicator'
-import { ModeManager } from './workflow/ModeManager'
-import { WAYPOINTS, updateWaypointsFromMapConfig, BUILDING_REGISTRY, type SceneType, type NPCConfig, type WorkSubState } from '../types'
+import { WAYPOINTS, updateWaypointsFromMapConfig, BUILDING_REGISTRY, getBuildingName, type SceneType, type NPCConfig } from '../types'
 import type { IWorldDataSource } from '../data/IWorldDataSource'
 import type { GameEvent, GameNPCRole } from '../data/GameProtocol'
 import { t } from '../i18n'
 import type { TownConfigStore } from '../data/TownConfigStore'
 import { EventDispatcher } from './EventDispatcher'
 import { DialogManager } from './DialogManager'
-import { SceneSwitcher } from './workflow/SceneSwitcher'
-import { DailyScheduler } from './DailyScheduler'
+import { getAnimalModeManager } from './animal-mode'
 import { SceneBootstrap } from './SceneBootstrap'
-import { WorkflowHandler } from './workflow/WorkflowHandler'
 import type { PlatformBridge } from '../platform/Bridge'
-import { Choreographer } from './workflow/Choreographer'
 import { CitizenChatManager } from '../npc/CitizenChatManager'
+import { ActivityJournal } from '../npc/ActivityJournal'
 import type { TownMapConfig, TerrainType } from '../editor/TownMapConfig'
 import { createDefaultConfig } from '../editor/TownMapConfig'
 import { installDebugBindings, removeDebugBindings } from './DebugBindings'
@@ -84,7 +81,6 @@ export class MainScene implements GameScene {
   private musicEnabled = true
   private autoWalkEnabled = true
   private timeHUD!: TimeHUD
-  private modeManager = new ModeManager()
   private modeIndicator!: ModeIndicator
   private minigame: MinigameSlot | null = null
   private _minigameUpdateCb: ((dt: number) => void) | null = null
@@ -105,31 +101,28 @@ export class MainScene implements GameScene {
   private playerMoveEnabled = true
   private pendingDoorInteraction: { scene: SceneType; doorPos: THREE.Vector3 } | null = null
   private postTownReturnDebugFrames = 0
-  private static readonly NON_INTERACTIVE_WORK_SUBSTATES = new Set<WorkSubState>([
-    'summoning',
-    'assigning',
-    'going_to_office',
-    'publishing',
-    'returning',
-  ])
 
   private skillLearnCard: import('../ui/SkillLearnCard').SkillLearnCard | null = null
   private bubbleDebugEnabled = this.readBubbleDebugFlag()
 
   private dispatcher!: EventDispatcher
   private dialogManager!: DialogManager
-  private sceneSwitcher!: SceneSwitcher
-  private dailyScheduler!: DailyScheduler
+  private currentSceneType: SceneType = 'town'
+  private animalMode = getAnimalModeManager()
   private bootstrap!: SceneBootstrap
-  private workflow!: WorkflowHandler
-  private choreographer!: Choreographer
   private citizenChat!: CitizenChatManager
+  private activityJournals = new Map<string, ActivityJournal>()
+  private implicitChatFn: ((req: {
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
+  }) => Promise<{ text: string; fallback: boolean }>) | null = null
 
   constructor(engine: Engine, dataSource: IWorldDataSource, configStore: TownConfigStore) {
     this.engine = engine
     this.dataSource = dataSource
     this.configStore = configStore
     this.ui = new UIManager()
+    // Wire AnimalModeManager's WS reporting to the dataSource
+    this.animalMode.setDataSource(dataSource)
   }
 
   /** Inject the PlatformBridge so bubble content and town status can be forwarded to the parent React App. */
@@ -280,7 +273,7 @@ export class MainScene implements GameScene {
         if (event.gameUrl) window.open(apiUrl(event.gameUrl), '_blank', 'noopener')
       }
       if (event.type === 'back_town') {
-        this.sceneSwitcher.switchScene('town')
+        this.switchScene('town')
       }
       if (event.type === 'tab_change' && event.tab === 'world') this.bubbles.updateCamera(this.engine.camera)
       if (event.type === 'chat_with_citizen') {
@@ -313,106 +306,11 @@ export class MainScene implements GameScene {
   }
 
   private initSubModules(): void {
-    this.dailyScheduler = new DailyScheduler({
-      npcManager: this.npcManager,
-      gameClock: this.gameClock,
-      encounterManager: this.encounterManager,
-      personaStore: this.personaStore,
-      getTownJournal: () => this.townJournal,
-      getCurrentSceneType: () => this.sceneSwitcher.getSceneType(),
-      getNpcSpecialty: (npcId) => this.getNpcProfilesCached().get(npcId)?.specialty,
-      getAgentIdForNpc: (npcId) => this.bootstrap?.agentConfigMap.get(npcId)?.agentId,
-    })
-
     this.dialogManager = new DialogManager({
       bubbles: this.bubbles,
       ui: this.ui,
       npcManager: this.npcManager,
       logBubble: (stage, text) => this.logBubbleText(stage, text),
-    })
-
-    this.sceneSwitcher = new SceneSwitcher({
-      engine: this.engine,
-      ui: this.ui,
-      npcManager: this.npcManager,
-      bubbles: this.bubbles,
-      cameraCtrl: this.cameraCtrl,
-      vfx: this.vfx,
-      officeBuilder: this.officeBuilder,
-      modeManager: this.modeManager,
-      getModeIndicator: () => this.modeIndicator,
-      gameClock: this.gameClock,
-      townScene: this.townScene,
-      officeScene: this.officeScene,
-      museumScene: this.museumScene,
-      weatherSystem: this.weatherSystem,
-      getActiveOfficeNpcIds: () => this.workflow.getActiveOfficeNpcIds(),
-      onRestoreOfficeSceneLayout: () => this.workflow.restoreOfficeSceneLayout(),
-      onStopDailyBehaviors: () => this.dailyScheduler.stopDailyBehaviors(),
-      onStopBehaviorForNpcs: (ids) => this.dailyScheduler.stopBehaviorForNpcs(ids),
-      onScheduleStartDailyBehaviors: (ms) => this.dailyScheduler.scheduleStartDailyBehaviors(ms),
-      onCleanupOfficeWork: () => this.workflow.cleanupOfficeWork(),
-      onSyncTopHudLayout: () => this.syncTopHudLayout(),
-      getTownDoorPosition: (buildingId) => {
-        const marker = this.townBuilder.getDoorMarker(buildingId)
-        if (!marker) return null
-        const pos = new THREE.Vector3()
-        marker.getWorldPosition(pos)
-        return { x: pos.x, z: pos.z }
-      },
-      getSummonPlayed: () => this.workflow.summonPlayed,
-      setSummonPlayed: (v) => { this.workflow.summonPlayed = v },
-      getWorkingCitizens: () => this.workflow.workingCitizens,
-      getPendingSummonNpcs: () => this.workflow.pendingSummonNpcs,
-      setPendingSummonNpcs: (v) => { this.workflow.pendingSummonNpcs = v },
-      setInputEnabled: (v) => { this.inputEnabled = v; this.playerMoveEnabled = v },
-    })
-
-    this.workflow = new WorkflowHandler({
-      npcManager: this.npcManager,
-      bubbles: this.bubbles,
-      ui: this.ui,
-      cameraCtrl: this.cameraCtrl,
-      officeBuilder: this.officeBuilder,
-      modeManager: this.modeManager,
-      vfx: this.vfx,
-      effects: this.effects,
-      gameClock: this.gameClock,
-      dataSource: this.dataSource,
-      officeScene: this.officeScene,
-      townScene: this.townScene,
-      getModeIndicator: () => this.modeIndicator,
-      getBehavior: (id) => this.dailyScheduler.getDailyBehaviors().get(id),
-      getJournal: (id) => this.dailyScheduler.getActivityJournals().get(id),
-      encounterManager: this.encounterManager,
-      switchScene: (scene) => this.sceneSwitcher.switchScene(scene),
-      scheduleStartDailyBehaviors: (ms) => this.dailyScheduler.scheduleStartDailyBehaviors(ms),
-      startBehaviorForNpc: (id) => this.dailyScheduler.startBehaviorForNpc(id),
-      stopBehaviorForNpcs: (ids) => this.dailyScheduler.stopBehaviorForNpcs(ids),
-      despawnNpc: (npcId) => this.onNpcDespawn(npcId),
-      setInputEnabled: (v) => { this.inputEnabled = v; this.playerMoveEnabled = v },
-      hasWhiteboardPlan: () => this.whiteboardHasPlan,
-    })
-
-    this.choreographer = new Choreographer({
-      npcManager: this.npcManager,
-      bubbles: this.bubbles,
-      ui: this.ui,
-      cameraCtrl: this.cameraCtrl,
-      modeManager: this.modeManager,
-      vfx: this.vfx,
-      gameClock: this.gameClock,
-      dataSource: this.dataSource,
-      getEncounterManager: () => this.encounterManager,
-      officeBuilder: this.officeBuilder,
-      officeScene: this.officeScene,
-      workflow: this.workflow,
-      getBehavior: (id) => this.dailyScheduler.getDailyBehaviors().get(id),
-      getJournal: (id) => this.dailyScheduler.getActivityJournals().get(id),
-      switchScene: (scene) => this.sceneSwitcher.switchScene(scene),
-      getSceneType: () => this.sceneSwitcher.getSceneType(),
-      dispatchGameEvent: (event) => this.handleGameEvent(event),
-      setInputEnabled: (v) => { this.inputEnabled = v; this.playerMoveEnabled = v },
     })
 
     this.bootstrap = new SceneBootstrap({
@@ -423,8 +321,8 @@ export class MainScene implements GameScene {
       dataSource: this.dataSource,
       configStore: this.configStore,
       dispatchGameEvent: (event) => this.handleGameEvent(event),
-      addEligibleNpcId: (id) => this.dailyScheduler.addEligibleNpcId(id),
-      scheduleStartDailyBehaviors: (ms) => this.dailyScheduler.scheduleStartDailyBehaviors(ms),
+      addEligibleNpcId: (_id) => { /* no-op: DailyScheduler removed */ },
+      scheduleStartDailyBehaviors: (_ms) => { /* no-op: DailyScheduler removed */ },
       startSnapshotSaving: () => this.startSnapshotSaving(),
       setInputEnabled: (v) => { this.inputEnabled = v },
       setDialogTarget: (id, name) => {
@@ -437,23 +335,64 @@ export class MainScene implements GameScene {
 
     this.citizenChat = new CitizenChatManager({
       npcManager: this.npcManager,
-      getBehavior: (id) => this.dailyScheduler.getDailyBehaviors().get(id),
+      getBehavior: (_id) => undefined,
       getUser: () => this.npcManager.get('user'),
       getSteward: () => this.npcManager.get('steward'),
       getCameraCtrl: () => this.cameraCtrl,
       getFollowBehavior: () => this.followBehavior,
-      getSceneType: () => this.sceneSwitcher.getSceneType(),
+      getSceneType: () => this.currentSceneType,
       getAvatarUrl: (npcId) => {
         const config = this.configStore.load()
         return config?.citizens.find(c => c.id === npcId)?.avatarUrl
       },
-      onDialogTargetChange: (npcId) => { this.dialogTarget = npcId },
+      onDialogTargetChange: (npcId) => {
+        this.dialogTarget = npcId
+        // Issue 8: refresh NPC card panel immediately on target switch
+        if (npcId && npcId !== 'steward') {
+          this.showCurrentTargetDetail()
+        }
+      },
       onInputTargetChange: (npc) => {
         if (npc) {
+          // Issue 2: enrich NPC config with specialty from citizen config
+          const cfg = this.configStore.load()
+          const citizenCfg = cfg?.citizens.find(c => c.id === npc.id)
+          if (citizenCfg?.specialty) npc.specialty = citizenCfg.specialty
           this.ui.updateChatTargetIndicator(npc, true)
+          // Issue 6: refresh tas-model to the citizen's model ref
+          const modelRef = this.getModelRefForNpc(npc.id)
+          const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+          if (tasModelEl) {
+            tasModelEl.textContent = modelRef || ''
+          }
+          // Issue 1 (model id empty): fetch real model from agent config if published modelRef is empty
+          if (!modelRef) void this.fetchAndUpdateModelDisplay(npc.id)
+          // Issue 8: refresh NPC card panel when chat becomes active
+          this.showCurrentTargetDetail()
         } else {
           this.ui.clearChatTarget()
+          // Issue 6: reset tas-model when disconnecting back to steward
+          const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+          if (tasModelEl) tasModelEl.textContent = ''
         }
+      },
+      // Issue 7: show "walking toward citizen" status while approaching
+      onApproachingStart: (npcId: string) => {
+        const npc = this.npcManager.get(npcId)
+        const name = npc?.label ?? npc?.name ?? npcId
+        const tasNameEl = document.querySelector('#town-agent-status .tas-name') as HTMLElement | null
+        if (tasNameEl) {
+          tasNameEl.textContent = `${t('chat.walking_to')} ${name}`
+        }
+        const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+        if (tasModelEl) {
+          const modelRef = this.getModelRefForNpc(npcId)
+          tasModelEl.textContent = modelRef || ''
+          // Issue 1 (model id empty): fetch real model from agent config if published modelRef is empty
+          if (!modelRef) void this.fetchAndUpdateModelDisplay(npcId)
+        }
+        // Issue 8: refresh NPC card panel immediately
+        this.showCurrentTargetDetail()
       },
     })
 
@@ -468,10 +407,33 @@ export class MainScene implements GameScene {
         characterKey: stewardNpc?.characterKey ?? savedConfig?.steward.avatarId,
         avatarUrl: savedConfig?.steward.avatarUrl,
       },
+      getAllCitizenTargets: () => {
+        const config = this.configStore.load()
+        if (!config) return []
+        const agentMap = this.bootstrap.agentConfigMap
+        return config.citizens
+          .filter(c => agentMap.get(c.id)?.agentEnabled)
+          .map(c => ({
+            id: c.id,
+            name: c.name,
+            specialty: c.specialty,
+            color: 0x4488CC,
+            spawn: { x: 0, y: 0, z: 0 },
+            role: 'worker' as const,
+            label: c.name,
+            characterKey: c.avatarId,
+            avatarUrl: c.avatarUrl,
+          }))
+      },
       onSwitchToSteward: () => {
         this.dialogTarget = 'steward'
         this.citizenChat.resetIdleTimer()
         this.ui.updateChatTargetIndicator(null, false)
+        // Issue 6: reset tas-model when switching back to steward
+        const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+        if (tasModelEl) tasModelEl.textContent = ''
+        // Issue 8: refresh NPC card panel
+        this.showCurrentTargetDetail()
       },
       onSwitchToCitizen: () => {
         const npcId = this.citizenChat.getActiveNpcId()
@@ -479,6 +441,15 @@ export class MainScene implements GameScene {
         this.dialogTarget = npcId
         this.citizenChat.resetIdleTimer()
         this.ui.updateChatTargetIndicator(null, true)
+        // Issue 6: refresh tas-model to the citizen's model ref
+        const modelRef = this.getModelRefForNpc(npcId)
+        const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+        if (tasModelEl) tasModelEl.textContent = modelRef || ''
+        // Issue 8: refresh NPC card panel
+        this.showCurrentTargetDetail()
+      },
+      onSwitchToSpecificCitizen: (npcId: string) => {
+        this.citizenChat.startChat(npcId)
       },
     })
 
@@ -512,18 +483,16 @@ export class MainScene implements GameScene {
           lookTarget.smoothLookAt({ x: lPos.x, z: lPos.z })
         }
       },
-      onNpcWorkDone: (npcId, status, stationId, isTempWorker) => {
-        this.workflow.handleNpcWorkDone(npcId, status, stationId, isTempWorker)
+      onNpcWorkDone: (npcId, _status, _stationId, _isTempWorker) => {
         this.minigame?.removeWorkingNpc(npcId)
       },
       onDialogMessage: (npcId, text, isStreaming) => this.dialogManager.onDialogMessage(npcId, text, isStreaming),
       onDialogEnd: (npcId) => this.dialogManager.onDialogEnd(npcId),
-      onWorkstationAssign: (npcId, stationId) => {
-        this.workflow.onWorkstationAssign(npcId, stationId)
+      onWorkstationAssign: (npcId, _stationId) => {
         this.minigame?.addWorkingNpc(npcId)
       },
       onWorkstationScreen: (stationId, state) => this.officeBuilder.setScreenState(stationId, state),
-      onSceneSwitch: (target) => this.sceneSwitcher.switchScene(target as SceneType),
+      onSceneSwitch: (target) => this.switchScene(target as SceneType),
       onFx: (effect, params) => this.onFx(effect, params),
       onProgress: (current, total, label) => {
         if (this.modeIndicator) {
@@ -548,31 +517,16 @@ export class MainScene implements GameScene {
           this.bootstrap.spawnFromConfig(config)
           this.bootstrap.playReturnAnimation(config)
         }
-        for (const npc of this.npcManager.getWorkers()) {
-          this.dailyScheduler.addEligibleNpcId(npc.id)
-        }
-        this.dailyScheduler.scheduleStartDailyBehaviors(5000)
       },
-      onModeChange: (event) => this.onModeChange(event),
-      onSummonNpcs: (stewardId, npcIds, taskDescription) => this.workflow.handleSummonNpcs(stewardId, npcIds, taskDescription),
-      onTaskBriefing: (lines, gameName) => {
-        this.workflow.pendingBriefingLines = lines
-        this.workflow.pendingBriefingGameName = gameName
-      },
+      onModeChange: (_event) => { /* ModeManager removed */ },
+      onSummonNpcs: (_stewardId, _npcIds, _taskDescription) => { /* WorkflowHandler removed */ },
+      onTaskBriefing: (_lines, _gameName) => { /* WorkflowHandler removed */ },
       onWorkStatusUpdate: (updates) => {
         for (const u of updates) this.onNpcPhase(u.npcId, u.phase)
       },
-      onWorkComplete: (_taskDescription, gameUrl) => {
-        if (gameUrl) this.workflow.pendingGameIframeSrc = gameUrl
-      },
-      onGameCompletionPopup: (gameName, gameUrl, previewImageUrl) => {
-        this.workflow.pendingGameIframeSrc = gameUrl
-        this.workflow.pendingGameCoverUrl = previewImageUrl ?? null
-        this.workflow.pendingBriefingGameName = gameName
-      },
+      onWorkComplete: (_taskDescription, _gameUrl) => { /* WorkflowHandler removed */ },
+      onGameCompletionPopup: (_gameName, _gameUrl, _previewImageUrl) => { /* WorkflowHandler removed */ },
       onDeliverableCard: (event) => {
-        if (event.name) this.workflow.pendingBriefingGameName = event.name
-        if (event.url) this.workflow.pendingGameIframeSrc = event.url
         this.ui.handleDeliverableCard(event, () => {
           this.dataSource.sendAction({ type: 'game_popup_action', action: 'later' })
         })
@@ -586,17 +540,11 @@ export class MainScene implements GameScene {
       onSkillLearned: (slug) => {
         import('../ui/SkillLearnCard').then(({ SkillLearnCard }) => {
           if (!this.skillLearnCard) this.skillLearnCard = new SkillLearnCard()
-          this.skillLearnCard.show(slug, (s) => this.workflow.playSkillAbsorb(s))
+          this.skillLearnCard.show(slug, () => { /* playSkillAbsorb removed */ })
         }).catch(e => console.warn('[MainScene] SkillLearnCard import failed:', e))
       },
-      onModeSwitch: (mode, taskDescription) => {
-        if (mode === 'work' && taskDescription) {
-          if (!this.modeManager.isWorkMode()) this.modeManager.enterWorkMode(taskDescription)
-        } else if (mode === 'life') {
-          this.modeManager.returnToLifeMode()
-        }
-      },
-      onRestoreWorkState: (agents) => this.workflow.onRestoreWorkState(agents),
+      onModeSwitch: (_mode, _taskDescription) => { /* ModeManager removed */ },
+      onRestoreWorkState: (_agents) => { /* WorkflowHandler removed */ },
       onSetSessionId: async (sessionId) => {
         this.configStore.setSessionId(sessionId)
         const config = await this.bootstrap.loadFinalConfig()
@@ -662,7 +610,7 @@ export class MainScene implements GameScene {
         }
       },
       onSceneEdit: (event) => this.handleSceneEdit(event),
-      onWorkflowIntent: (event) => this.choreographer.handleIntent(event),
+      onWorkflowIntent: (_event) => { /* Choreographer removed */ },
     })
   }
 
@@ -700,23 +648,22 @@ export class MainScene implements GameScene {
         const npc = this.npcManager.get(npcId)
         if (npc) npc.playAnim(anim as any)
       },
-      (npcId) => {
-        this.dailyScheduler.getDailyBehaviors().get(npcId)?.pauseForDialogue()
-      },
-      (npcId) => {
-        this.dailyScheduler.getDailyBehaviors().get(npcId)?.resumeFromDialogue()
-      },
-      (npcId) => !!this.dailyScheduler.getDailyBehaviors().get(npcId)?.inDialogue,
+      (_npcId) => { /* DailyBehavior removed */ },
+      (_npcId) => { /* DailyBehavior removed */ },
+      (_npcId) => false,
     )
     this.townJournal = new TownJournal(this.gameClock, {
-      implicitChat: (req) => this.dailyScheduler.implicitChatForBrain(req),
+      implicitChat: (req) => this.callImplicitChat(req),
     })
     this.gameClock.onPeriodChange('encounter-day-reset', (state) => {
       if (state.period === 'dawn') this.encounterManager.resetDayCooldowns()
     })
     this.gameClock.onPeriodChange('town-journal-period', (state) => {
       this.townJournal.recordTimeChange(state.period)
-      if (state.period === 'night') this.dailyScheduler.triggerNightlyRoutine()
+      // Nightly routine previously handled by DailyScheduler; now a no-op.
+    })
+    this.gameClock.onPeriodChange('animal-mode-period', (state) => {
+      this.animalMode.onPeriodChange(state.period)
     })
     this.encounterManager.setOnBubble((npc, text, duration) => {
       this.bubbles.show(npc.mesh, text, duration)
@@ -724,11 +671,36 @@ export class MainScene implements GameScene {
     this.encounterManager.setOnBubbleEnd((npc) => {
       this.bubbles.endStream(npc.mesh)
     })
-    this.encounterManager.setJournalAccessor((id) => this.dailyScheduler.getActivityJournals().get(id))
-    this.encounterManager.setBehaviorAccessor((id) => this.dailyScheduler.getDailyBehaviors().get(id))
+    this.encounterManager.setJournalAccessor((id) => this.activityJournals.get(id))
+    this.encounterManager.setBehaviorAccessor((_id) => undefined)
     this.encounterManager.setPersonaStore(this.personaStore)
-    this.encounterManager.setDialogueProvider(async (opts) => {
-      return this.dailyScheduler.dialogueProviderImpl(opts)
+    this.encounterManager.setDialogueProvider(async (_opts) => {
+      // Dialogue provider previously delegated to DailyScheduler.dialogueProviderImpl.
+      // With DailyScheduler removed, return a fallback empty string.
+      return ''
+    })
+    // Route all CasualEncounter bubbles through LLM (implicit chat)
+    this.casualEncounter.setBubbleProvider(async (req) => {
+      const persona = this.personaStore.get(req.npcId)
+      const personaName = req.npcName ?? persona?.name ?? req.npcId
+      const targetName = req.targetName ?? '路人'
+      const weatherStr = req.weather ? `天气：${req.weather}。` : ''
+      const periodStr = req.period ? `时段：${req.period}。` : ''
+      // Inject recent topics so the LLM avoids repeating the same conversation
+      const recentStr = (req.recentTopics && req.recentTopics.length > 0)
+        ? `你们最近刚聊过这些，不要重复：${req.recentTopics.join('、')}。换个新话题。`
+        : ''
+      const system = req.scene === 'wave'
+        ? `你是小镇居民"${personaName}"。你路过遇到了"${targetName}"，想打个招呼。请生成一句简短的打招呼语（10字以内），符合你的性格。只输出打招呼的内容，不要加引号或其他标记。`
+        : `你是小镇居民"${personaName}"。你和"${targetName}"在小镇上偶遇并开始闲聊。请生成两句简短对话（每句15字以内），第一句是你说的，第二句是"${targetName}"说的。每句一行，不要加角色名前缀或引号。${weatherStr}${periodStr}${recentStr}`
+      const result = await this.callImplicitChat({
+        scene: 'casual_encounter',
+        system,
+        user: req.scene === 'wave' ? `对${targetName}打个招呼` : `和${targetName}闲聊两句`,
+        maxTokens: 80,
+        npcId: req.npcId,
+      })
+      return result.text
     })
     this.encounterManager.setOnDialogueComplete((initiatorId, responderId, turns, summary) => {
       const initiator = this.npcManager?.get(initiatorId)
@@ -746,44 +718,9 @@ export class MainScene implements GameScene {
   private initModeSystem(): void {
     this.modeIndicator = new ModeIndicator()
 
-    this.modeManager.onModeChange('daily-behavior', (state) => {
-      const behaviors = this.dailyScheduler.getDailyBehaviors()
-      const brains = this.dailyScheduler.getAgentBrains()
-      if (state.mode === 'work') {
-        this.townJournal.recordModeChange('work', state.taskDescription ? `管家发起了任务：${state.taskDescription}` : undefined)
-        for (const id of state.summonedNpcIds) {
-          behaviors.get(id)?.interrupt('summoned')
-          brains.get(id)?.suspend()
-        }
-      } else {
-        this.townJournal.recordModeChange('life')
-        for (const [id, db] of behaviors) {
-          if (!db.isActive()) continue
-          const s = db.getState()
-          if (s === 'summoned' || s === 'gathered' || s === 'assigned' || s === 'at_office') {
-            db.resume()
-            brains.get(id)?.resume()
-          }
-        }
-      }
-    })
-
-    this.modeManager.onModeChange('encounter', (state) => {
-      this.encounterManager.setExcludedNpcs(new Set(state.summonedNpcIds))
-    })
-
-    this.modeManager.onModeChange('gameclock', (state) => {
-      if (state.mode === 'life' || state.mode === 'work') this.gameClock?.resume()
-    })
-
-    this.modeManager.onModeChange('mode-indicator', (state) => {
-      this.modeIndicator?.update(state)
-      this.syncTopHudLayout()
-    })
-
     this.modeIndicator.setActionCallback(() => {
-      const cur = this.sceneSwitcher.getSceneType()
-      this.sceneSwitcher.switchScene(cur === 'office' ? 'town' : 'office')
+      const cur = this.currentSceneType
+      this.switchScene(cur === 'office' ? 'town' : 'office')
     })
     this.syncTopHudLayout()
 
@@ -813,50 +750,18 @@ export class MainScene implements GameScene {
           avatarUrl: configAvatarUrl,
         }
       },
-      getWorkingNpcIds: () => this.workflow.getActiveOfficeNpcIds(),
-      getSceneType: () => this.sceneSwitcher.getSceneType(),
+      getWorkingNpcIds: () => [],
+      getSceneType: () => this.currentSceneType,
       onUpdate: (cb) => { this._minigameUpdateCb = cb },
       offUpdate: () => { this._minigameUpdateCb = null },
-    })
-    this.modeManager.onModeChange('banwei-minigame', (state) => {
-      if (state.mode === 'work' && state.workSubState === 'working') {
-        this.minigame?.start()
-      } else {
-        this.minigame?.stop()
-      }
     })
   }
 
   private initDebugHelpers(): void {
-    const sched = this.dailyScheduler
     installDebugBindings({
-      mode: {
-        get: () => this.modeManager.getState(),
-        enterWork: (task: string) => this.modeManager.enterWorkMode(task),
-        advance: (s: string) => this.modeManager.advanceWorkState(s as WorkSubState),
-        returnLife: () => this.modeManager.returnToLifeMode(),
-        setSummoned: (ids: string[]) => this.modeManager.setSummonedNpcs(ids),
-        summon: (npcIds: string[], task = '测试任务') =>
-          this.workflow.handleSummonNpcs('steward', npcIds, task),
-      },
-      journals: {
-        get: (npcId: string) => sched.getActivityJournals().get(npcId),
-        list: () => Array.from(sched.getActivityJournals().keys()),
-        dump: (npcId: string) => {
-          const j = sched.getActivityJournals().get(npcId)
-          return j ? { entries: j.getEntries(), dialogues: j.getDialogues() } : null
-        },
-      },
       encounter: {
         activeCount: () => this.encounterManager.getActiveDialogueCount(),
         resetCooldowns: () => this.encounterManager.resetDayCooldowns(),
-      },
-      daily: {
-        list: () => Array.from(sched.getDailyBehaviors().entries()).map(([id, b]) => ({ id, state: b.getState(), active: b.isActive() })),
-        get: (id: string) => {
-          const b = sched.getDailyBehaviors().get(id)
-          return b ? { state: b.getState(), active: b.isActive() } : null
-        },
       },
       townJournal: {
         events: (n?: number) => this.townJournal.getRecentEvents(n),
@@ -865,70 +770,18 @@ export class MainScene implements GameScene {
         todayCount: () => this.townJournal.getCurrentDayEventCount(),
       },
       workflow: {
-        testSummon: (npcIds?: string[]) => {
-          const ids = npcIds ?? ['citizen_1', 'citizen_2']
-          const agents = ids.map(id => {
-            const npc = this.npcManager.get(id)
-            return { npcId: id, displayName: npc?.label ?? id, task: '测试任务' }
-          })
-          this.handleGameEvent({ type: 'workflow_summon', agents } as any)
-        },
-        testAssign: (npcIds?: string[]) => {
-          const ids = npcIds ?? ['citizen_1', 'citizen_2']
-          const agents = ids.map(id => {
-            const npc = this.npcManager.get(id)
-            return { npcId: id, displayName: npc?.label ?? id, task: '测试任务' }
-          })
-          this.handleGameEvent({ type: 'workflow_assign', agents } as any)
-        },
-        testPublish: () => {
-          this.handleGameEvent({
-            type: 'workflow_publish',
-            summary: '测试完成了！',
-            deliverableCards: [],
-            agents: Array.from(this.workflow.officeNpcStations.keys()).map(id => ({
-              npcId: id, displayName: this.npcManager.get(id)?.label ?? id, status: 'completed',
-            })),
-          } as any)
-        },
-        testReturn: () => {
-          const agents = Array.from(this.workflow.officeNpcStations.keys()).map(id => ({ npcId: id }))
-          this.handleGameEvent({ type: 'workflow_return', agents, wasInOffice: true } as any)
-        },
-        testNpcDone: (npcId?: string) => {
-          const id = npcId ?? Array.from(this.workflow.officeNpcStations.keys())[0]
-          if (!id) { console.warn('No NPC in office'); return }
-          const station = this.workflow.officeNpcStations.get(id)
-          this.handleGameEvent({ type: 'npc_work_done', npcId: id, status: 'completed', stationId: station } as any)
-        },
-        testCelebrate: () => {
-          const npcs = Array.from(this.workflow.officeNpcStations.keys()).map(id => ({
-            npcId: id, displayName: this.npcManager.get(id)?.label ?? id, status: 'completed',
-          }))
-          this.handleGameEvent({
-            type: 'workflow_publish', summary: '测试庆祝！', deliverableCards: [], agents: npcs,
-          } as any)
-        },
         testBanwei: (npcIds?: string[]) => {
           const ids = npcIds ?? this.npcManager.getAll().filter(n => n.id !== 'user' && n.id !== 'steward').map(n => n.id).slice(0, 3)
-          this.modeManager.enterWorkMode('班味测试')
-          this.modeManager.forceWorkSubState('working')
           for (const id of ids) this.minigame?.addWorkingNpc(id)
           console.log('[Debug] Banwei test started with NPCs:', ids)
         },
         testBanweiStop: () => {
-          this.modeManager.returnToLifeMode()
+          this.minigame?.stop()
           console.log('[Debug] Banwei test stopped')
         },
         help: () => {
           console.log(`
 __workflow 演出测试指令:
-  testSummon(['citizen_1','citizen_2'])  — 召唤集结（默认 citizen_1+2）
-  testAssign(['citizen_1','citizen_2'])  — 任务分配 + 行军 + 进办公室
-  testNpcDone('citizen_1')              — 单个 NPC 完成离场
-  testPublish()                         — 庆祝发布
-  testReturn()                          — 返回小镇散场
-  testCelebrate()                       — 庆祝（= testPublish 别名）
   testBanwei(['citizen_1'])             — 启动班味小游戏测试
   testBanweiStop()                      — 停止班味小游戏
   getCamera()                          — 读取相机 lookAt + panBounds
@@ -954,15 +807,199 @@ __workflow 演出测试指令:
     const userNpc = this.npcManager.get('user')
     this.logBubbleText('user_message', text)
     if (userNpc) this.bubbles.show(userNpc.mesh, text, getBubbleDurationMs(text, 'user'))
-    this.ui.addChatMessage({ from: t('mayor'), text, timestamp: Date.now() })
+    // Issue 4: tag user messages with the current dialog target so the NPC card
+    // can filter chat history per-citizen instead of showing all user messages.
+    this.ui.addChatMessage({ from: t('mayor'), text, timestamp: Date.now(), targetNpcId: this.dialogTarget })
   }
 
   getDialogTarget(): string {
     return this.dialogTarget
   }
 
+  /** Issue 3: Get the display name of the current dialog target (for usage meta tagging). */
+  getDialogTargetDisplayName(): string | undefined {
+    const targetId = this.dialogTarget
+    if (!targetId) return undefined
+    const npc = this.npcManager.get(targetId)
+    if (!npc) return undefined
+    return npc.label ?? npc.name ?? targetId
+  }
+
+  /** Get the agent ID for a given NPC (for model config updates). */
+  getAgentIdForNpc(npcId: string): string | undefined {
+    if (npcId === 'steward') return 'steward'
+    return this.bootstrap?.agentConfigMap.get(npcId)?.agentId
+  }
+
+  /** Issue 6: Get the LLM model ref for a given NPC (for tas-model display). */
+  getModelRefForNpc(npcId: string): string | undefined {
+    if (npcId === 'steward') return undefined
+    return this.bootstrap?.agentConfigMap.get(npcId)?.modelRef
+  }
+
+  /**
+   * Issue 1 (model id empty): Fetch the agent's model from the backend
+   * (openclaw.json agent config) and update the tas-model element.
+   * The published config's modelRef is often empty; the real model lives
+   * in the agent config. This is async.
+   */
+  async fetchAndUpdateModelDisplay(npcId: string): Promise<void> {
+    const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
+    if (!tasModelEl) return
+    // Only update if this NPC is still the current dialog target
+    if (this.dialogTarget !== npcId) return
+    // First try the published config modelRef (sync)
+    const published = this.getModelRefForNpc(npcId)
+    if (published) { tasModelEl.textContent = published; return }
+    // Otherwise fetch from agent config API
+    const agentId = this.getAgentIdForNpc(npcId)
+    if (!agentId) { tasModelEl.textContent = ''; return }
+    try {
+      const resp = await fetch(apiUrl('/citizen-workshop/_api/get-agent-config'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      })
+      const data = await resp.json()
+      if (this.dialogTarget !== npcId) return // stale
+      const model = data?.agent?.model
+      tasModelEl.textContent = model || ''
+    } catch {
+      tasModelEl.textContent = ''
+    }
+  }
+
+  /** Show NPC detail card for the current dialog target (steward or citizen). */
+  showCurrentTargetDetail(): void {
+    const targetId = this.dialogTarget
+    if (targetId === 'steward') {
+      const steward = this.npcManager.get('steward')
+      if (!steward) return
+      const config = this.configStore.load()
+      const stewardLabel = config?.steward.name ?? t('steward')
+      // Gather chat messages for steward (filter by display name)
+      const allChatMessages = this.ui.getChatPanel().getChatMessages()
+      const mayorLabel = t('mayor')
+      const isUserMsg = (from: string) => from === 'user' || from === '你' || from === 'Jin' || from === 'Mayor' || from === mayorLabel
+      const stewardChatMessages = allChatMessages.filter(m =>
+        // Issue 4: user messages tagged with targetNpcId='steward' (or legacy untagged user msgs)
+        (isUserMsg(m.from) && (m.targetNpcId === 'steward' || !m.targetNpcId)) ||
+        m.from === stewardLabel || m.from === 'steward' || m.from === 'shire'
+      )
+      this.ui.showNPCCard({
+        npc: {
+          id: 'steward', name: stewardLabel, color: 0x4488CC,
+          spawn: { x: 0, y: 0, z: 0 }, role: 'producer', label: stewardLabel,
+          characterKey: steward.characterKey ?? config?.steward.avatarId,
+          avatarUrl: config?.steward.avatarUrl,
+        },
+        state: steward.state || 'idle',
+        specialty: t('steward'),
+        persona: this.personaStore.get('steward')?.coreSummary,
+        agentOnline: this.dataSource.connected,
+        chatMessages: stewardChatMessages.length > 0 ? stewardChatMessages : undefined,
+        chatFetcher: () => {
+          const all = this.ui.getChatPanel().getChatMessages()
+          return all.filter(m =>
+            (isUserMsg(m.from) && (m.targetNpcId === 'steward' || !m.targetNpcId)) ||
+            m.from === stewardLabel || m.from === 'steward' || m.from === 'shire'
+          )
+        },
+        agentId: 'town-steward',
+      })
+      return
+    }
+
+    // Citizen target
+    const npc = this.npcManager.get(targetId)
+    const config = this.configStore.load()
+    const citizenConfig = config?.citizens.find(c => c.id === targetId)
+    if (!npc || !citizenConfig) return
+
+    const profile = this.getNpcProfilesCached().get(targetId)
+    const logs = this.dialogManager.getWorkLogs().get(targetId)
+    const agentConfigured = this.bootstrap.agentConfigMap.get(targetId)
+    const agentOnline = !!(agentConfigured?.agentEnabled)
+
+    // Gather activity journal data
+    const journal = this.activityJournals.get(targetId)
+    const recentActivities = journal ? journal.getRecentActivities(6) : undefined
+
+    // Gather mood/needs/relationships from AnimalMode (if enabled)
+    let mood: import('../ui/NpcCardPanel').MoodInfo | null = null
+    let needs: import('../ui/NpcCardPanel').NeedsInfo | null = null
+    let relationships: import('../ui/NpcCardPanel').RelationshipInfo[] | undefined
+    if (this.animalMode.isEnabled()) {
+      const needsEngine = this.animalMode.getNeedsEngine()
+      const moodEngine = this.animalMode.getMoodEngine()
+      const relEngine = this.animalMode.getRelationshipEngine()
+      const needsSnap = needsEngine.getSnapshot(targetId)
+      if (needsSnap) {
+        needs = {
+          needs: needsSnap.needs as Record<string, number>,
+          urgent: needsSnap.urgent,
+          lowest: needsSnap.lowest,
+          average: needsSnap.average,
+        }
+        const moodState = moodEngine.compute(targetId, needsEngine)
+        mood = {
+          value: moodState.value,
+          level: moodState.level,
+          dominantNeed: moodState.dominantNeed,
+        }
+      }
+      const allRels = relEngine.getAllRelationships(targetId)
+      if (allRels.length > 0) {
+        relationships = allRels.map(r => ({
+          npcId: r.npcId, name: r.name, sentiment: r.sentiment,
+          level: r.level, label: r.label, interactionCount: r.interactionCount,
+        }))
+      }
+    }
+
+    // Gather chat messages for this citizen (filter by display name + targetNpcId)
+    const allChatMessages = this.ui.getChatPanel().getChatMessages()
+    const npcLabel = npc.label ?? npc.name ?? targetId
+    const npcName = npc.name ?? targetId
+    const mayorLabel = t('mayor')
+    const isUserMsg = (from: string) => from === 'user' || from === '你' || from === 'Jin' || from === 'Mayor' || from === mayorLabel
+    // Issue 4: user messages must be tagged with this citizen's targetNpcId to show here.
+    // Legacy untagged user messages (targetNpcId undefined) are excluded to avoid cross-citizen bleed.
+    const citizenChatMessages = allChatMessages.filter(m =>
+      (isUserMsg(m.from) && m.targetNpcId === targetId) ||
+      m.from === npcLabel || m.from === npcName || m.from === targetId
+    )
+
+    this.ui.showNPCCard({
+      npc: {
+        id: npc.id, name: npc.name ?? npc.id,
+        color: 0x4488CC, spawn: { x: 0, y: 0, z: 0 },
+        role: 'worker', label: npc.label ?? npc.name ?? npc.id,
+        characterKey: npc.characterKey,
+        avatarUrl: citizenConfig.avatarUrl,
+      },
+      state: npc.state || 'idle',
+      specialty: profile?.specialty ?? citizenConfig.specialty,
+      persona: profile?.bio ?? this.personaStore.get(targetId)?.coreSummary,
+      workLogs: logs && logs.length > 0 ? logs : undefined,
+      agentOnline,
+      recentActivities,
+      mood,
+      needs,
+      relationships,
+      chatMessages: citizenChatMessages.length > 0 ? citizenChatMessages : undefined,
+      chatFetcher: () => {
+        const all = this.ui.getChatPanel().getChatMessages()
+        return all.filter(m =>
+          (isUserMsg(m.from) && m.targetNpcId === targetId) ||
+          m.from === npcLabel || m.from === npcName || m.from === targetId
+        )
+      },
+      agentId: this.getAgentIdForNpc(targetId),
+    })
+  }
+
   getUIManager(): UIManager { return this.ui }
-  getModeManager(): ModeManager { return this.modeManager }
+  getNpcManager(): NPCManager { return this.npcManager }
   isNpcVisible(npcId: string): boolean { return !!this.npcManager.get(npcId)?.mesh.visible }
 
   getAgentEnabledCitizens(): Array<{ id: string; name: string; specialty: string; color: number; characterKey?: string; avatarUrl?: string; spawned: boolean }> {
@@ -993,20 +1030,165 @@ __workflow 演出测试指令:
     }
   }
 
-  setSoulModeEnabled(enabled: boolean): void {
-    if (enabled) {
-      this.dailyScheduler.enableSoulMode()
-    } else {
-      this.dailyScheduler.disableSoulMode()
-    }
+  setSoulModeEnabled(_enabled: boolean): void {
+    // Soul mode previously toggled DailyScheduler.soulMode; DailyScheduler removed.
   }
 
   setAutoWalkEnabled(enabled: boolean): void {
     this.autoWalkEnabled = enabled
-    // Toggle walking on each existing behavior without removing any NPC.
-    // This keeps all citizens visible on the map at all times.
-    for (const behavior of this.dailyScheduler.getDailyBehaviors().values()) {
-      behavior.setAutoWalkEnabled(enabled)
+    // DailyBehavior auto-walk toggle removed; flag stored for future use.
+  }
+
+  setAnimalModeEnabled(enabled: boolean): void {
+    const citizenIds = this.npcManager.getWorkers().map((n) => n.id)
+    console.log(`[MainScene] setAnimalModeEnabled(${enabled}) citizens=[${citizenIds.join(',')}]`)
+    if (enabled) {
+      // Inject deps for AutonomyEngine before enabling
+      this.animalMode.setExternalDeps({
+        implicitChat: (req) => this.callImplicitChat(req),
+        getNearbyNpcs: (npcId, radius) => this.getNearbyNpcs(npcId, radius),
+        getWeather: () => this.weatherSystem?.getDisplayWeather() ?? 'clear',
+        getCurrentLocation: (npcId) => {
+          const indoor = this.animalMode.getIndoorTracker().getIndoorLocation(npcId)
+          if (indoor) return indoor
+          const npc = this.npcManager.get(npcId)
+          if (npc) {
+            const pos = npc.getPosition()
+            return `(${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`
+          }
+          return '未知'
+        },
+        getPersona: (npcId) => {
+          const persona = this.personaStore.get(npcId)
+          return persona?.coreSummary ?? '普通居民'
+        },
+        getCurrentPlan: (npcId) => {
+          const journal = this.activityJournals.get(npcId)
+          return journal?.currentPlan ?? null
+        },
+        onAction: (npcId, action) => this.executeAutonomyAction(npcId, action),
+      })
+      // Set home buildings for citizens
+      const residentialBuildings = BUILDING_REGISTRY.filter(b => b.category === 'residential')
+      citizenIds.forEach((id, i) => {
+        if (residentialBuildings.length > 0) {
+          const home = residentialBuildings[i % residentialBuildings.length]
+          this.animalMode.setHomeBuilding(id, home.key)
+        }
+      })
+      console.log(`[MainScene] Animal Mode taking over for ${citizenIds.length} citizens`)
+    } else {
+      console.log('[MainScene] Animal Mode disabled')
+    }
+    void this.animalMode.setEnabled(enabled, citizenIds, this.gameClock)
+  }
+
+  /** Execute an AutonomyAction by making the NPC walk/talk/go-indoor. */
+  private executeAutonomyAction(npcId: string, action: import('./animal-mode/AutonomyEngine').AutonomyAction): void {
+    const npc = this.npcManager.get(npcId)
+    if (!npc) {
+      console.warn(`[MainScene] executeAutonomyAction: NPC ${npcId} not found`)
+      this.animalMode.setExecuting(npcId, false)
+      return
+    }
+    // Issue 1: citizens spawn hidden (startHidden); make visible when they start acting
+    if (!npc.mesh.visible) npc.setVisible(true)
+    console.log(`[MainScene] executeAutonomyAction: ${npcId} → ${action.type}`)
+    this.animalMode.setExecuting(npcId, true)
+
+    switch (action.type) {
+      case 'satisfy_need': {
+        // Walk to target place, then satisfy the need
+        const targetPlace = action.action.targetPlace
+        const wp = WAYPOINTS[targetPlace]
+        if (!wp) {
+          console.warn(`[MainScene] satisfy_need: waypoint ${targetPlace} not found`)
+          this.animalMode.setExecuting(npcId, false)
+          return
+        }
+        // If goIndoor, become invisible on arrival
+        const goIndoor = action.action.goIndoor
+        npc.moveTo({ x: wp.x, z: wp.z }).then(async (status) => {
+          if (status !== 'arrived') {
+            this.animalMode.setExecuting(npcId, false)
+            return
+          }
+          if (goIndoor) {
+            this.animalMode.getIndoorTracker().enter(npcId, targetPlace)
+            npc.mesh.visible = false
+            console.log(`[MainScene] ${npcId} went indoor: ${targetPlace}`)
+          }
+          npc.transitionTo('working', { anim: action.action.anim })
+          // Wait for satisfy duration, then restore need
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, action.action.satisfyDurationMs)
+          })
+          this.animalMode.getNeedsEngine().satisfy(npcId, action.need, action.action.satisfyAmount)
+          if (goIndoor) {
+            this.animalMode.getIndoorTracker().leave(npcId)
+            npc.mesh.visible = true
+          }
+          npc.transitionTo('idle')
+          console.log(`[MainScene] ${npcId} satisfied ${action.need} (+${action.action.satisfyAmount})`)
+          this.animalMode.setExecuting(npcId, false)
+        })
+        break
+      }
+      case 'go_home': {
+        const homeKey = this.animalMode.getHomeBuilding(npcId) ?? 'house_a_door'
+        const wp = WAYPOINTS[homeKey]
+        if (wp) {
+          npc.moveTo({ x: wp.x, z: wp.z }).then((status) => {
+            if (status === 'arrived') {
+              this.animalMode.getIndoorTracker().enter(npcId, homeKey)
+              npc.mesh.visible = false
+              console.log(`[MainScene] ${npcId} went home: ${homeKey}`)
+            }
+            this.animalMode.setExecuting(npcId, false)
+          })
+        } else {
+          this.animalMode.setExecuting(npcId, false)
+        }
+        break
+      }
+      case 'leave_to': {
+        // Try direct waypoint key first, then fallback to Chinese name → key mapping
+        let wpKey = action.place
+        let wp = WAYPOINTS[wpKey]
+        if (!wp) {
+          // Try matching by Chinese building name
+          const building = BUILDING_REGISTRY.find(b => b.name === action.place || getBuildingName(b.key) === action.place)
+          if (building) {
+            wpKey = building.key
+            wp = WAYPOINTS[wpKey]
+          }
+        }
+        if (wp) {
+          npc.moveTo({ x: wp.x, z: wp.z }).then((status) => {
+            console.log(`[MainScene] ${npcId} leave_to ${wpKey}: ${status}`)
+            this.animalMode.setExecuting(npcId, false)
+          })
+        } else {
+          console.warn(`[MainScene] leave_to: waypoint ${action.place} not found`)
+          this.animalMode.setExecuting(npcId, false)
+        }
+        break
+      }
+      case 'talk_to': {
+        const allNpcs = this.npcManager.getAll()
+        const target = allNpcs.find(n => (n.label ?? n.id) === action.target || n.id === action.target)
+        if (target) {
+          console.log(`[MainScene] ${npcId} talk_to ${action.target}: ${action.reason}`)
+        }
+        // Release after a delay (dialogue is async)
+        window.setTimeout(() => this.animalMode.setExecuting(npcId, false), 5000)
+        break
+      }
+      case 'stay':
+      default:
+        console.log(`[MainScene] ${npcId} staying: ${action.reason}`)
+        this.animalMode.setExecuting(npcId, false)
+        break
     }
   }
 
@@ -1028,7 +1210,6 @@ __workflow 演出测试指令:
     this.topicGathering = true
 
     for (const id of npcIds) {
-      this.dailyScheduler.getDailyBehaviors().get(id)?.pauseForDialogue()
       const npc = this.npcManager.get(id)
       if (npc) npc.transitionTo('idle')
     }
@@ -1057,7 +1238,7 @@ __workflow 演出测试指令:
     for (const t of targets) {
       const npc = this.npcManager.get(t.npcId)
       if (!npc) continue
-      const speed = this.dailyScheduler.getDailyBehaviors().get(t.npcId)?.getWalkSpeed() ?? 2.5
+      const speed = 2.5
       movePromises.push(
         npc.moveTo(t.pos, speed).then(() => {
           const dx = center.x - npc.mesh.position.x
@@ -1083,7 +1264,6 @@ __workflow 演出测试指令:
       const npc = this.npcManager.get(npcId)
       if (!npc) continue
       npc.transitionTo('idle')
-      this.dailyScheduler.getDailyBehaviors().get(npcId)?.resumeFromDialogue()
     }
   }
 
@@ -1258,10 +1438,7 @@ __workflow 演出测试指令:
   private onNpcSpawn(event: GameEvent & { type: 'npc_spawn' }): void {
     const existing = this.npcManager.get(event.npcId)
     if (existing) {
-      if (event.task && event.category === 'citizen') {
-        this.workflow.workingCitizens.add(event.npcId)
-        this.workflow.summonPlayed = true
-      }
+      // WorkflowHandler workingCitizens tracking removed.
       return
     }
     const finalCharacterKey = getCharacterKeyForNpc(
@@ -1300,7 +1477,8 @@ __workflow 演出测试指令:
       spawn = { x: WAYPOINTS.road_entrance.x, y: 0, z: WAYPOINTS.road_entrance.z }
     } else if (homeWp) {
       spawn = { x: homeWp.x, y: 0, z: homeWp.z }
-      startHidden = true
+      // Citizens spawn visible at their home; Animal Mode will drive them to act
+      startHidden = false
     } else {
       spawn = { x: WAYPOINTS.plaza_center.x, y: 0, z: WAYPOINTS.plaza_center.z }
     }
@@ -1336,8 +1514,13 @@ __workflow 演出测试指令:
       this.ui.updateStewardName(config.name)
       this.dialogTarget = 'steward'
     }
-    if (event.task && event.category === 'citizen') {
-      this.workflow.workingCitizens.add(event.npcId)
+    // WorkflowHandler workingCitizens tracking removed.
+
+    // Issue 2: register citizen in Animal Mode's NeedsEngine when it spawns.
+    // setAnimalModeEnabled may have run before NPCs spawned (empty citizenIds),
+    // so we register late-arriving citizens here to ensure they get L2 decisions.
+    if (event.category === 'citizen' && this.animalMode.isEnabled()) {
+      this.animalMode.registerCitizen(event.npcId)
     }
 
     if (event.arrivalFanfare) {
@@ -1356,9 +1539,9 @@ __workflow 演出测试指令:
       console.warn(`[MainScene] blocked despawn of protected NPC: ${npcId}`)
       return
     }
-    this.dailyScheduler.removeNpc(npcId)
     this.debugCharacterAssignments.delete(npcId)
     this.personaStore.remove(npcId)
+    this.activityJournals.delete(npcId)
 
     const despawnNpc = this.npcManager.get(npcId)
     if (despawnNpc) {
@@ -1405,27 +1588,20 @@ __workflow 演出测试指令:
     const isWalking = npc.npcState === 'walking'
     const audio = getAudioSystem()
 
-    const stationId = this.workflow.officeNpcStations.get(npcId)
-
     if (phase === 'working') {
       if (!isWalking) { npc.playAnim('typing'); this.vfx.workingStream(npc.mesh); audio.play('typing') }
       npc.setGlow('cyan'); npc.indicator.setState('working'); npc.setStatusEmoji('working')
-      if (stationId) this.officeBuilder.setScreenState(stationId, { mode: 'coding', fileName: 'index.ts' })
     } else if (phase === 'thinking') {
       if (!isWalking) { npc.playAnim('thinking'); this.vfx.thinkingAura(npc.mesh) }
       npc.setGlow('yellow'); npc.indicator.setState('thinking'); npc.setStatusEmoji('working')
-      if (stationId) this.officeBuilder.setScreenState(stationId, { mode: 'coding', fileName: 'index.ts' })
     } else if (phase === 'done') {
       npc.playAnim('cheer'); npc.setGlow('green'); npc.indicator.setState('done')
       npc.setStatusEmoji('celebrate')
       this.vfx.completionFirework(npc.getPosition()); audio.play('complete')
-      this.workflow.workingCitizens.delete(npcId)
-      this.workflow.onNpcWorkDone(npcId)
     } else if (phase === 'error') {
       npc.playAnim('frustrated'); npc.setGlow('red'); npc.indicator.setState('error')
       npc.setStatusEmoji('error')
       this.vfx.errorLightning(npc.getPosition()); audio.play('error')
-      this.workflow.workingCitizens.delete(npcId)
     } else if (phase === 'idle') {
       npc.playAnim('idle'); npc.setGlow('none'); npc.indicator.setState('idle')
       npc.setStatusEmoji(null)
@@ -1439,40 +1615,8 @@ __workflow 演出测试指令:
 
   }
 
-  private onModeChange(event: GameEvent & { type: 'mode_change' }): void {
-    const prevMode = this.modeManager.getMode()
-    const prevWorkSubState = this.modeManager.getWorkSubState()
-    if (event.mode === 'work') {
-      this.followBehavior.stop()
-      const nextWorkSubState = event.workSubState ?? 'summoning'
-      const startingFreshWorkCycle =
-        nextWorkSubState === 'summoning' && (prevMode !== 'work' || prevWorkSubState !== 'summoning')
-      if (startingFreshWorkCycle) {
-        this.workflow.cleanupOfficeWork()
-        this.workflow.workingCitizens.clear()
-      }
-      if (!this.modeManager.isWorkMode()) {
-        this.modeManager.enterWorkMode(event.taskDescription ?? '', nextWorkSubState)
-      } else if (event.workSubState) {
-        const current = this.modeManager.getWorkSubState()
-        if (current !== event.workSubState) {
-          this.modeManager.forceWorkSubState(event.workSubState)
-        }
-      }
-      if (event.summonedNpcIds) {
-        this.modeManager.setSummonedNpcs(event.summonedNpcIds)
-      }
-    } else {
-      const wasWorkMode = this.modeManager.isWorkMode()
-      this.modeManager.returnToLifeMode()
-      if (wasWorkMode && this.sceneSwitcher.getSceneType() === 'town') {
-        this.workflow.summonPlayed = false
-        this.workflow.workingCitizens.clear()
-        this.workflow.pendingSummonNpcs = []
-        this.workflow.cleanupOfficeWork()
-        this.dailyScheduler.scheduleStartDailyBehaviors(4500)
-      }
-    }
+  private onModeChange(_event: GameEvent & { type: 'mode_change' }): void {
+    // ModeManager + WorkflowHandler removed; mode changes are no longer tracked here.
   }
 
   private onNpcMoveTo(
@@ -1502,7 +1646,7 @@ __workflow 演出测试指令:
   /** Handle a spatial query from plugin tools (town_get_my_status / town_query_nearby_citizens). */
   private onNpcQuery(
     requestId: string,
-    query: { kind: 'self'; npcId: string } | { kind: 'nearby'; radius: number; origin?: { x: number; z: number }; callerNpcId?: string },
+    query: any,
   ): void {
     if (query.kind === 'self') {
       const npc = this.npcManager.get(query.npcId)
@@ -1527,45 +1671,118 @@ __workflow 演出测试指令:
       return
     }
 
-    // nearby query
-    let origin: { x: number; z: number }
-    if (query.origin) {
-      origin = query.origin
-    } else if (query.callerNpcId) {
-      const caller = this.npcManager.get(query.callerNpcId)
-      const cp = caller?.getPosition()
-      origin = cp ? { x: cp.x, z: cp.z } : { x: 0, z: 0 }
-    } else {
-      origin = { x: 0, z: 0 }
-    }
-    const radius = query.radius
-    const results: Array<{ npcId: string; name: string; state: string; position: { x: number; y: number; z: number }; distance: number }> = []
-    for (const npc of this.npcManager.getAll()) {
-      if (query.callerNpcId && npc.id === query.callerNpcId) continue
-      if (!npc.mesh.visible) continue
-      const pos = npc.getPosition()
-      const dx = pos.x - origin.x
-      const dz = pos.z - origin.z
-      const distance = Math.sqrt(dx * dx + dz * dz)
-      if (distance <= radius) {
-        results.push({
-          npcId: npc.id,
-          name: npc.name,
-          state: npc.state,
-          position: { x: Number(pos.x.toFixed(2)), y: Number(pos.y.toFixed(2)), z: Number(pos.z.toFixed(2)) },
-          distance: Number(distance.toFixed(2)),
-        })
+    if (query.kind === 'nearby') {
+      // nearby query
+      let origin: { x: number; z: number }
+      if (query.origin) {
+        origin = query.origin
+      } else if (query.callerNpcId) {
+        const caller = this.npcManager.get(query.callerNpcId)
+        const cp = caller?.getPosition()
+        origin = cp ? { x: cp.x, z: cp.z } : { x: 0, z: 0 }
+      } else {
+        origin = { x: 0, z: 0 }
       }
+      const radius = query.radius
+      const results: Array<{ npcId: string; name: string; state: string; position: { x: number; y: number; z: number }; distance: number }> = []
+      for (const npc of this.npcManager.getAll()) {
+        if (query.callerNpcId && npc.id === query.callerNpcId) continue
+        if (!npc.mesh.visible) continue
+        const pos = npc.getPosition()
+        const dx = pos.x - origin.x
+        const dz = pos.z - origin.z
+        const distance = Math.sqrt(dx * dx + dz * dz)
+        if (distance <= radius) {
+          results.push({
+            npcId: npc.id,
+            name: npc.name,
+            state: npc.state,
+            position: { x: Number(pos.x.toFixed(2)), y: Number(pos.y.toFixed(2)), z: Number(pos.z.toFixed(2)) },
+            distance: Number(distance.toFixed(2)),
+          })
+        }
+      }
+      results.sort((a, b) => a.distance - b.distance)
+      this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { citizens: results } })
+      return
     }
-    results.sort((a, b) => a.distance - b.distance)
-    this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { citizens: results } })
+
+    if (query.kind === 'citizen_status') {
+      // Animal Mode: return citizen needs + mood + location
+      if (!this.animalMode.isEnabled()) {
+        this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { error: '动森模式未开启' } })
+        return
+      }
+      const npc = this.npcManager.get(query.npcId)
+      if (!npc) {
+        this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { error: `NPC "${query.npcId}" not found` } })
+        return
+      }
+      const needs = this.animalMode.getNeedsEngine().getSnapshot(query.npcId)
+      const mood = this.animalMode.getMoodEngine().compute(query.npcId, this.animalMode.getNeedsEngine())
+      const indoor = this.animalMode.getIndoorTracker().getIndoorLocation(query.npcId)
+      const pos = npc.getPosition()
+      this.dataSource.sendAction({
+        type: 'npc_query_result',
+        requestId,
+        data: {
+          npcId: query.npcId,
+          needs: needs?.needs ?? {},
+          mood: { value: mood.value, level: mood.level },
+          location: indoor ?? `(${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`,
+        },
+      })
+      return
+    }
+
+    if (query.kind === 'citizen_memory') {
+      // Animal Mode: return citizen memories (from in-memory cache)
+      // Note: town_recall_memory tool reads directly from plugin-side files,
+      // but this query is kept for frontend-side access if needed.
+      const mem = this.animalMode.getMemoryStore().getMemory(query.npcId)
+      if (!mem) {
+        this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { dialogues: [], activities: [] } })
+        return
+      }
+      const dialogues = query.topic
+        ? this.animalMode.getMemoryStore().getDialogues(query.npcId, query.topic)
+        : mem.dialogues
+      this.dataSource.sendAction({
+        type: 'npc_query_result',
+        requestId,
+        data: { dialogues, activities: mem.activities },
+      })
+      return
+    }
+
+    if (query.kind === 'place_occupants') {
+      // Animal Mode: return occupants of a building (indoor tracker)
+      if (!this.animalMode.isEnabled()) {
+        this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { occupants: [] } })
+        return
+      }
+      const occupants = this.animalMode.getIndoorTracker().getIndoorAt(query.buildingKey)
+      this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { occupants } })
+      return
+    }
+
+    if (query.kind === 'festival_status') {
+      // Animal Mode: return festival status
+      // FestivalEngine is not yet wired into AnimalModeManager; return inactive
+      this.dataSource.sendAction({
+        type: 'npc_query_result',
+        requestId,
+        data: { active: false, nextDay: 7 },
+      })
+      return
+    }
+
+    // Unknown query kind
+    this.dataSource.sendAction({ type: 'npc_query_result', requestId, data: { error: `Unknown query kind: ${query.kind}` } })
   }
 
-  private onNpcDailyBehaviorReady(npcId: string): void {
-    this.dailyScheduler.addEligibleNpcId(npcId)
-    if (this.sceneSwitcher.getSceneType() === 'town') {
-      this.dailyScheduler.scheduleStartDailyBehaviors(800)
-    }
+  private onNpcDailyBehaviorReady(_npcId: string): void {
+    // DailyScheduler removed; no-op.
   }
 
   private onNpcEmoji(_npcId: string, _emoji: string | null): void {
@@ -1669,9 +1886,6 @@ __workflow 演出测试指令:
         this.vfx.deployFireworks(new THREE.Vector3(15, 0, 12))
         audio.play('deploy')
         const p = params as { gameName?: string; team?: string; iframeSrc?: string; coverUrl?: string }
-        if (p.iframeSrc) this.workflow.pendingGameIframeSrc = p.iframeSrc
-        if (p.coverUrl) this.workflow.pendingGameCoverUrl = p.coverUrl
-        if (p.gameName) this.workflow.pendingBriefingGameName = p.gameName
         this.ui.showGamePublish({
           gameName: p.gameName || t('new_game'),
           iframeSrc: p.iframeSrc || '',
@@ -1682,24 +1896,16 @@ __workflow 演出测试指令:
   }
 
   private syncTopHudLayout(): void {
-    const compactSideHud = this.modeManager.isWorkMode()
-    this.modeIndicator?.setActionCompact(compactSideHud)
-    this.timeHUD?.setCompact(compactSideHud)
+    // ModeManager removed; HUD always uses non-compact (life) layout.
+    this.modeIndicator?.setActionCompact(false)
+    this.timeHUD?.setCompact(false)
   }
 
   // ── Tap detection ──
 
   private isSceneInteractionLocked(): { locked: boolean; reason: string } {
-    const workSubState = this.modeManager.getWorkSubState()
     if (!this.inputEnabled) {
       return { locked: true, reason: 'input_disabled' }
-    }
-    if (
-      this.modeManager.isWorkMode()
-      && workSubState !== null
-      && MainScene.NON_INTERACTIVE_WORK_SUBSTATES.has(workSubState)
-    ) {
-      return { locked: true, reason: `work_substate:${workSubState}` }
     }
     return { locked: false, reason: 'interactive' }
   }
@@ -1721,14 +1927,14 @@ __workflow 演出测试指令:
       const interactionLock = this.isSceneInteractionLocked()
       if (interactionLock.locked) return
 
-      const tapRadius = this.sceneSwitcher.getSceneType() === 'office' ? 1.0 : 1.2
+      const tapRadius = this.currentSceneType === 'office' ? 1.0 : 1.2
       const npc = this.npcManager.findNearestNPC(worldPos, tapRadius)
       if (npc) {
         this.handleNPCTap(npc)
         return
       }
 
-      const curSceneType = this.sceneSwitcher.getSceneType()
+      const curSceneType = this.currentSceneType
 
       if (curSceneType === 'town') {
         for (const [buildingId, marker] of this.townBuilder.getDoorMarkers()) {
@@ -1781,11 +1987,61 @@ __workflow 演出测试指令:
     const profile = this.getNpcProfilesCached().get(npc.id)
     const logs = this.dialogManager.getWorkLogs().get(npc.id)
 
-    const isWorking = this.workflow.workingCitizens.has(npc.id)
     const agentConfigured = this.bootstrap.agentConfigMap.get(npc.id)
     const agentOnline = npc.id === 'steward'
       ? this.dataSource.connected
-      : npc.id === 'user' ? undefined : !!(agentConfigured?.agentEnabled) || isWorking
+      : npc.id === 'user' ? undefined : !!(agentConfigured?.agentEnabled)
+
+    // Gather activity journal data (citizens only)
+    let recentActivities: import('../ui/NpcCardPanel').RecentActivity[] | undefined
+    let mood: import('../ui/NpcCardPanel').MoodInfo | null = null
+    let needs: import('../ui/NpcCardPanel').NeedsInfo | null = null
+    let relationships: import('../ui/NpcCardPanel').RelationshipInfo[] | undefined
+    if (npc.id !== 'steward' && npc.id !== 'user') {
+      const journal = this.activityJournals.get(npc.id)
+      recentActivities = journal ? journal.getRecentActivities(6) : undefined
+      if (this.animalMode.isEnabled()) {
+        const needsEngine = this.animalMode.getNeedsEngine()
+        const moodEngine = this.animalMode.getMoodEngine()
+        const relEngine = this.animalMode.getRelationshipEngine()
+        const needsSnap = needsEngine.getSnapshot(npc.id)
+        if (needsSnap) {
+          needs = {
+            needs: needsSnap.needs as Record<string, number>,
+            urgent: needsSnap.urgent,
+            lowest: needsSnap.lowest,
+            average: needsSnap.average,
+          }
+          const moodState = moodEngine.compute(npc.id, needsEngine)
+          mood = {
+            value: moodState.value,
+            level: moodState.level,
+            dominantNeed: moodState.dominantNeed,
+          }
+        }
+        const allRels = relEngine.getAllRelationships(npc.id)
+        if (allRels.length > 0) {
+          relationships = allRels.map(r => ({
+            npcId: r.npcId, name: r.name, sentiment: r.sentiment,
+            level: r.level, label: r.label, interactionCount: r.interactionCount,
+          }))
+        }
+      }
+    }
+
+    // Gather chat messages for this NPC (filter by display name + targetNpcId)
+    const allChatMessages = this.ui.getChatPanel().getChatMessages()
+    const npcLabel = npc.label ?? npc.name ?? npc.id
+    const npcName = npc.name ?? npc.id
+    const mayorLabel = t('mayor')
+    const isUserMsg = (from: string) => from === 'user' || from === '你' || from === 'Jin' || from === 'Mayor' || from === mayorLabel
+    // Issue 4: user messages must be tagged with this NPC's targetNpcId.
+    // For steward, legacy untagged user messages are included.
+    const includeUntagged = npc.id === 'steward'
+    const npcChatMessages = allChatMessages.filter(m =>
+      (isUserMsg(m.from) && (m.targetNpcId === npc.id || (includeUntagged && !m.targetNpcId))) ||
+      m.from === npcLabel || m.from === npcName || m.from === npc.id
+    )
 
     this.ui.showNPCCard({
       npc: config,
@@ -1794,7 +2050,11 @@ __workflow 演出测试指令:
       persona: profile?.bio ?? this.personaStore.get(npc.id)?.coreSummary,
       workLogs: logs && logs.length > 0 ? logs : undefined,
       agentOnline,
-      isWorking,
+      recentActivities,
+      mood,
+      needs,
+      relationships,
+      chatMessages: npcChatMessages.length > 0 ? npcChatMessages : undefined,
     })
   }
 
@@ -1815,7 +2075,7 @@ __workflow 演出测试指令:
       this.pendingDoorInteraction = null
       this.followBehavior.stop()
       if (targetScene === 'town') this.postTownReturnDebugFrames = 4
-      this.sceneSwitcher.switchScene(targetScene)
+      // SceneSwitcher removed; scene switching is no longer supported.
       return
     }
 
@@ -1872,23 +2132,35 @@ __workflow 演出测试指令:
         const pos = npc.getPosition()
         npcPositions[npc.id] = { x: pos.x, z: pos.z }
       }
+      // DailyScheduler/SceneSwitcher/ModeManager removed; snapshot only saves positions + clock.
       const snapshot = {
         townJournal: this.townJournal.toJSON(),
-        activityJournals: Array.from(this.dailyScheduler.getActivityJournals().entries()).map(
-          ([id, j]) => [id, j.toJSON()] as const,
-        ),
         npcPositions,
-        currentScene: this.sceneSwitcher.getSceneType(),
-        globalMode: this.modeManager.isWorkMode() ? 'work' : 'life',
         gameClockState: this.gameClock.getState(),
       }
       localStorage.setItem(
         this.configStore.getScopedKey('agentshire_snapshot'),
         JSON.stringify(snapshot),
       )
+      // Also report ActivityJournal snapshots + clock to plugin (server-side persistence)
+      if (this.animalMode.isEnabled()) {
+        this.animalMode.reportClockState()
+      }
     } catch {
       // localStorage full or unavailable
     }
+  }
+
+  /** Restore Animal Mode state received from plugin (snapshots + clock). */
+  restoreAnimalState(snapshots: Array<{ npcId: string; snapshot: any }>, clock: { dayCount: number; gameSeconds: number } | null): void {
+    // DailyScheduler removed; ActivityJournal restore is handled by AnimalMode.
+    // Restore GameClock
+    if (clock && typeof clock.dayCount === 'number' && typeof clock.gameSeconds === 'number') {
+      this.gameClock.restoreFromPlugin(clock.dayCount, clock.gameSeconds)
+    }
+    // Reset AnimalMode needs-tick baseline AFTER clock restore to avoid huge delta
+    this.animalMode.restoreAnimalState(snapshots, clock)
+    console.log(`[MainScene] restoreAnimalState: ${snapshots.length} snapshots, clock=${clock ? 'yes' : 'no'}`)
   }
 
   // ── Update loop ──
@@ -1905,14 +2177,15 @@ __workflow 演出测试指令:
           this.pendingDoorInteraction = null
           this.followBehavior.stop()
           if (target === 'town') this.postTownReturnDebugFrames = 4
-          this.sceneSwitcher.switchScene(target)
+          // SceneSwitcher removed; scene switching is no longer supported.
           return
         }
       }
     }
 
     this.gameClock?.update(deltaTime)
-    const curScene = this.sceneSwitcher.getSceneType()
+    this.animalMode.update(deltaTime)
+    const curScene: SceneType = this.currentSceneType
 
     if (curScene === 'town') {
       this.cameraCtrl.update(deltaTime)
@@ -1960,15 +2233,16 @@ __workflow 演出测试指令:
     }
     if (curScene === 'town') {
       const allNpcs = this.npcManager?.getAll() ?? []
-      for (const b of this.dailyScheduler.getDailyBehaviors().values()) {
-        b.update(deltaTime, allNpcs)
+      // Skip NPC random behaviors when gateway is offline
+      if (this.dataSource.connected) {
+        // DailyScheduler removed; DailyBehavior update loop is gone.
+        this.encounterManager?.update(deltaTime * 1000, allNpcs)
+        this.casualEncounter?.update(
+          deltaTime * 1000, allNpcs,
+          this.weatherSystem?.getDisplayWeather(),
+          this.gameClock?.getPeriod(),
+        )
       }
-      this.encounterManager?.update(deltaTime * 1000, allNpcs)
-      this.casualEncounter?.update(
-        deltaTime * 1000, allNpcs,
-        this.weatherSystem?.getDisplayWeather(),
-        this.gameClock?.getPeriod(),
-      )
     }
     this.vfx?.update(deltaTime)
     this.bubbles?.update()
@@ -2002,19 +2276,68 @@ __workflow 演出测试指令:
   setImplicitChatFn(fn: ((req: {
     scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
   }) => Promise<{ text: string; fallback: boolean }>) | null): void {
-    this.dailyScheduler.setImplicitChatFn(fn)
+    this.implicitChatFn = fn
+  }
+
+  /** Call the implicit chat function (injected by main.ts via setImplicitChatFn). */
+  async callImplicitChat(req: {
+    scene: string; system: string; user: string; maxTokens?: number; extraStop?: string[]; npcId?: string; agentId?: string
+  }): Promise<{ text: string; fallback: boolean }> {
+    if (!this.implicitChatFn) return { text: '', fallback: true }
+    let agentId = req.agentId
+    if (!agentId && req.npcId) {
+      agentId = this.getAgentIdForNpc(req.npcId)
+    }
+    return this.implicitChatFn({ ...req, ...(agentId ? { agentId } : {}) })
+  }
+
+  /** Switch the active scene. With old workflow removed, only 'town' is used. */
+  switchScene(scene: SceneType): void {
+    // SceneSwitcher removed; Animal Mode only uses the town scene.
+    this.currentSceneType = scene
+  }
+
+  /** Get NPCs within a radius of the given NPC (for AnimalMode spatial awareness). */
+  getNearbyNpcs(npcId: string, radius: number): Array<{ npcId: string; name: string; distance: number }> {
+    const npc = this.npcManager?.get(npcId)
+    if (!npc) return []
+    const allNpcs = this.npcManager?.getAll() ?? []
+    const result: Array<{ npcId: string; name: string; distance: number }> = []
+    for (const other of allNpcs) {
+      if (other.id === npcId || other.id === 'steward' || other.id === 'user') continue
+      const dist = npc.getPosition().distanceTo(other.getPosition())
+      if (dist < radius) {
+        result.push({ npcId: other.id, name: other.label ?? other.id, distance: dist })
+      }
+    }
+    return result.sort((a, b) => a.distance - b.distance)
+  }
+
+  /** Called when the WebSocket connection state changes. */
+  onConnectionChange(connected: boolean): void {
+    console.log(`[MainScene] onConnectionChange(${connected})`)
+    if (!connected) {
+      // Gateway disconnected — stop casual encounters
+      this.encounterManager?.setExcludedNpcs(new Set(this.npcManager?.getAll().map((n) => n.id) ?? []))
+      console.log('[MainScene] Gateway offline: stopped CasualEncounter')
+    } else {
+      // Gateway reconnected — resume casual encounters only if Animal Mode is NOT enabled.
+      if (!this.animalMode.isEnabled()) {
+        this.encounterManager?.setExcludedNpcs(new Set())
+        console.log('[MainScene] Gateway online: resumed CasualEncounter (Animal Mode off)')
+      } else {
+        console.log('[MainScene] Gateway online: Animal Mode active, keeping CasualEncounter stopped')
+      }
+    }
   }
 
   destroy(): void {
     this.stopSnapshotSaving()
     this.citizenChat.destroy()
-    this.dailyScheduler.stopDailyBehaviors()
+    // DailyScheduler/WorkflowHandler/ModeManager removed.
     this.encounterManager?.destroy()
     this.townJournal?.destroy()
-    this.workflow.abort()
-    this.workflow.destroy()
     this.minigame?.unmount()
-    this.modeManager?.destroy()
     this.modeIndicator?.destroy()
     this.timeHUD?.destroy()
     this.weatherSystem?.destroy()

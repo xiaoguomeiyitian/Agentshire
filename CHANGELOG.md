@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026.7.17 — Animal Mode Activation & NPC Card Rework
+
+### Citizens Visible & Autonomous
+
+Fixed the core issue where citizens were invisible after spawn. Citizens now spawn visible at their home locations (`startHidden = false` in `MainScene.onNpcSpawn`), and are automatically registered into the Animal Mode `NeedsEngine` on spawn so the L2 decision loop has citizens to act on.
+
+### NPC Card 5-Tab Layout
+
+Reworked the NPC detail card from a 4-tab layout (activities/logs/chat/sessions) to a 5-tab layout with 2-character tab names to prevent wrapping on mobile:
+- **状态** (status) — mood & needs grid + relationships (moved from the card body into this tab)
+- **活动** (activities) — recent activities
+- **日志** (logs) — work logs
+- **聊天** (chat) — chat history with usage footer (tokens, cache %, reasoning tokens, context info) aligned with the React ChatView format
+- **会话** (sessions) — agent sessions
+
+### Duplicate Reply Fix
+
+Fixed `DialogManager.flushStream` being called multiple times causing duplicate chat entries. Added a `recentlyFlushed` dedup map (10s window) so the 5s stream-timeout flush and the final `text` event don't both add a message.
+
+### Settings: autoWalk Removed
+
+Removed the "居民自动行走" (autoWalk) toggle from the settings panel — Animal Mode is now the sole citizen behavior driver. Settings now has: language, music, soul mode, animal mode.
+
+### Specialty in Avatar/Name Area
+
+The chat target indicator (avatar + name area above the input bar) now shows the citizen's specialty (occupation) for both citizens and the steward (e.g. "shire · 管家", "橙子 · 产品经理").
+
+### NPC Card Move-Up Behavior
+
+When the input textarea grows tall, the NPC card now moves up via `transform: translateY()` instead of shrinking its height. When the textarea shrinks back (after sending), the card returns to its original position. The card height stays constant throughout.
+
+### Responsive Design
+
+Added media queries for mobile (≤640px), tablet (≤1024px), and small phones (≤380px) to adapt NPC card padding, bottom panel margins, and tab bar height. Added a short-height landscape query for phones in landscape mode.
+
+### LLM Timeout 120s
+
+Increased the implicit chat (Animal Mode L2 decision) timeout from 30s to 120s to accommodate slower LLM providers.
+
 ## 2026.7.16 — Chat UX Polish
 
 ### Chat Header Refactor & Command Sync

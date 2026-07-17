@@ -1,7 +1,7 @@
 /* @desc NPC card panel styles — #npc-card, .card-header, .card-avatar, .card-log-*, .log-todo-* */
 
 #npc-card {
-  position: absolute; bottom: 18%; left: 16px; right: 16px;
+  position: absolute; bottom: 140px; left: 16px; right: 16px;
   max-height: 42%;
   max-width: 768px;
   margin-left: auto; margin-right: auto;
@@ -14,10 +14,14 @@
   animation: slideUp 0.25s ease;
 }
 #npc-card.has-logs {
-  top: 20%; bottom: 18%; max-height: none;
+  top: 20%; bottom: 140px; max-height: none;
 }
-body.embedded-mode #npc-card { bottom: 20%; }
-body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 20%; }
+/* Issue 6: screen-adaptive — clamp card so it never overflows the viewport */
+@media (max-height: 600px) {
+  #npc-card.has-logs { top: 8%; bottom: 140px; }
+}
+body.embedded-mode #npc-card { bottom: 150px; }
+body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
 
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
@@ -45,6 +49,15 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 20%; }
   background: rgba(255,255,255,0.25);
 }
 #npc-card .card-meta { color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 2px; }
+/* Persona inline in the header row (saves vertical space for the tab area) */
+#npc-card .card-bio-inline {
+  color: rgba(255,255,255,0.55); font-size: 12px; line-height: 1.5;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 #npc-card .card-bio {
   color: rgba(255,255,255,0.55); font-size: 13px; line-height: 1.6;
   margin-top: 12px; padding-top: 12px; flex-shrink: 0;
@@ -58,6 +71,119 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 20%; }
   background: rgba(0, 0, 0, 0.2); border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.04);
   overflow: hidden;
+}
+
+/* ── Tabbed area (work logs / chat) ── */
+#npc-card .card-tab-area {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  margin-top: 12px; padding: 12px;
+  background: rgba(0, 0, 0, 0.2); border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+#npc-card .card-tab-bar {
+  display: flex; gap: 4px; margin-bottom: 8px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+}
+#npc-card .card-tab-bar::-webkit-scrollbar { display: none; }
+#npc-card .card-tab {
+  background: none; border: none; cursor: pointer;
+  padding: 6px 10px; font-size: 12px; font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap; flex-shrink: 0;
+}
+#npc-card .card-tab:hover { color: rgba(255, 255, 255, 0.7); }
+#npc-card .card-tab.active {
+  color: rgba(0, 212, 255, 0.9);
+  border-bottom-color: rgba(0, 212, 255, 0.6);
+}
+#npc-card .card-tab-panels {
+  flex: 1; min-height: 0; position: relative;
+}
+#npc-card .card-tab-panel {
+  display: none; flex-direction: column; height: 100%; min-height: 0;
+}
+#npc-card .card-tab-panel.active { display: flex; }
+
+/* Status tab scroll container (mood/needs/relationships) */
+#npc-card .card-status-scroll {
+  flex: 1; overflow-x: hidden; overflow-y: auto; min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+#npc-card .card-status-scroll::-webkit-scrollbar { width: 4px; }
+#npc-card .card-status-scroll::-webkit-scrollbar-track { background: transparent; }
+#npc-card .card-status-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+/* Mood/needs/relationships inside status tab — remove outer card styling */
+#npc-card .card-status-scroll .card-mood-area,
+#npc-card .card-status-scroll .card-rel-area {
+  background: none; border: none; padding: 0; margin: 0 0 12px 0;
+}
+
+/* Chat list in tab */
+#npc-card .card-chat-list {
+  flex: 1; overflow-x: hidden; overflow-y: auto; min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+#npc-card .card-chat-list::-webkit-scrollbar { width: 4px; }
+#npc-card .card-chat-list::-webkit-scrollbar-track { background: transparent; }
+#npc-card .card-chat-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+#npc-card .card-chat-empty {
+  text-align: center; padding: 24px 8px;
+  font-size: 13px; color: rgba(255, 255, 255, 0.3);
+}
+#npc-card .card-chat-entry {
+  padding: 6px 0; font-size: 13px; line-height: 1.5;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  display: flex; flex-direction: column;
+}
+#npc-card .card-chat-entry:last-child { border-bottom: none; }
+/* User (mayor) messages align right, like the main chat panel */
+#npc-card .card-chat-entry.user {
+  align-items: flex-end;
+}
+#npc-card .card-chat-entry.user .card-chat-name { color: rgba(221, 164, 68, 0.9); }
+#npc-card .card-chat-entry.user .card-chat-text {
+  background: rgba(221, 164, 68, 0.18);
+  border-radius: 12px 12px 2px 12px;
+  padding: 6px 10px;
+  max-width: 80%;
+}
+#npc-card .card-chat-entry.user .card-chat-time { align-self: flex-end; }
+/* NPC (citizen) messages align left with a bubble */
+#npc-card .card-chat-entry:not(.user) .card-chat-text {
+  background: rgba(68, 136, 204, 0.15);
+  border-radius: 12px 12px 12px 2px;
+  padding: 6px 10px;
+  max-width: 80%;
+  align-self: flex-start;
+}
+#npc-card .card-chat-name {
+  font-size: 11px; font-weight: 600; color: rgba(68, 136, 204, 0.9);
+  margin-bottom: 2px;
+}
+#npc-card .card-chat-text {
+  font-size: 13px; color: rgba(255, 255, 255, 0.85);
+  word-break: break-word; white-space: pre-wrap;
+}
+#npc-card .card-chat-time {
+  font-size: 10px; color: rgba(255, 255, 255, 0.25); margin-top: 2px;
+}
+/* Issue 3: usage / model / context footer for assistant messages */
+#npc-card .card-chat-meta {
+  font-size: 10px; color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px; align-self: flex-start;
+  font-variant-numeric: tabular-nums;
 }
 #npc-card .card-log-area-title {
   font-size: 12px; color: rgba(255,255,255,0.4); font-weight: 600;
@@ -239,3 +365,305 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 20%; }
   border-radius: 50%; transition: background 0.15s, color 0.15s; flex-shrink: 0; z-index: 1;
 }
 #npc-card .card-close:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
+
+/* ── Section title (shared) ── */
+#npc-card .card-section-title {
+  font-size: 12px; color: rgba(255,255,255,0.4); font-weight: 600;
+  margin-bottom: 8px; flex-shrink: 0;
+}
+
+/* ── Mood & Needs area ── */
+#npc-card .card-mood-area {
+  margin-top: 12px; padding: 12px;
+  background: rgba(0, 0, 0, 0.2); border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+#npc-card .card-mood-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px;
+}
+#npc-card .card-mood-label {
+  font-size: 13px; color: rgba(255,255,255,0.5);
+}
+#npc-card .card-mood-value {
+  font-size: 13px; font-weight: 600;
+}
+#npc-card .card-mood-value.mood-great { color: #34d399; }
+#npc-card .card-mood-value.mood-good { color: #a3e635; }
+#npc-card .card-mood-value.mood-neutral { color: rgba(255,255,255,0.6); }
+#npc-card .card-mood-value.mood-bad { color: #fbbf24; }
+#npc-card .card-mood-value.mood-terrible { color: #f87171; }
+
+#npc-card .card-needs-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
+}
+#npc-card .card-need-bar {
+  display: flex; align-items: center; gap: 6px;
+}
+#npc-card .card-need-label {
+  font-size: 11px; color: rgba(255,255,255,0.5);
+  width: 36px; flex-shrink: 0; text-align: right;
+}
+#npc-card .card-need-label.urgent { color: #f87171; }
+#npc-card .card-need-track {
+  flex: 1; height: 4px; background: rgba(255,255,255,0.08);
+  border-radius: 2px; overflow: hidden;
+}
+#npc-card .card-need-fill {
+  height: 100%; border-radius: 2px;
+  background: rgba(52, 211, 153, 0.6);
+  transition: width 0.3s ease;
+}
+#npc-card .card-need-fill.urgent {
+  background: rgba(248, 113, 113, 0.7);
+}
+#npc-card .card-need-val {
+  font-size: 10px; color: rgba(255,255,255,0.4);
+  width: 24px; flex-shrink: 0; text-align: right;
+}
+#npc-card .card-need-val.urgent { color: #f87171; }
+
+/* ── Relationships area ── */
+#npc-card .card-rel-area {
+  margin-top: 12px; padding: 12px;
+  background: rgba(0, 0, 0, 0.2); border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+#npc-card .card-rel-list {
+  display: flex; flex-direction: column; gap: 4px;
+}
+#npc-card .card-rel-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px;
+}
+#npc-card .card-rel-name {
+  flex: 1; color: rgba(255,255,255,0.7);
+}
+#npc-card .card-rel-level {
+  font-size: 11px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(255,255,255,0.06);
+}
+#npc-card .card-rel-level.rel-close { color: #34d399; background: rgba(52,211,153,0.1); }
+#npc-card .card-rel-level.rel-friend { color: #a3e635; background: rgba(163,230,53,0.1); }
+#npc-card .card-rel-level.rel-acquaintance { color: rgba(255,255,255,0.5); }
+#npc-card .card-rel-level.rel-dislike { color: #fbbf24; background: rgba(251,191,36,0.1); }
+#npc-card .card-rel-level.rel-enemy { color: #f87171; background: rgba(248,113,113,0.1); }
+#npc-card .card-rel-sentiment {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  width: 32px; text-align: right; flex-shrink: 0;
+}
+
+/* ── Recent activities area ── */
+#npc-card .card-activity-area {
+  margin-top: 12px; padding: 12px;
+  background: rgba(0, 0, 0, 0.2); border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+#npc-card .card-activity-list {
+  display: flex; flex-direction: column; gap: 4px;
+  flex: 1; min-height: 0; overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+#npc-card .card-activity-list::-webkit-scrollbar { width: 4px; }
+#npc-card .card-activity-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+#npc-card .card-activity-row {
+  display: flex; gap: 8px; align-items: flex-start;
+  font-size: 12px; line-height: 1.5;
+}
+#npc-card .card-activity-time {
+  color: rgba(255,255,255,0.35); flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+#npc-card .card-activity-desc {
+  color: rgba(255,255,255,0.6); flex: 1; min-width: 0;
+}
+
+/* ── Topic detail panel ── */
+#topic-detail-panel {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+#topic-detail-panel > .tdp-inner {
+  width: 90%; max-width: 600px; max-height: 80vh;
+  display: flex; flex-direction: column;
+  background: rgba(30, 30, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  animation: slideUp 0.25s ease;
+}
+
+#topic-detail-panel .tdp-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+#topic-detail-panel .tdp-title {
+  font-size: 16px; font-weight: 700; color: rgba(255,255,255,0.95);
+}
+#topic-detail-panel .tdp-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 18px; color: rgba(255,255,255,0.5);
+  padding: 4px 8px; border-radius: 6px;
+  transition: background 0.2s, color 0.2s;
+}
+#topic-detail-panel .tdp-close:hover {
+  background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9);
+}
+#topic-detail-panel .tdp-body {
+  flex: 1; overflow-y: auto; padding: 16px 20px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+#topic-detail-panel .tdp-body::-webkit-scrollbar { width: 4px; }
+#topic-detail-panel .tdp-body::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+#topic-detail-panel .tdp-empty {
+  text-align: center; padding: 40px 16px;
+  font-size: 14px; color: rgba(255,255,255,0.3);
+}
+#topic-detail-panel .tdp-speaker-group {
+  margin-bottom: 16px; padding: 12px;
+  background: rgba(255,255,255,0.03); border-radius: 10px;
+}
+#topic-detail-panel .tdp-speaker-name {
+  font-size: 13px; font-weight: 700; color: rgba(0, 212, 255, 0.9);
+  margin-bottom: 8px; padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+#topic-detail-panel .tdp-message {
+  padding: 6px 0; font-size: 13px; line-height: 1.5;
+}
+#topic-detail-panel .tdp-message-text {
+  color: rgba(255,255,255,0.85); word-break: break-word; white-space: pre-wrap;
+}
+#topic-detail-panel .tdp-message-time {
+  font-size: 10px; color: rgba(255,255,255,0.25); margin-top: 2px;
+}
+
+/* ── Model switching dropdown ── */
+.tas-model {
+  cursor: pointer; user-select: none;
+  padding: 2px 8px; border-radius: 6px;
+  transition: background 0.2s;
+  font-size: 11px; color: rgba(0, 212, 255, 0.7);
+}
+.tas-model:hover { background: rgba(255, 255, 255, 0.08); }
+.tas-model::after {
+  content: ' ▾'; font-size: 9px; opacity: 0.6;
+}
+
+.town-model-dropdown {
+  min-width: 200px; max-width: 320px; max-height: 280px; overflow-y: auto;
+  background: rgba(30, 30, 30, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px; padding: 6px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+.town-model-dropdown::-webkit-scrollbar { width: 4px; }
+.town-model-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+.town-model-loading, .town-model-empty {
+  padding: 10px 14px; font-size: 12px; color: rgba(255,255,255,0.4);
+  text-align: center;
+}
+.town-model-item {
+  padding: 8px 14px; font-size: 12px; cursor: pointer;
+  color: rgba(255, 255, 255, 0.8);
+  transition: background 0.15s;
+  word-break: break-all;
+}
+.town-model-item:hover {
+  background: rgba(0, 212, 255, 0.12);
+  color: rgba(0, 212, 255, 0.95);
+}
+
+/* ── Sessions tab ── */
+#npc-card .card-sessions-list {
+  flex: 1; overflow-x: hidden; overflow-y: auto; min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+#npc-card .card-sessions-list::-webkit-scrollbar { width: 4px; }
+#npc-card .card-sessions-list::-webkit-scrollbar-track { background: transparent; }
+#npc-card .card-sessions-list::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+#npc-card .card-sessions-empty,
+#npc-card .card-sessions-loading {
+  text-align: center; padding: 24px 8px;
+  font-size: 13px; color: rgba(255, 255, 255, 0.3);
+}
+#npc-card .card-sessions-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 6px 4px 8px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+#npc-card .card-sessions-select-all {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: rgba(255,255,255,0.5); cursor: pointer;
+}
+#npc-card .card-sessions-select-all input { cursor: pointer; }
+#npc-card .card-sessions-batch-delete {
+  background: rgba(255, 80, 80, 0.15); border: 1px solid rgba(255, 80, 80, 0.3);
+  color: rgba(255, 120, 120, 0.9); border-radius: 6px;
+  padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+#npc-card .card-sessions-batch-delete:hover:not(:disabled) {
+  background: rgba(255, 80, 80, 0.25);
+}
+#npc-card .card-sessions-batch-delete:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+#npc-card .card-sessions-items {
+  flex: 1; overflow-y: auto; min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+#npc-card .card-sessions-items::-webkit-scrollbar { width: 4px; }
+#npc-card .card-sessions-items::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.12); border-radius: 2px;
+}
+#npc-card .card-session-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+#npc-card .card-session-row:last-child { border-bottom: none; }
+#npc-card .card-session-check { cursor: pointer; flex-shrink: 0; }
+#npc-card .card-session-info { flex: 1; min-width: 0; }
+#npc-card .card-session-time {
+  font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 600;
+}
+#npc-card .card-session-meta {
+  font-size: 10px; color: rgba(255,255,255,0.35); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#npc-card .card-session-delete {
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: rgba(255, 100, 100, 0.5); padding: 4px; border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+#npc-card .card-session-delete:hover:not(:disabled) {
+  color: rgba(255, 100, 100, 0.9); background: rgba(255, 100, 100, 0.1);
+}
+#npc-card .card-session-delete:disabled { opacity: 0.4; cursor: not-allowed; }

@@ -36,7 +36,13 @@ export function cleanBubbleText(text: string): string {
   return String(text ?? '')
     .replace(/\r\n?/g, '\n')
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    // Strip XML/HTML-like tags: <tool>...</tool>, 
     .replace(/<\/?[A-Za-z][A-Za-z0-9]*(?:\s[^>]*)?\s*>/g, '')
+    // Strip JSON-style action markers that leak from LLM tool calls:
+    //   {"action":"...","target":"...","reason":"..."}  or  {action: ...}
+    .replace(/\{\s*"?(?:action|target|reason|place|need)"?\s*:[\s\S]*?\}/g, '')
+    // Strip [END] markers used as dialogue-end signals
+    .replace(/\[END\]/gi, '')
     .replace(/^[ \t]*[•·▪◦\-*]\s+/gm, '')
     .replace(/[ \t]+$/gm, '')
     .replace(/\n{2,}/g, '\n')

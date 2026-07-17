@@ -30,8 +30,8 @@ interface ProviderConfig {
   apiFormat: "anthropic-messages" | "openai";
 }
 
-const MAX_CONCURRENT = 2;
-const MAX_QUEUE = 10;
+const MAX_CONCURRENT = 6;
+const MAX_QUEUE = 30;
 
 function resolveEnvRef(value: string, env: Record<string, string>): string {
   return value.replace(/\$\{(\w+)\}/g, (_, key) => env[key] ?? process.env[key] ?? "");

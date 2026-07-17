@@ -39,6 +39,18 @@ export interface UserConfig {
   animFileUrls?: string[]
 }
 
+export interface AnimalModeSettings {
+  enabled: boolean
+  l2IntervalMs: number
+  l2IntervalJitterMs: number
+}
+
+export const ANIMAL_MODE_SETTINGS_DEFAULTS: AnimalModeSettings = {
+  enabled: false,
+  l2IntervalMs: 90_000,
+  l2IntervalJitterMs: 30_000,
+}
+
 export interface TownConfig {
   townName: string
   steward: StewardConfig
@@ -46,6 +58,7 @@ export interface TownConfig {
   citizens: CitizenConfig[]
   createdAt: number
   version: number
+  animalMode?: AnimalModeSettings
 }
 
 const SPECIALTY_LABELS_ZH: Record<string, string> = {

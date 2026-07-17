@@ -60,7 +60,14 @@
       "town_expand_map",
       "town_get_my_status",
       "town_query_nearby_citizens",
-      "town_walk_to"
+      "town_walk_to",
+      "town_knock_door",
+      "town_query_place",
+      "town_query_citizen",
+      "town_recall_memory",
+      "town_give_gift",
+      "town_query_festival",
+      "town_join_festival"
     ]
   },
   "configSchema": {

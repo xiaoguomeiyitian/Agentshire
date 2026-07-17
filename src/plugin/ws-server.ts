@@ -11,6 +11,16 @@ import { fileURLToPath } from "node:url";
 import { stateDir } from "./paths.js";
 import { getTownRuntime } from "./runtime.js";
 import { parseSessionToken, isValidSession, isPasswordAuthEnabled } from "./auth.js";
+import {
+  appendMemoryEntry,
+  saveActivityJournalSnapshot,
+  saveClockState,
+  loadAllActivityJournalSnapshots,
+  loadClockState,
+  clearAllMemories,
+} from "./animal-memory.js";
+import type { MemoryEntry, ClockState } from "./animal-memory.js";
+import type { ActivityJournalSnapshot } from "./animal-snapshot-types.js";
 
 export interface TownWsServerOptions {
   port: number;
@@ -693,6 +703,54 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           const townSessionId = getClientSessionId(ws);
           console.log(`${sessionLogPrefix(townSessionId)} WS ← sync_request (reconnect resync)`);
           sendWorkSnapshot(ws, townSessionId);
+        } else if (msg.type === "animal_memory_event" && typeof msg.npcId === "string" && msg.entry) {
+          // Frontend reports a citizen memory event (dialogue or activity).
+          // Persisted to stateDir/agents/animal-memories/{npcId}.jsonl
+          const townSessionId = getClientSessionId(ws);
+          const entry = msg.entry as MemoryEntry;
+          appendMemoryEntry(msg.npcId, entry);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← animal_memory_event npcId=${msg.npcId} type=${entry.type}`,
+          );
+        } else if (msg.type === "animal_snapshot_save" && typeof msg.npcId === "string" && msg.snapshot) {
+          // Frontend reports a full ActivityJournal snapshot (relationships, reflections, plan).
+          // Persisted to stateDir/agents/animal-memories/{npcId}.snapshot.json
+          const townSessionId = getClientSessionId(ws);
+          const snapshot = msg.snapshot as ActivityJournalSnapshot;
+          saveActivityJournalSnapshot(msg.npcId, snapshot);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← animal_snapshot_save npcId=${msg.npcId}`,
+          );
+        } else if (msg.type === "animal_clock_save" && typeof msg.state === "object") {
+          // Frontend reports GameClock state (dayCount, gameSeconds).
+          // Persisted to stateDir/agents/animal-clock.json
+          const townSessionId = getClientSessionId(ws);
+          const state = msg.state as ClockState;
+          saveClockState(state);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← animal_clock_save day=${state.dayCount}`,
+          );
+        } else if (msg.type === "animal_state_load") {
+          // Frontend requests all persisted state (snapshots + clock) on reconnect.
+          const townSessionId = getClientSessionId(ws);
+          const snapshots = loadAllActivityJournalSnapshots();
+          const clock = loadClockState();
+          const payload = JSON.stringify({
+            type: "animal_state",
+            snapshots,
+            clock,
+          });
+          if (ws.readyState === WebSocket.OPEN) ws.send(payload);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS → animal_state snapshots=${snapshots.length} clock=${clock ? "yes" : "no"}`,
+          );
+        } else if (msg.type === "animal_memory_clear_all") {
+          // Frontend requests clearing all memories (e.g., Animal Mode disabled).
+          const townSessionId = getClientSessionId(ws);
+          clearAllMemories();
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← animal_memory_clear_all`,
+          );
         } else {
           const townSessionId = getClientSessionId(ws);
           console.log(
@@ -828,7 +886,11 @@ function resolveNpcQuery(requestId: string, data: unknown): void {
 export function requestNpcQuery(
   query:
     | { kind: "self"; npcId: string }
-    | { kind: "nearby"; radius: number; origin?: { x: number; z: number }; callerNpcId?: string },
+    | { kind: "nearby"; radius: number; origin?: { x: number; z: number }; callerNpcId?: string }
+    | { kind: "citizen_status"; npcId: string }
+    | { kind: "citizen_memory"; npcId: string; topic?: string }
+    | { kind: "place_occupants"; buildingKey: string }
+    | { kind: "festival_status" },
 ): Promise<unknown> {
   const requestId = `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   return new Promise<unknown>((resolve, reject) => {

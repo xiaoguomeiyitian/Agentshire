@@ -89,10 +89,10 @@
 │  │   MainScene ── EventDispatcher (65 types) ── update() loop        │   │
 │  └───────────────────────────────────────────────────────────────────┘   │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │   workflow/  │  │     npc/     │  │      ui/     │  │    audio/    │  │
-│  │ Choreographer│  │  NPC 7-state │  │  ChatBubble  │  │   BGM 4-trk  │  │
-│  │ 4 Orchestratr│  │  AgentBrain  │  │   NpcCard    │  │   Ambient    │  │
-│  │  ModeManager │  │  DailyBhvr   │  │  MediaView   │  │  WebAudioAP I│  │
+│  │ animal-mode/ │  │     npc/     │  │      ui/     │  │    audio/    │  │
+│  │ AnimalModeMgr│  │  NPC 7-state │  │  ChatBubble  │  │   BGM 4-trk  │  │
+│  │ AutonomyEng  │  │  CasualEncntr│  │   NpcCard    │  │   Ambient    │  │
+│  │ Needs/Mood   │  │  EncounterMgr│  │  MediaView   │  │  WebAudioAPI │  │
 │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │    scene/    │  │    editor/   │  │    engine/   │  │     data/    │  │
@@ -181,33 +181,27 @@ agentshire/
         ├── types.ts               # Shared types (weather / time period / buildings / NPC roles / modes)
         ├── app/                   # ★ React Chat UI (App / ChatView / GroupChatView / AgentList / TopNav / TownDynamicPanel / ClawSettingsView[11 nav sections: General/System/Messaging/Tools/AI/Network/Providers/Models/Plugin/Sessions/About])
         ├── game/                  # Scene management (see game/AGENTS.md)
-        │   ├── MainScene.ts       # Main scene (1622 lines, update loop + subsystem orchestration)
+        │   ├── MainScene.ts       # Main scene (1600+ lines, update loop + subsystem orchestration)
         │   ├── EventDispatcher.ts # 65 GameEvent type routing
-        │   ├── DialogManager.ts   # Dialog streaming display + work logs
+        │   ├── DialogManager.ts   # Dialog streaming display + work logs + recentlyFlushed dedup
         │   ├── GameClock.ts       # 24h cycle (6 periods, night 3x speed)
-        │   ├── DailyScheduler.ts  # NPC daily scheduling + AgentBrain + nightly reflection
         │   ├── WeatherSystem.ts   # 12 weather types + 10 daily themes state machine
         │   ├── SceneBootstrap.ts  # Boot flow (PublishedCitizenConfig loading)
+        │   ├── animal-mode/       # ★ Animal Mode autonomy system (replaces workflow/ + DailyScheduler)
         │   ├── minigame/          # ★ Banwei Buster mini-game (MinigameSlot interface)
-        │   ├── workflow/          # Workflow orchestration (Choreographer + 4 Orchestrators)
         │   ├── scene/             # 3D scenes (Town/Office/Museum Builder)
         │   └── visual/            # VFX + camera + lighting + weather particles + asset loading
         │
-        ├── npc/                   # NPC system (15 files)
+        ├── npc/                   # NPC system (10 files)
         │   ├── NPC.ts             # 7-state state machine + AnimationMixer crossfade
         │   ├── NPCManager.ts      # NPC container management
-        │   ├── AgentBrain.ts      # L1 daily plan / L2 tactical / L3 dialog — 3-tier AI decisions
-        │   ├── DailyBehavior.ts   # 9-state daily behavior state machine
         │   ├── CasualEncounter.ts # ★ Zero-LLM lightweight social (preset scripts)
         │   ├── CitizenChatManager.ts # ★ Mayor ↔ citizen real-time chat
         │   ├── DialogueScripts.ts # ★ 400+ preset dialog lines (weather/time context)
-        │   ├── RoutineTemplates.ts # ★ 5 behavior templates (matched by specialty)
         │   ├── EncounterManager.ts # LLM deep multi-turn dialog + summary
         │   ├── TownJournal.ts     # Event stream + daily narrative summary
         │   ├── ActivityJournal.ts # Activities / dialogs / relationships / daily plan / reflections
         │   ├── PersonaStore.ts    # Persona cache + compact prompt builder
-        │   ├── SpotAllocator.ts   # Anti-overlap spiral search
-        │   ├── StatusIndicator.ts # Overhead 3D status indicator
         │   └── FollowBehavior.ts  # Follow behavior
         │
         ├── ui/                    # UI panels (18 files, incl. ★ MentionPicker @-selector)
@@ -294,8 +288,8 @@ agentshire/
 
 ```
 ┌────────────┐  implicit_chat   ┌──────────┐  HTTP  ┌───────────────┐
-│ AgentBrain │──  _request   ──▶│ ws-server│───────▶│   llm-proxy   │
-│ L1/L2/L3   │                  └──────────┘        │  2 parallel   │
+│AutonomyEng │──  _request   ──▶│ ws-server│───────▶│   llm-proxy   │
+│ L2 decide  │                  └──────────┘        │  2 parallel   │
 └─────┬──────┘                       │              │  anthropic /  │
       ▲                              │              │  openai       │
       │  implicit_chat               │              └───────┬───────┘
@@ -355,7 +349,7 @@ cd town-frontend && npx vitest run
 Test distribution:
 - `src/bridge/__tests__/` — EventTranslator, RouteManager, ActivityStream, CitizenManager, NpcEventQueue
 - `src/plugin/__tests__/` — hook-translator, auth, channel, model-config
-- `town-frontend/src/game/__tests__/` — EventDispatcher, DialogManager, SceneSwitcher, GameClock, ModeManager, SceneBootstrap
+- `town-frontend/src/game/__tests__/` — EventDispatcher, DialogManager, GameClock, SceneBootstrap
 - `town-frontend/src/data/__tests__/` — publishedToTownView, i18n, CharacterRoster
 - `town-frontend/src/audio/__tests__/` — AmbientSoundManager, BGMManager
 - `town-frontend/src/app/__tests__/` — TownDynamicPanel
@@ -379,13 +373,10 @@ Test distribution:
 | Modify LLM model management | `src/plugin/model-config.ts` + `town-frontend/src/editor/model/` |
 | Modify per-agent LLM model routing | `src/plugin/llm-agent-proxy.ts` |
 | Modify per-agent model proxy UI | `town-frontend/src/app/AgentModelsPanel.tsx` |
-| Modify citizen auto-walk toggle | `town-frontend/src/ui/SettingsPanel.ts` + `npc/DailyBehavior.ts` (`setAutoWalkEnabled`) + `game/MainScene.ts` |
+| Modify Animal Mode (citizen autonomy) | `town-frontend/src/game/animal-mode/AnimalModeManager.ts` + `MainScene.setAnimalModeEnabled()` |
 | Modify Town lazy-loading | `town-frontend/src/app/App.tsx` (`getTabFromHash`) + `app/TownView.tsx` (`loaded` state) |
 | Modify citizen spatial tools | `src/plugin/tools.ts` (3 spatial tools) + `town-frontend/src/game/MainScene.ts` (NPC query handler) |
-| Modify workflow choreography | `town-frontend/src/game/workflow/Choreographer.ts` → corresponding Orchestrator |
-| Modify NPC post-completion departure | `town-frontend/src/game/workflow/WorkflowHandler.ts` `handleNpcWorkDone()` |
 | Add frontend GameEvent handler | `town-frontend/src/game/EventDispatcher.ts` |
-| Modify NPC daily behavior | `town-frontend/src/game/DailyScheduler.ts` + `npc/DailyBehavior.ts` |
 | Modify NPC animation / state machine | `town-frontend/src/npc/NPC.ts` — driven by `transitionTo()` |
 | Modify casual social encounters | `town-frontend/src/npc/CasualEncounter.ts` + `DialogueScripts.ts` |
 | Modify mini-game | `town-frontend/src/game/minigame/BanweiGame.ts` |

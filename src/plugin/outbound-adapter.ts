@@ -85,6 +85,13 @@ export function createOutboundAdapter() {
     },
 
     async sendText(ctx: { text: string; to: string; sessionId?: string; sessionKey?: string }) {
+      // Suppress broadcast for implicit (Animal Mode L2) sessions: their LLM reply
+      // (which may contain JSON like {"action":"stay",...}) is collected via the
+      // deliver callback in onImplicitChat, not meant for chat bubbles.
+      const sessionKey = ctx.sessionId ?? ctx.sessionKey ?? "";
+      if (sessionKey.includes(":implicit:")) {
+        return { channel: CHANNEL_ID, messageId: `town-implicit-${Date.now()}` };
+      }
       const townSessionId = resolveOutboundSessionId(ctx);
       broadcastAgentEvent({ type: "text", content: ctx.text }, townSessionId);
       return { channel: CHANNEL_ID, messageId: `town-msg-${Date.now()}` };
@@ -97,6 +104,11 @@ export function createOutboundAdapter() {
       sessionId?: string;
       sessionKey?: string;
     }) {
+      // Suppress broadcast for implicit (Animal Mode L2) sessions.
+      const sessionKey = ctx.sessionId ?? ctx.sessionKey ?? "";
+      if (sessionKey.includes(":implicit:")) {
+        return { channel: CHANNEL_ID, messageId: `town-implicit-media-${Date.now()}` };
+      }
       const townSessionId = resolveOutboundSessionId(ctx);
       const mediaUrl = ctx.mediaUrl ?? "";
       const resolved = resolveFileData(mediaUrl);

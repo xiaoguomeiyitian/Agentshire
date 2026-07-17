@@ -17,12 +17,12 @@ import {
   type DialogueLine,
 } from './DialogueScripts'
 
-const WAVE_DISTANCE = 3.5
-const CHAT_DISTANCE = 3.5
-const WAVE_CHANCE = 0.5
-const CHAT_CHANCE = 0.6
-const GLOBAL_COOLDOWN_MS = 10_000
-const PAIR_COOLDOWN_MS = 30_000
+const WAVE_DISTANCE = 4.5
+const CHAT_DISTANCE = 4.0
+const WAVE_CHANCE = 0.6
+const CHAT_CHANCE = 0.5
+const GLOBAL_COOLDOWN_MS = 15_000
+const PAIR_COOLDOWN_MS = 90_000
 const CHAT_DURATION_MS = 8_000
 const FACE_DISTANCE = 1.5
 
@@ -66,20 +66,52 @@ export type CasualAnimCallback = (npcId: string, anim: string) => void
 export type CasualPauseCallback = (npcId: string) => void
 export type CasualResumeCallback = (npcId: string) => void
 
+export type CasualBubbleProvider = (req: {
+  scene: 'wave' | 'chat'
+  npcId: string
+  npcName?: string
+  targetId?: string
+  targetName?: string
+  weather?: WeatherType
+  period?: TimePeriod
+  recentTopics?: string[]
+}) => Promise<string>
+
 export class CasualEncounter {
   private lastInteraction = new Map<string, number>()
   private pairCooldowns = new Map<string, number>()
   private activeChats: ActiveChat[] = []
+  private recentTopics = new Map<string, string[]>()  // pairKey → recent chat lines (dedup)
   private onBubble: CasualBubbleCallback
   private onPause: CasualPauseCallback
   private onResume: CasualResumeCallback
   private isBlocked?: (npcId: string) => boolean
+  private bubbleProvider: CasualBubbleProvider | null = null
 
   constructor(onBubble: CasualBubbleCallback, _onAnim: CasualAnimCallback, onPause: CasualPauseCallback, onResume: CasualResumeCallback, isBlocked?: (npcId: string) => boolean) {
     this.onBubble = onBubble
     this.onPause = onPause
     this.onResume = onResume
     this.isBlocked = isBlocked
+  }
+
+  /** Set the LLM bubble provider. When set, all bubble text is generated via LLM. */
+  setBubbleProvider(fn: CasualBubbleProvider | null): void {
+    this.bubbleProvider = fn
+  }
+
+  /** Record recent chat lines for a pair so the LLM can avoid repeating topics. */
+  private recordPairTopics(aId: string, bId: string, lines: string[]): void {
+    const key = aId < bId ? `${aId}:${bId}` : `${bId}:${aId}`
+    const prev = this.recentTopics.get(key) ?? []
+    const merged = [...prev, ...lines].slice(-6)  // keep last 6 lines
+    this.recentTopics.set(key, merged)
+  }
+
+  /** Get recent chat lines for a pair (to inject into LLM prompt as "avoid repeating"). */
+  private getPairTopics(aId: string, bId: string): string[] {
+    const key = aId < bId ? `${aId}:${bId}` : `${bId}:${aId}`
+    return this.recentTopics.get(key) ?? []
   }
 
   private currentWeather?: WeatherType
@@ -121,7 +153,25 @@ export class CasualEncounter {
     this.markPair(a.id, b.id)
 
     const waver = Math.random() < 0.5 ? a : b
-    this.onBubble(waver.id, pickWaveLine(this.currentPeriod), 2000)
+    const target = waver === a ? b : a
+    if (this.bubbleProvider) {
+      // LLM-driven wave bubble
+      void this.bubbleProvider({
+        scene: 'wave',
+        npcId: waver.id,
+        npcName: waver.label ?? waver.id,
+        targetId: target.id,
+        targetName: target.label ?? target.id,
+        weather: this.currentWeather,
+        period: this.currentPeriod,
+      }).then((text) => {
+        if (text) this.onBubble(waver.id, text, 2000)
+      }).catch(() => {
+        this.onBubble(waver.id, pickWaveLine(this.currentPeriod), 2000)
+      })
+    } else {
+      this.onBubble(waver.id, pickWaveLine(this.currentPeriod), 2000)
+    }
   }
 
   private tryAreaChat(a: NPC, b: NPC): void {
@@ -136,9 +186,44 @@ export class CasualEncounter {
     this.markInteraction(b.id)
     this.markPair(a.id, b.id)
 
-    const script = pickDialogue(this.currentWeather, this.currentPeriod)
-    const lines = [script[0], script[1]]
+    if (this.bubbleProvider) {
+      // LLM-driven area chat — generate both lines via LLM
+      const recentTopics = this.getPairTopics(a.id, b.id)
+      void this.bubbleProvider({
+        scene: 'chat',
+        npcId: a.id,
+        npcName: a.label ?? a.id,
+        targetId: b.id,
+        targetName: b.label ?? b.id,
+        weather: this.currentWeather,
+        period: this.currentPeriod,
+        recentTopics,
+      }).then((text) => {
+        const lines = this.parseChatLines(text, a, b)
+        this.startActiveChat(a, b, lines)
+      }).catch(() => {
+        const script = pickDialogue(this.currentWeather, this.currentPeriod)
+        this.startActiveChat(a, b, [script[0], script[1]])
+      })
+    } else {
+      const script = pickDialogue(this.currentWeather, this.currentPeriod)
+      this.startActiveChat(a, b, [script[0], script[1]])
+    }
+  }
 
+  /** Parse LLM response into two chat lines (fallback: split by newline). */
+  private parseChatLines(text: string, a: NPC, b: NPC): string[] {
+    const trimmed = text.trim()
+    const parts = trimmed.split(/\n+/).filter((s) => s.trim().length > 0)
+    if (parts.length >= 2) return [parts[0].trim(), parts[1].trim()]
+    // Fallback: generate a second line from preset
+    const script = pickDialogue(this.currentWeather, this.currentPeriod)
+    return [trimmed || script[0], script[1]]
+  }
+
+  private startActiveChat(a: NPC, b: NPC, lines: string[]): void {
+    // Record the lines so future chats between this pair can avoid repeating
+    this.recordPairTopics(a.id, b.id, lines)
     this.activeChats.push({
       npcA: a,
       npcB: b,

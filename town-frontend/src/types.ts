@@ -39,6 +39,8 @@ export interface NPCConfig {
   modelTransform?: { scale: number; rotationX: number; rotationY: number; rotationZ: number; offsetX: number; offsetY: number; offsetZ: number }
   animMapping?: Partial<Record<string, string>>
   animFileUrls?: string[]
+  /** Issue 2: citizen occupation/specialty for display in dropdown + tas-name. */
+  specialty?: string
 }
 
 export type NPCState =
@@ -256,6 +258,7 @@ export type ActivityAction =
   | 'chatted' | 'went_home' | 'woke_up'
   | 'summoned' | 'assigned_task' | 'started_working'
   | 'completed_task' | 'celebrating' | 'returned_from_work'
+  | 'need_urgent' | 'need_satisfied' | 'mood_changed' | 'went_indoor' | 'left_indoor'
 
 export interface ActivityEntry {
   time: string
@@ -368,6 +371,14 @@ export interface DialogMessage {
   from: string
   text: string
   timestamp: number
+  /** Issue 4: target NPC id for user messages (so the NPC card can filter per-citizen). */
+  targetNpcId?: string
+  /** Issue 3: usage info for assistant messages (mirrors ChatView display). */
+  usage?: { input: number; output: number; totalTokens?: number; reasoningTokens?: number; cacheRead?: number; cacheWrite?: number }
+  /** Issue 3: model id used for this assistant response. */
+  model?: string
+  /** Issue 3: context info { used, limit, percent } for assistant messages. */
+  contextInfo?: { used: number; limit: number; percent: number }
 }
 
 export const MOCK_REPLIES: Record<string, string[]> = {

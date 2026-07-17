@@ -548,6 +548,7 @@ export class NPC {
 
   moveTo(target: { x: number; z: number }, speed?: number): Promise<'arrived' | 'interrupted'> {
     return new Promise<'arrived' | 'interrupted'>((resolve) => {
+      // Interrupt any in-progress move first
       if (this.moveResolve) {
         this.finishMove('interrupted')
       }
@@ -556,10 +557,28 @@ export class NPC {
       this.speed = speed ?? 3
       this.targetPos = new THREE.Vector3(target.x, 0, target.z)
 
-      if (this.npcState !== 'idle' && this.npcState !== 'walking') {
-        this.transitionTo('idle')
+      // Force transition to walking regardless of current state.
+      // transitionTo only allows walking from idle/working, so we may need
+      // to reset to idle first. If that also fails (e.g. from celebrating),
+      // directly set the state to ensure walk animation plays during movement.
+      const currentState: NpcState | string = this.npcState
+      if (currentState !== 'walking') {
+        if (currentState !== 'idle') {
+          // Try idle first (allowed from most states)
+          if (!this.transitionTo('idle')) {
+            // Force-set state if transition table rejects (e.g. celebrating→idle)
+            this.npcState = 'idle'
+            this.state = 'idle'
+          }
+        }
+        this.transitionTo('walking')
+        // Safety: if transitionTo('walking') somehow failed, force it
+        if (this.npcState !== 'walking') {
+          this.npcState = 'walking'
+          this.state = 'walking'
+          this.playAnimInternal('walk')
+        }
       }
-      this.transitionTo('walking')
     })
   }
 
@@ -612,6 +631,17 @@ export class NPC {
     }
 
     if (this.targetPos && this.isMoving) {
+      // Safety: ensure walk animation is playing while moving.
+      // Other systems may have changed npcState during movement.
+      const moveState: NpcState | string = this.npcState
+      if (moveState !== 'walking') {
+        this.transitionTo('walking')
+        if (this.npcState !== 'walking') {
+          this.npcState = 'walking'
+          this.state = 'walking'
+          this.playAnimInternal('walk')
+        }
+      }
       const current = this.mesh.position
       const dx = this.targetPos.x - current.x
       const dz = this.targetPos.z - current.z

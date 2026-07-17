@@ -31,6 +31,8 @@ export interface SceneBootstrapDeps {
 export interface AgentConfigEntry {
   agentEnabled: boolean
   agentId?: string
+  /** Issue 6: LLM model ref for this citizen (for tas-model display on switch). */
+  modelRef?: string
 }
 
 export class SceneBootstrap {
@@ -75,6 +77,7 @@ export class SceneBootstrap {
         this._agentConfigMap.set(ch.id, {
           agentEnabled: !!ch.agentEnabled,
           agentId: ch.agentId,
+          modelRef: ch.modelRef,
         })
       }
     }

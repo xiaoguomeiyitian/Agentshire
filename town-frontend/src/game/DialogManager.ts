@@ -15,6 +15,11 @@ export interface DialogManagerDeps {
 export class DialogManager {
   private streamBuffers = new Map<string, string>()
   private streamBubbleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Issue 1: track recently flushed streams to prevent duplicate final messages.
+  // When the 5s timeout fires before the final `text` event, the buffer is flushed
+  // (adding a chat message). The later `text` event would then add a duplicate.
+  // We record the flushed text + timestamp so the final event can deduplicate.
+  private recentlyFlushed = new Map<string, { text: string; ts: number }>()
   private workLogs = new Map<string, Array<{ type: 'activity' | 'thinking'; icon: string; message: string; time?: string; status?: boolean | null }>>()
 
   private bubbles: ChatBubbleSystem
@@ -53,9 +58,15 @@ export class DialogManager {
       if (hadStream) {
         this.flushStream(npcId)
       } else {
-        if (npc) this.bubbles.show(npc.mesh, text, getBubbleDurationMs(text, 'npc'))
-        const displayName = npc?.label ?? npcId
-        this.ui.addChatMessage({ from: displayName, text, timestamp: Date.now() })
+        // Issue 1: deduplicate — if this final text was already flushed by the
+        // 5s timeout timer, skip adding a duplicate chat message.
+        const recent = this.recentlyFlushed.get(npcId)
+        const isDup = recent && recent.text === text && (Date.now() - recent.ts) < 15_000
+        if (!isDup) {
+          if (npc) this.bubbles.show(npc.mesh, text, getBubbleDurationMs(text, 'npc'))
+          const displayName = npc?.label ?? npcId
+          this.ui.addChatMessage({ from: displayName, text, timestamp: Date.now() })
+        }
       }
     }
   }
@@ -75,6 +86,8 @@ export class DialogManager {
       if (npc) this.bubbles.endStream(npc.mesh)
       const displayName = npc?.label ?? npcId
       this.ui.addChatMessage({ from: displayName, text, timestamp: Date.now() })
+      // Issue 1: record the flushed text so the final `text` event can deduplicate
+      this.recentlyFlushed.set(npcId, { text, ts: Date.now() })
       this.streamBuffers.delete(npcId)
     }
     this.streamBubbleTimers.delete(npcId)

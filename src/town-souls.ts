@@ -49,7 +49,8 @@ function getSoulDirs(cwd?: string): SoulDir[] {
     dirs.push({ path: resolve(base, '.openclaw', 'town-souls'), source: 'user' });
   }
   dirs.push({ path: getTownDataSoulsDir(), source: 'user' });
-  return dirs;
+  // Filter out non-existent directories to avoid ENOENT warnings during readdirSync
+  return dirs.filter(d => existsSync(d.path));
 }
 
 function resolveSoulFile(soulId?: string, cwd?: string): { file: string; source: 'system' | 'user' } | undefined {

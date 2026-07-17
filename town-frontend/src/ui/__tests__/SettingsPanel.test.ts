@@ -19,13 +19,13 @@ describe('SettingsPanel', () => {
   describe('loadSettings', () => {
     it('returns defaults when no stored settings', () => {
       const s = loadSettings()
-      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, autoWalk: true })
+      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, animalMode: true })
     })
 
     it('returns defaults when stored value is invalid JSON', () => {
       mockLocalStorage['agentshire_settings'] = '{invalid'
       const s = loadSettings()
-      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, autoWalk: true })
+      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, animalMode: true })
     })
 
     it('loads music=false from storage', () => {
@@ -46,18 +46,6 @@ describe('SettingsPanel', () => {
       expect(s.soulMode).toBe(false)
     })
 
-    it('loads autoWalk=false from storage', () => {
-      mockLocalStorage['agentshire_settings'] = JSON.stringify({ autoWalk: false })
-      const s = loadSettings()
-      expect(s.autoWalk).toBe(false)
-    })
-
-    it('treats autoWalk=undefined as true (default)', () => {
-      mockLocalStorage['agentshire_settings'] = JSON.stringify({ language: 'en' })
-      const s = loadSettings()
-      expect(s.autoWalk).toBe(true)
-    })
-
     it('loads language from storage', () => {
       mockLocalStorage['agentshire_settings'] = JSON.stringify({ language: 'en' })
       const s = loadSettings()
@@ -73,14 +61,14 @@ describe('SettingsPanel', () => {
 
   describe('saveSettings', () => {
     it('persists settings to localStorage', () => {
-      saveSettings({ language: 'en', music: false, soulMode: true, autoWalk: true })
+      saveSettings({ language: 'en', music: false, soulMode: true, animalMode: false })
       const raw = mockLocalStorage['agentshire_settings']
       expect(raw).toBeDefined()
-      expect(JSON.parse(raw!)).toEqual({ language: 'en', music: false, soulMode: true, autoWalk: true })
+      expect(JSON.parse(raw!)).toEqual({ language: 'en', music: false, soulMode: true, animalMode: false })
     })
 
     it('round-trips through loadSettings', () => {
-      const original = { language: 'zh-CN', music: false, soulMode: false, autoWalk: false }
+      const original = { language: 'zh-CN', music: false, soulMode: false, animalMode: false }
       saveSettings(original)
       const loaded = loadSettings()
       expect(loaded).toEqual(original)
