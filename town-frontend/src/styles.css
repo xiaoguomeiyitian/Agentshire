@@ -1,4 +1,23 @@
 @import "tailwindcss";
+
+/*
+ * Tailwind v4 默认扫描整个项目根目录,会把 editor/、game/ 等不用 Tailwind 的
+ * 文件也扫一遍,拖慢构建并可能误生成少量 CSS。这里用 @source 显式约束扫描范围,
+ * 只覆盖 town 页实际使用 Tailwind 工具类的目录:
+ *   - ./app      React ChatUI(TopNav / ChatView 等被 town 页复用)
+ *   - ./ui       InputBar / CoverTemplates / ChatPanel 等含 Tailwind 类
+ *   - ./styles   本目录下的 CSS 也可能含 @apply
+ *   - ../index.html、../town.html  入口 HTML 的内联 class
+ *
+ * 注意:editor/ 目录用纯手写 CSS(editor.css 无 @import "tailwindcss"),不扫描;
+ *       game/、npc/ 的 3D 代码基本不用 Tailwind 工具类,不扫描。
+ */
+@source "./app";
+@source "./ui";
+@source "./styles";
+@source "../index.html";
+@source "../town.html";
+
 @import "./styles/layout.css";
 @import "./styles/chat.css";
 @import "./styles/npc-card.css";

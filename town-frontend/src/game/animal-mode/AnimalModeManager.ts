@@ -32,6 +32,7 @@ import { MoveEngine } from './MoveEngine'
 import type { MemoryEventReporter } from './MemoryStore'
 import type { GameClock } from '../GameClock'
 import type { TimePeriod } from '../../types'
+import { BUILDING_REGISTRY } from '../../types'
 import type { IWorldDataSource } from '../../data/IWorldDataSource'
 
 export interface AnimalModeConfig {
@@ -68,6 +69,8 @@ export class AnimalModeManager {
   private clockReportTimer: number | null = null
   private snapshotReportTimer: number | null = null
   private l2DecisionTimer: number | null = null
+  /** Issue 7: when true, L2 autonomous LLM decisions are suspended (steward task in progress). */
+  private l2Paused = false
 
   // Injected deps for AutonomyEngine (set via setExternalDeps)
   private externalDeps: Partial<AutonomyDeps> = {}
@@ -133,9 +136,20 @@ export class AnimalModeManager {
       getHomeBuilding: (npcId) => this.homeBuildings.get(npcId) ?? null,
       getCurrentPlan: this.externalDeps.getCurrentPlan ?? (() => null),
       onAction: (npcId, action) => this.executeAction(npcId, action),
+      // Inject memory + relationship accessors for context-aware decisions
+      getRecentMemories: (npcId, limit = 5) => {
+        const dialogues = this.memoryStore.getDialogues(npcId, undefined, limit)
+          .map((d) => `和${d.partnerName}聊过：${d.summary}`)
+        const activities = this.memoryStore.getActivities(npcId, limit)
+          .map((a) => `${a.action}（${a.location}${a.detail ? `·${a.detail}` : ''}）`)
+        return [...dialogues, ...activities].slice(-limit)
+      },
+      getRelationships: (npcId, limit = 3) => {
+        return this.relationshipEngine.getTopRelationships(npcId, limit)
+      },
     }
     this.autonomyEngine = new AutonomyEngine(deps)
-    console.log('[AnimalMode] AutonomyEngine built with deps')
+    console.log('[AnimalMode] AutonomyEngine built with deps (memories + relationships injected)')
   }
 
   /** Execute an AutonomyAction (called by AutonomyEngine via onAction callback). */
@@ -208,6 +222,11 @@ export class AnimalModeManager {
   /** Run L2 tactical decisions for all citizens that are due. */
   private async runL2Decisions(): Promise<void> {
     if (!this.enabled || !this.autonomyEngine) return
+    // Issue 7: when the steward has summoned citizens for a task, suspend L2
+    // autonomous LLM decisions until the workflow completes. This stops
+    // citizens from making autonomous decisions (and calling the LLM) while
+    // they are supposed to be working on the steward's task.
+    if (this.l2Paused) return
     const now = Date.now()
     // Collect all due citizens first, then run decisions in parallel
     const dueCitizens: string[] = []
@@ -261,6 +280,8 @@ export class AnimalModeManager {
       clearInterval(this.l2DecisionTimer)
       this.l2DecisionTimer = null
     }
+    // Issue 7: reset L2 pause flag so a fresh enable() starts unpaused.
+    this.l2Paused = false
     // Clear plugin-side memories
     this.dataSource?.sendAction({ type: 'animal_memory_clear_all' } as any)
   }
@@ -269,6 +290,35 @@ export class AnimalModeManager {
   async setEnabled(enabled: boolean, citizenIds: string[], gameClock?: GameClock): Promise<void> {
     if (enabled) await this.enable(citizenIds, gameClock)
     else this.disable()
+  }
+
+  /**
+   * Issue 7: Pause L2 autonomous LLM decisions (called when the steward
+   * summons citizens for a task). Needs/mood engines keep running so citizens
+   * still have live state, but no new LLM autonomy_decide calls are made.
+   */
+  pauseL2Decisions(): void {
+    if (!this.enabled || this.l2Paused) return
+    this.l2Paused = true
+    console.log('[AnimalMode] L2 decisions paused (steward task in progress)')
+  }
+
+  /**
+   * Issue 7: Resume L2 autonomous LLM decisions (called when the workflow
+   * returns to idle). Resets decision timers so citizens don't immediately
+   * fire a burst of decisions after a long pause.
+   */
+  resumeL2Decisions(): void {
+    if (!this.enabled || !this.l2Paused) return
+    this.l2Paused = false
+    // Reset decision timers so citizens don't all fire at once after resuming.
+    this.autonomyEngine?.clear()
+    console.log('[AnimalMode] L2 decisions resumed')
+  }
+
+  /** Issue 7: is L2 currently paused? */
+  isL2Paused(): boolean {
+    return this.l2Paused
   }
 
   /**
@@ -302,6 +352,43 @@ export class AnimalModeManager {
     if (deltaHours >= 0.1) {
       this.needsEngine.tick(deltaHours)
       this.lastTickHour = currentHour
+      // Issue 6: citizens at home slowly recover all needs (rest, eat, clean).
+      // Being home is a restorative state — hunger, fatigue, hygiene, safety
+      // all improve passively while indoors.
+      // Issue 2: citizens in commercial buildings (cafe/market) also recover
+      // hunger (and a bit of social/fun) while inside.
+      for (const npcId of this.needsEngine.getCitizens()) {
+        if (this.indoorTracker.isIndoor(npcId)) {
+          const indoorLoc = this.indoorTracker.getIndoorLocation(npcId)
+          const homeKey = this.homeBuildings.get(npcId)
+          // At own home: full recovery (rest, eat, clean, safety)
+          if (indoorLoc && indoorLoc === homeKey) {
+            this.needsEngine.satisfy(npcId, 'fatigue', deltaHours * 12)
+            this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 8)
+            this.needsEngine.satisfy(npcId, 'hygiene', deltaHours * 10)
+            this.needsEngine.satisfy(npcId, 'safety', deltaHours * 8)
+          } else {
+            // Check if inside a commercial building (cafe/market)
+            const indoorBuilding = BUILDING_REGISTRY.find((b) => b.key === indoorLoc)
+            if (indoorBuilding && indoorBuilding.category === 'commercial') {
+              // Issue 2: cafe/market recovery — hunger (eating), social, fun
+              if (indoorBuilding.tag === 'cafe') {
+                this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 10)
+                this.needsEngine.satisfy(npcId, 'social', deltaHours * 4)
+                this.needsEngine.satisfy(npcId, 'fun', deltaHours * 3)
+              } else if (indoorBuilding.tag === 'market') {
+                this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 7)
+                this.needsEngine.satisfy(npcId, 'fun', deltaHours * 3)
+              }
+            } else {
+              // Visiting another citizen's home: partial recovery (eat, rest)
+              this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 6)
+              this.needsEngine.satisfy(npcId, 'fatigue', deltaHours * 5)
+              this.needsEngine.satisfy(npcId, 'safety', deltaHours * 5)
+            }
+          }
+        }
+      }
       // Log every game-hour change (sample first citizen)
       const firstId = this.needsEngine ? (this as any).needsEngine.needs.keys().next().value : null
       if (firstId) {

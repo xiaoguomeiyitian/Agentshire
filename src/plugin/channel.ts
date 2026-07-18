@@ -23,7 +23,7 @@ export function buildTownInboundContext(params: {
   accountId?: string;
   mediaPaths?: string[];
 }): ReturnType<typeof buildChannelInboundEventContext> {
-  const { rt, body, from, to, sessionKey, accountId, mediaPaths } = params;
+  const { body, from, to, sessionKey, accountId, mediaPaths } = params;
 
   // Extract agentId from sessionKey (format: "agent:<agentId>:<rest>")
   // or default to "town-steward" for direct steward sessions.
@@ -236,19 +236,22 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
       const pluginDir = join(fileURLToPath(import.meta.url), "..", "..", "..");
       const customAssetManager = new CustomAssetManager(pluginDir);
 
-      const { chat: llmChat } = await import("./llm-agent-proxy.js");
-
       startTownWsServer({
         port: account.wsPort,
         customAssetManager,
         onImplicitChat: async (payload) => {
           // Use the standard OpenClaw reply dispatch chain (same as citizen chat)
           // so LLM request format/parameters are identical to chat interface calls.
-          const { system, user, maxTokens, temperature, stop, agentId } = payload;
+          const { system, user, agentId } = payload;
 
-          // Build a unique implicit session key to avoid polluting chat sessions
+          // Use a stable implicit session key per citizen so L2 decisions reuse
+          // the same session (preserving memory across decisions). The ":implicit:"
+          // prefix isolates these from user-visible chat and group chat sessions.
           const implicitAgentId = agentId ?? "town-steward";
-          const implicitSessionKey = `agent:${implicitAgentId}:implicit:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+          // Stable per-citizen implicit session key: L2 autonomy decisions reuse
+          // the same session (preserving memory across decisions). The ":implicit:"
+          // prefix isolates these from user-visible chat and group chat sessions.
+          const implicitSessionKey = `agent:${implicitAgentId}:implicit:default`;
 
           // Compose the message body: system prompt is prepended as instructions,
           // user prompt is the actual query. This mirrors how the agent receives

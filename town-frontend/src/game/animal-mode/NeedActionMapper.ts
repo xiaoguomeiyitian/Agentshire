@@ -120,11 +120,14 @@ export class NeedActionMapper {
     // For other tags (cafe/museum/office), find a building with that tag
     const building = BUILDING_REGISTRY.find((b) => b.tag === tag)
     if (!building) return null
+    // Issue 2: cafe/market also use IndoorTracker so citizens recover needs
+    // while inside (hunger at cafe, fun at museum, esteem at office).
+    const isCommercial = building.category === 'commercial'
     return {
       need,
       targetPlace: building.key,
       anim: NEED_ANIM[need],
-      goIndoor: false, // public buildings -> stay visible
+      goIndoor: isCommercial, // commercial buildings -> become invisible + recover
       satisfyAmount: NEED_SATISFY_AMOUNT[need],
       satisfyDurationMs: NEED_DURATION_MS[need],
       label: NEED_LABEL_ZH[need],

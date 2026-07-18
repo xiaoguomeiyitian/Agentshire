@@ -1120,7 +1120,6 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
           )}
           {activeSection === 'sessions' && (
             <SessionsPanel
-              sessions={sessions}
               totals={totals}
               sessionsByAgent={sessionsByAgent}
               expandedAgents={expandedAgents}
@@ -1427,10 +1426,9 @@ function PluginPanel({
 // ── Sessions panel ──
 
 function SessionsPanel({
-  sessions, totals, sessionsByAgent, expandedAgents, toggleAgent,
+  totals, sessionsByAgent, expandedAgents, toggleAgent,
   clearing, clearConfirm, setClearConfirm, onClear, clearResult, onDeleteSession,
 }: {
-  sessions: SessionSummary[]
   totals: SessionTotals | null
   sessionsByAgent: Record<string, SessionSummary[]>
   expandedAgents: Set<string>

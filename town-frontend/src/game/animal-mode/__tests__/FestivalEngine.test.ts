@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { FestivalEngine, type FestivalType } from '../FestivalEngine'
+import { FestivalEngine } from '../FestivalEngine'
 import { IndoorTracker } from '../IndoorTracker'
 
 describe('FestivalEngine', () => {

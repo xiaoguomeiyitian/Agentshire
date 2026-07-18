@@ -53,7 +53,6 @@ export class AmbientSoundManager {
 
   private noiseBuffers: { white: AudioBuffer; pink: AudioBuffer; brown: AudioBuffer } | null = null
 
-  private currentWeather: WeatherType = 'clear'
   private currentPeriod: TimePeriod = 'morning'
   private enabled = true
   private _volume = 0.5
@@ -301,7 +300,6 @@ export class AmbientSoundManager {
 
     if (!this.masterGain) return
 
-    this.currentWeather = weather
     this.currentPeriod = period
 
     const isDay = period === 'morning' || period === 'noon' || period === 'afternoon'

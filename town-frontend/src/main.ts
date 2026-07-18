@@ -203,8 +203,6 @@ const syncTownSessionUrl = (townSessionId: string) => {
         ? payload.messages.filter((msg) => msg?.role === 'assistant')
         : []
       // Issue 1: get existing chat messages to deduplicate against the live stream path
-      const npc = scene.getNpcManager().get(payload.npcId)
-      const displayName = npc?.label ?? payload.npcId
       const existingMsgs = scene.getUIManager().getChatPanel().getChatMessages()
       const existingTexts = new Set(existingMsgs.map(m => m.text))
 
@@ -421,7 +419,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
       onGameEvent(_handler: (e: any) => void) {},
       sendAction(action: any) {
         if (action.type === 'user_message') {
-          director.onUserMessage(action.text)
+          // Note: user bubble + chat message are added by InputBar.onUserMessage → scene.showUserBubble.
+          // Do NOT call director.onUserMessage here — it emits a duplicate `dialog_message` (npcId='user')
+          // which DialogManager would render as a second chat entry (issue: duplicate "你好").
           const targetId = action.targetNpcId ?? 'steward'
           if (targetId !== 'steward') {
             wsSend({ type: 'citizen_chat', npcId: targetId, message: action.text })
@@ -536,36 +536,6 @@ const syncTownSessionUrl = (townSessionId: string) => {
   }
   let groupChatState: GroupChatState | null = null
 
-  const getMentionableCitizens = () => {
-    if (!groupChatState) return []
-    return groupChatState.participants.map(p => ({
-      npcId: p.npcId,
-      name: p.name,
-      specialty: p.specialty,
-      color: p.color,
-      avatarUrl: p.avatarUrl,
-    }))
-  }
-
-  const switchToGroupChat = () => {
-    if (!groupChatState) return
-    scene.getUIManager().getChatPanel().switchView('group')
-    inputBar.setGroupMode(true, getMentionableCitizens())
-    // Register participants for avatar rendering
-    for (const p of groupChatState.participants) {
-      scene.getUIManager().getChatPanel().registerGroupParticipant(p)
-    }
-    const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
-    if (textarea) textarea.placeholder = t('input.group')
-  }
-
-  const switchToSingleChat = () => {
-    scene.getUIManager().getChatPanel().switchView('single')
-    inputBar.setGroupMode(false)
-    const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
-    if (textarea) textarea.placeholder = t('input.idle')
-  }
-
   const inputBar = new InputBar({
     send: (msg) => {
       if (groupChatState?.active && msg.type === 'chat') {
@@ -605,8 +575,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
   // ── "End topic" button ──
   const endTopicBtn = document.getElementById('town-end-topic-btn')
 
-  const showEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = '' }
-  const hideEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = 'none' }
+  let showEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = '' }
+  let hideEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = 'none' }
 
   endTopicBtn?.addEventListener('click', () => {
     scene.getUIManager().showEndTopicConfirm()
@@ -741,10 +711,6 @@ const syncTownSessionUrl = (townSessionId: string) => {
       return
     }
 
-    // Get group chat messages from ChatPanel
-    const chatPanel = scene.getUIManager().getChatPanel()
-    const groupMessages = chatPanel.getGroupChatMessages()
-
     // Remove existing panel
     const existing = document.getElementById('topic-detail-panel')
     if (existing) existing.remove()
@@ -764,19 +730,28 @@ const syncTownSessionUrl = (townSessionId: string) => {
     const closeBtn = document.createElement('button')
     closeBtn.className = 'tdp-close'
     closeBtn.textContent = '✕'
-    closeBtn.onclick = () => panel.remove()
     header.appendChild(closeBtn)
     inner.appendChild(header)
 
     const body = document.createElement('div')
     body.className = 'tdp-body'
+    inner.appendChild(body)
 
-    if (groupMessages.length === 0) {
-      const empty = document.createElement('div')
-      empty.className = 'tdp-empty'
-      empty.textContent = t('topic_detail.empty')
-      body.appendChild(empty)
-    } else {
+    // Issue 5: render messages grouped by speaker. Returns the count so the
+    // caller can detect new messages and re-render + scroll to bottom.
+    const renderMessages = (): number => {
+      const chatPanel = scene.getUIManager().getChatPanel()
+      const groupMessages = chatPanel.getGroupChatMessages()
+      body.innerHTML = ''
+
+      if (groupMessages.length === 0) {
+        const empty = document.createElement('div')
+        empty.className = 'tdp-empty'
+        empty.textContent = t('topic_detail.empty')
+        body.appendChild(empty)
+        return 0
+      }
+
       // Group messages by speaker
       const bySpeaker = new Map<string, Array<{ text: string; timestamp: number }>>()
       const speakerOrder: string[] = []
@@ -818,16 +793,40 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
         body.appendChild(group)
       }
+      return groupMessages.length
     }
 
-    inner.appendChild(body)
+    let lastCount = renderMessages()
+    // Scroll to bottom on initial open
+    requestAnimationFrame(() => { body.scrollTop = body.scrollHeight })
+
     panel.appendChild(inner)
     document.body.appendChild(panel)
 
-    // Close on outside click
-    panel.addEventListener('click', (e) => {
-      if (e.target === panel) panel.remove()
-    })
+    // Issue 5: poll for new messages every 1s; re-render + scroll to bottom
+    // when new messages arrive so the topic list stays fresh.
+    const pollTimer = setInterval(() => {
+      if (!document.body.contains(panel)) {
+        clearInterval(pollTimer)
+        return
+      }
+      const chatPanel = scene.getUIManager().getChatPanel()
+      const currentCount = chatPanel.getGroupChatMessages().length
+      if (currentCount !== lastCount) {
+        lastCount = renderMessages()
+        // Auto-scroll to bottom to show the latest messages
+        requestAnimationFrame(() => { body.scrollTop = body.scrollHeight })
+      }
+    }, 1000)
+
+    const cleanup = () => {
+      clearInterval(pollTimer)
+      panel.remove()
+    }
+    closeBtn.onclick = cleanup
+
+    // Issue 4: panel is now absolute-positioned (not full-screen overlay),
+    // so no outside-click-to-close. Close via the ✕ button only.
   }
 
   const openActionDropdown = () => {
@@ -853,8 +852,17 @@ const syncTownSessionUrl = (townSessionId: string) => {
         return
       }
 
+      // Issue 2: pause autonomy BEFORE showing the panel so citizens don't
+      // generate autonomous chat bubbles while the user is still selecting
+      // participants / composing the topic text.
+      scene.pauseTopicAutonomy()
+
       const result = await showTopicSetupPanel(citizens, (id) => !!scene.isNpcVisible(id))
-      if (!result || result.citizens.length < 2) return
+      if (!result || result.citizens.length < 2) {
+        // User cancelled or too few selected — resume autonomy
+        scene.resumeTopicAutonomy()
+        return
+      }
 
       const npcIds = result.citizens.map(c => c.id)
       topicState = { npcIds, phase: 'gathering' }
@@ -892,6 +900,56 @@ const syncTownSessionUrl = (townSessionId: string) => {
     })
     actionDropdown.appendChild(detailItem)
 
+    // ── Broadcast (send to all residents) ──
+    // Uses the group chat channel: a message with no @mention is dispatched to
+    // all enabled citizens, so it acts as a broadcast to everyone.
+    const broadcastItem = document.createElement('div')
+    broadcastItem.className = 'town-action-item'
+    const isBroadcast = !!groupChatState?.active
+    broadcastItem.textContent = isBroadcast ? t('menu.broadcast_active') : t('menu.broadcast')
+    broadcastItem.addEventListener('click', () => {
+      closeActionDropdown()
+      if (isBroadcast) {
+        // Exit broadcast mode
+        groupChatState = null
+        inputBar.setGroupMode(false)
+        const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+        if (textarea) textarea.placeholder = t('input.idle')
+        scene.getUIManager().clearChatTarget()
+        scene.getUIManager().showToast(t('menu.broadcast_active'))
+      } else {
+        // Enter broadcast mode — ensure group chat is initialized
+        if (!groupChatState) {
+          wsSend({ type: 'group_chat_init' })
+        }
+        // Activate group chat mode with all enabled citizens as mentionable
+        const citizens = scene.getAgentEnabledCitizens().map(c => ({
+          npcId: c.id, name: c.name, specialty: c.specialty,
+        }))
+        if (citizens.length === 0) {
+          scene.getUIManager().showToast('至少需要1位已开启 Agent 的居民')
+          return
+        }
+        if (!groupChatState) {
+          // group_chat_info hasn't arrived yet; create a minimal state so .active works
+          groupChatState = {
+            active: true,
+            groupId: 'town-square',
+            groupName: t('menu.broadcast'),
+            participants: citizens,
+          }
+        } else {
+          groupChatState.active = true
+          groupChatState.participants = citizens
+        }
+        inputBar.setGroupMode(true, citizens)
+        const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+        if (textarea) textarea.placeholder = t('input.broadcast')
+        scene.getUIManager().showToast(t('menu.broadcast'))
+      }
+    })
+    actionDropdown.appendChild(broadcastItem)
+
     // ── Topic detail (only when topic is active) ──
     if (isTopic && topicState?.phase === 'active') {
       const topicDetailItem = document.createElement('div')
@@ -907,6 +965,124 @@ const syncTownSessionUrl = (townSessionId: string) => {
     actionDropdown.style.display = 'block'
     dropdownOpen = true
   }
+
+  // Issue 6: quick action bar — always-visible buttons above the input bar.
+  // Renders the same actions as the "More" dropdown but as inline buttons
+  // so the user can click them directly without opening the dropdown.
+  const quickActionsEl = document.getElementById('town-quick-actions')
+  const refreshQuickActions = () => {
+    if (!quickActionsEl) return
+    quickActionsEl.innerHTML = ''
+    const isWork = false
+    const isTopic = !!topicState
+
+    const makeBtn = (label: string, disabled: boolean, onClick: () => void): HTMLElement => {
+      const btn = document.createElement('button')
+      btn.className = 'town-quick-btn' + (disabled ? ' disabled' : '')
+      btn.textContent = label
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (disabled) return
+        onClick()
+      })
+      return btn
+    }
+
+    // Start topic
+    quickActionsEl.appendChild(makeBtn(t('menu.start_topic'), isWork || isTopic, async () => {
+      const { showTopicSetupPanel } = await import('./ui/TopicSetupPanel')
+      const citizens = scene.getAgentEnabledCitizens()
+      if (citizens.length < 2) {
+        scene.getUIManager().showToast('至少需要2位已开启 Agent 的居民')
+        return
+      }
+      scene.pauseTopicAutonomy()
+      const result = await showTopicSetupPanel(citizens, (id) => !!scene.isNpcVisible(id))
+      if (!result || result.citizens.length < 2) {
+        scene.resumeTopicAutonomy()
+        return
+      }
+      const npcIds = result.citizens.map(c => c.id)
+      topicState = { npcIds, phase: 'gathering' }
+      const npcConfigs = result.citizens.map(c => ({
+        id: c.id, name: c.name, color: c.color,
+        spawn: { x: 0, y: 0, z: 0 }, role: 'worker' as const,
+        characterKey: c.characterKey, avatarUrl: c.avatarUrl,
+      }))
+      scene.getUIManager().updateTopicIndicator(npcConfigs)
+      inputBar.setBusy(true)
+      const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+      if (textarea) textarea.placeholder = t('input.gathering')
+      wsSend({ type: 'topic_start', npcIds })
+      await scene.gatherForTopic(npcIds)
+      if (!topicState) return
+      topicState.phase = 'active'
+      inputBar.setBusy(false)
+      if (textarea) textarea.placeholder = t('input.topic')
+      showEndTopicBtn()
+      refreshQuickActions()
+    }))
+
+    // Citizen detail
+    quickActionsEl.appendChild(makeBtn(t('menu.citizen_detail'), false, () => {
+      scene.showCurrentTargetDetail()
+    }))
+
+    // Broadcast
+    const isBroadcast = !!groupChatState?.active
+    quickActionsEl.appendChild(makeBtn(
+      isBroadcast ? t('menu.broadcast_active') : t('menu.broadcast'),
+      false,
+      () => {
+        if (isBroadcast) {
+          groupChatState = null
+          inputBar.setGroupMode(false)
+          const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+          if (textarea) textarea.placeholder = t('input.idle')
+          scene.getUIManager().clearChatTarget()
+          scene.getUIManager().showToast(t('menu.broadcast_active'))
+        } else {
+          if (!groupChatState) wsSend({ type: 'group_chat_init' })
+          const citizens = scene.getAgentEnabledCitizens().map(c => ({
+            npcId: c.id, name: c.name, specialty: c.specialty,
+          }))
+          if (citizens.length === 0) {
+            scene.getUIManager().showToast('至少需要1位已开启 Agent 的居民')
+            return
+          }
+          if (!groupChatState) {
+            groupChatState = {
+              active: true,
+              groupId: 'town-square',
+              groupName: t('menu.broadcast'),
+              participants: citizens,
+            }
+          } else {
+            groupChatState.active = true
+            groupChatState.participants = citizens
+          }
+          inputBar.setGroupMode(true, citizens)
+          const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+          if (textarea) textarea.placeholder = t('input.broadcast')
+          scene.getUIManager().showToast(t('menu.broadcast'))
+        }
+        refreshQuickActions()
+      },
+    ))
+
+    // Topic detail (only when topic is active)
+    if (isTopic && topicState?.phase === 'active') {
+      quickActionsEl.appendChild(makeBtn(t('menu.topic_detail'), false, () => {
+        showTopicDetailPanel()
+      }))
+    }
+  }
+  refreshQuickActions()
+  // Re-render quick actions when topic state changes
+  const _origShowEndTopicBtn = showEndTopicBtn
+  showEndTopicBtn = () => { _origShowEndTopicBtn(); refreshQuickActions() }
+  const _origHideEndTopicBtn = hideEndTopicBtn
+  hideEndTopicBtn = () => { _origHideEndTopicBtn(); refreshQuickActions() }
 
   moreBtn?.addEventListener('click', (e) => {
     e.stopPropagation()

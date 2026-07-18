@@ -63,6 +63,19 @@ export function showTopicSetupPanel(
       gatherBtn.textContent = selected.size > 0
         ? t('topic.gather_n', { n: String(selected.size) })
         : t('topic.gather')
+      // Update select-all checkbox state
+      const availableCount = citizens.filter(c => c.spawned !== false).length
+      if (selectAllCheck) {
+        if (selected.size === 0) {
+          selectAllCheck.classList.remove('checked', 'partial')
+        } else if (selected.size === availableCount) {
+          selectAllCheck.classList.add('checked')
+          selectAllCheck.classList.remove('partial')
+        } else {
+          selectAllCheck.classList.add('partial')
+          selectAllCheck.classList.remove('checked')
+        }
+      }
     }
 
     const onRowClick = (c: TopicCitizen, row: HTMLElement) => {
@@ -76,6 +89,37 @@ export function showTopicSetupPanel(
       }
       updateBtn()
     }
+
+    // ── Select-all row ──
+    const selectAllRow = document.createElement('div')
+    selectAllRow.className = 'topic-citizen-row topic-select-all-row'
+    const selectAllCheck = document.createElement('span')
+    selectAllCheck.className = 'topic-citizen-check'
+    selectAllCheck.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#050508" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    selectAllRow.appendChild(selectAllCheck)
+    const selectAllLabel = document.createElement('span')
+    selectAllLabel.className = 'topic-citizen-name'
+    selectAllLabel.textContent = t('topic.select_all')
+    selectAllRow.appendChild(selectAllLabel)
+    selectAllRow.addEventListener('click', () => {
+      const available = citizens.filter(c => c.spawned !== false)
+      const allSelected = available.every(c => selected.has(c.id))
+      if (allSelected) {
+        // Deselect all
+        for (const c of available) {
+          selected.delete(c.id)
+          rowMap.get(c.id)?.classList.remove('selected')
+        }
+      } else {
+        // Select all available
+        for (const c of available) {
+          selected.add(c.id)
+          rowMap.get(c.id)?.classList.add('selected')
+        }
+      }
+      updateBtn()
+    })
+    list.appendChild(selectAllRow)
 
     for (const c of citizens) {
       const isAvailable = c.spawned !== false

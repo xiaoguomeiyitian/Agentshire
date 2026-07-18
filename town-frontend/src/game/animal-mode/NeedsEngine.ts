@@ -48,7 +48,9 @@ const DEFAULT_NEEDS: Record<NeedKey, Omit<NeedState, 'key'>> = {
   hygiene:   { value: 85, threshold: 20, decayPerHour: 3 },
   safety:    { value: 95, threshold: 40, decayPerHour: 2 },
   esteem:    { value: 70, threshold: 30, decayPerHour: 3 },
-  belonging: { value: 65, threshold: 35, decayPerHour: 4 },
+  // Belonging decays slowly — it represents long-term community attachment,
+  // not a momentary urge. Only sustained isolation or conflict should erode it.
+  belonging: { value: 75, threshold: 25, decayPerHour: 1.5 },
 }
 
 const ALL_NEEDS: NeedKey[] = [
@@ -83,7 +85,7 @@ export class NeedsEngine {
 
   /** Advance needs by `gameHours` (game-time hours, not real seconds). */
   tick(gameHours: number): void {
-    for (const [npcId, needs] of this.needs) {
+    for (const [, needs] of this.needs) {
       for (const k of ALL_NEEDS) {
         const decay = this.config[k].decayPerHour * gameHours
         needs[k] = Math.max(0, needs[k] - decay)

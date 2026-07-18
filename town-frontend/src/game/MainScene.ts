@@ -29,7 +29,7 @@ import { TimeOfDayLighting } from './visual/TimeOfDayLighting'
 import { WeatherSystem } from './WeatherSystem'
 import { TimeHUD } from '../ui/TimeHUD'
 import { ModeIndicator } from '../ui/ModeIndicator'
-import { WAYPOINTS, updateWaypointsFromMapConfig, BUILDING_REGISTRY, getBuildingName, type SceneType, type NPCConfig } from '../types'
+import { WAYPOINTS, updateWaypointsFromMapConfig, BUILDING_REGISTRY, getBuildingName, getAreaName, MODEL_KEY_TO_ROLE, type SceneType, type NPCConfig } from '../types'
 import type { IWorldDataSource } from '../data/IWorldDataSource'
 import type { GameEvent, GameNPCRole } from '../data/GameProtocol'
 import { t } from '../i18n'
@@ -79,7 +79,6 @@ export class MainScene implements GameScene {
   private ambientSound = new AmbientSoundManager()
   private bgm = new BGMManager()
   private musicEnabled = true
-  private autoWalkEnabled = true
   private timeHUD!: TimeHUD
   private modeIndicator!: ModeIndicator
   private minigame: MinigameSlot | null = null
@@ -99,7 +98,10 @@ export class MainScene implements GameScene {
   private dialogTarget = 'steward'
   private followBehavior = new FollowBehavior()
   private playerMoveEnabled = true
-  private pendingDoorInteraction: { scene: SceneType; doorPos: THREE.Vector3 } | null = null
+  private pendingDoorInteraction: { scene: SceneType; doorPos: THREE.Vector3; virtualEnter?: { buildingName: string; buildingKey: string } } | null = null
+  /** Issue 2+4: virtual building entry state */
+  private isVirtualEnter = false
+  private virtualEnterPos = { x: 0, z: 0 }
   private postTownReturnDebugFrames = 0
 
   private skillLearnCard: import('../ui/SkillLearnCard').SkillLearnCard | null = null
@@ -273,7 +275,12 @@ export class MainScene implements GameScene {
         if (event.gameUrl) window.open(apiUrl(event.gameUrl), '_blank', 'noopener')
       }
       if (event.type === 'back_town') {
-        this.switchScene('town')
+        // Issue 2+4: if in virtual building, exit it; otherwise switch scene
+        if (this.isVirtualEnter) {
+          void this.exitVirtualBuilding()
+        } else {
+          this.switchScene('town')
+        }
       }
       if (event.type === 'tab_change' && event.tab === 'world') this.bubbles.updateCamera(this.engine.camera)
       if (event.type === 'chat_with_citizen') {
@@ -371,9 +378,13 @@ export class MainScene implements GameScene {
           this.showCurrentTargetDetail()
         } else {
           this.ui.clearChatTarget()
-          // Issue 6: reset tas-model when disconnecting back to steward
+          // Issue 6: reset tas-model when disconnecting back to steward.
+          // Steward inherits the global default model — fetch it so the model id is shown.
           const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
-          if (tasModelEl) tasModelEl.textContent = ''
+          if (tasModelEl) {
+            tasModelEl.textContent = ''
+            void this.fetchAndUpdateModelDisplay('steward')
+          }
         }
       },
       // Issue 7: show "walking toward citizen" status while approaching
@@ -425,13 +436,21 @@ export class MainScene implements GameScene {
             avatarUrl: c.avatarUrl,
           }))
       },
+      isNpcOnMap: (npcId: string) => {
+        const npc = this.npcManager.get(npcId)
+        return !!npc && npc.mesh.visible
+      },
       onSwitchToSteward: () => {
         this.dialogTarget = 'steward'
         this.citizenChat.resetIdleTimer()
         this.ui.updateChatTargetIndicator(null, false)
-        // Issue 6: reset tas-model when switching back to steward
+        // Issue 6: reset tas-model when switching back to steward.
+        // Steward inherits the global default model — fetch it so the model id is shown.
         const tasModelEl = document.querySelector('.tas-model') as HTMLElement | null
-        if (tasModelEl) tasModelEl.textContent = ''
+        if (tasModelEl) {
+          tasModelEl.textContent = ''
+          void this.fetchAndUpdateModelDisplay('steward')
+        }
         // Issue 8: refresh NPC card panel
         this.showCurrentTargetDetail()
       },
@@ -610,7 +629,19 @@ export class MainScene implements GameScene {
         }
       },
       onSceneEdit: (event) => this.handleSceneEdit(event),
-      onWorkflowIntent: (_event) => { /* Choreographer removed */ },
+      onWorkflowIntent: (event) => {
+        // Issue 7: when the steward summons citizens for a task, suspend L2
+        // autonomous LLM decisions so citizens stop making their own choices
+        // (and calling the LLM) while the workflow is in progress. Resume
+        // when the workflow returns to idle (workflow_return).
+        if (!this.animalMode.isEnabled()) return
+        if (event.type === 'workflow_summon' || event.type === 'workflow_assign' ||
+            event.type === 'workflow_go_office' || event.type === 'workflow_publish') {
+          this.animalMode.pauseL2Decisions()
+        } else if (event.type === 'workflow_return') {
+          this.animalMode.resumeL2Decisions()
+        }
+      },
     })
   }
 
@@ -672,11 +703,8 @@ export class MainScene implements GameScene {
       this.bubbles.endStream(npc.mesh)
     })
     this.encounterManager.setJournalAccessor((id) => this.activityJournals.get(id))
-    this.encounterManager.setBehaviorAccessor((_id) => undefined)
     this.encounterManager.setPersonaStore(this.personaStore)
     this.encounterManager.setDialogueProvider(async (_opts) => {
-      // Dialogue provider previously delegated to DailyScheduler.dialogueProviderImpl.
-      // With DailyScheduler removed, return a fallback empty string.
       return ''
     })
     // Route all CasualEncounter bubbles through LLM (implicit chat)
@@ -720,7 +748,7 @@ export class MainScene implements GameScene {
 
     this.modeIndicator.setActionCallback(() => {
       const cur = this.currentSceneType
-      this.switchScene(cur === 'office' ? 'town' : 'office')
+      void this.switchScene(cur === 'office' ? 'town' : 'office')
     })
     this.syncTopHudLayout()
 
@@ -861,7 +889,14 @@ __workflow 演出测试指令:
       })
       const data = await resp.json()
       if (this.dialogTarget !== npcId) return // stale
-      const model = data?.agent?.model
+      // Prefer the agent's explicit model; fall back to the global default model
+      // (returned as `defaultModel`) so inherited models are still displayed.
+      // `agent.model` may be a string or { primary: "..." } — normalize it.
+      const rawModel = data?.agent?.model
+      const agentModel = typeof rawModel === 'string'
+        ? rawModel
+        : (rawModel && typeof rawModel === 'object' ? rawModel.primary : undefined)
+      const model = agentModel ?? data?.defaultModel
       tasModelEl.textContent = model || ''
     } catch {
       tasModelEl.textContent = ''
@@ -953,6 +988,20 @@ __workflow 演出测试指令:
           npcId: r.npcId, name: r.name, sentiment: r.sentiment,
           level: r.level, label: r.label, interactionCount: r.interactionCount,
         }))
+      } else if (config) {
+        // Issue 2: no interactions yet — show default values for all other
+        // citizens so the "关系" tab is never empty. Default sentiment is 0
+        // (neutral / acquaintance) with zero interaction count.
+        relationships = config.citizens
+          .filter(c => c.id !== targetId)
+          .map(c => ({
+            npcId: c.id,
+            name: c.name,
+            sentiment: 0,
+            level: 'acquaintance',
+            label: c.specialty ?? '',
+            interactionCount: 0,
+          }))
       }
     }
 
@@ -968,6 +1017,29 @@ __workflow 演出测试指令:
       (isUserMsg(m.from) && m.targetNpcId === targetId) ||
       m.from === npcLabel || m.from === npcName || m.from === targetId
     )
+
+    // Gather home building & current location for detail panel (issue 3)
+    let homeBuilding: string | null = null
+    let currentLocation: string | null = null
+    if (this.animalMode.isEnabled()) {
+      const homeKey = this.animalMode.getHomeBuilding(targetId)
+      if (homeKey) {
+        const bld = BUILDING_REGISTRY.find(b => b.key === homeKey)
+        homeBuilding = bld ? bld.name : homeKey
+      }
+      // Compute current location: building name if indoors, area name if outdoors
+      const indoor = this.animalMode.getIndoorTracker().getIndoorLocation(targetId)
+      if (indoor) {
+        const bld = BUILDING_REGISTRY.find(b => b.key === indoor)
+        currentLocation = bld ? bld.name : indoor
+      } else {
+        const npcPos = this.npcManager.get(targetId)
+        if (npcPos) {
+          const pos = npcPos.getPosition()
+          currentLocation = getAreaName(pos.x, pos.z)
+        }
+      }
+    }
 
     this.ui.showNPCCard({
       npc: {
@@ -995,6 +1067,8 @@ __workflow 演出测试指令:
         )
       },
       agentId: this.getAgentIdForNpc(targetId),
+      homeBuilding,
+      currentLocation,
     })
   }
 
@@ -1031,16 +1105,11 @@ __workflow 演出测试指令:
   }
 
   setSoulModeEnabled(_enabled: boolean): void {
-    // Soul mode previously toggled DailyScheduler.soulMode; DailyScheduler removed.
-  }
-
-  setAutoWalkEnabled(enabled: boolean): void {
-    this.autoWalkEnabled = enabled
-    // DailyBehavior auto-walk toggle removed; flag stored for future use.
   }
 
   setAnimalModeEnabled(enabled: boolean): void {
-    const citizenIds = this.npcManager.getWorkers().map((n) => n.id)
+    // Exclude the mayor (user) — player-controlled, no autonomous decisions.
+    const citizenIds = this.npcManager.getWorkers().map((n) => n.id).filter((id) => id !== 'user')
     console.log(`[MainScene] setAnimalModeEnabled(${enabled}) citizens=[${citizenIds.join(',')}]`)
     if (enabled) {
       // Inject deps for AutonomyEngine before enabling
@@ -1050,14 +1119,22 @@ __workflow 演出测试指令:
         getWeather: () => this.weatherSystem?.getDisplayWeather() ?? 'clear',
         getCurrentLocation: (npcId) => {
           const indoor = this.animalMode.getIndoorTracker().getIndoorLocation(npcId)
-          if (indoor) return indoor
+          if (indoor) {
+            // Return building display name when indoors
+            const bld = BUILDING_REGISTRY.find(b => b.key === indoor)
+            return bld ? bld.name : indoor
+          }
           const npc = this.npcManager.get(npcId)
           if (npc) {
             const pos = npc.getPosition()
-            return `(${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`
+            // Return area name (e.g. "西区", "广场") for outdoor positions
+            return getAreaName(pos.x, pos.z)
           }
           return '未知'
         },
+        // Issue 5: provide extra map info (sculptures / benches / props) so
+        // citizens can reason about every map location, building, and sculpture.
+        getMapInfo: () => this.buildExtraMapInfo(),
         getPersona: (npcId) => {
           const persona = this.personaStore.get(npcId)
           return persona?.coreSummary ?? '普通居民'
@@ -1068,19 +1145,84 @@ __workflow 演出测试指令:
         },
         onAction: (npcId, action) => this.executeAutonomyAction(npcId, action),
       })
-      // Set home buildings for citizens
+      // Set home buildings for citizens — spatially balanced allocation.
+      // Sort residential buildings by x coordinate, then alternate between
+      // west (low x) and east (high x) so citizens spread across the map
+      // instead of clustering on one side.
       const residentialBuildings = BUILDING_REGISTRY.filter(b => b.category === 'residential')
-      citizenIds.forEach((id, i) => {
-        if (residentialBuildings.length > 0) {
-          const home = residentialBuildings[i % residentialBuildings.length]
-          this.animalMode.setHomeBuilding(id, home.key)
+      if (residentialBuildings.length > 0) {
+        // Sort by x coordinate (west → east)
+        const sorted = [...residentialBuildings].sort((a, b) => {
+          const ax = WAYPOINTS[a.key]?.x ?? 0
+          const bx = WAYPOINTS[b.key]?.x ?? 0
+          return ax - bx
+        })
+        // Interleave: pick from west and east ends alternately
+        const allocated: typeof sorted = []
+        let lo = 0, hi = sorted.length - 1
+        let takeHigh = false
+        while (lo <= hi) {
+          if (takeHigh) {
+            allocated.push(sorted[hi])
+            hi--
+          } else {
+            allocated.push(sorted[lo])
+            lo++
+          }
+          takeHigh = !takeHigh
         }
-      })
+        citizenIds.forEach((id, i) => {
+          const home = allocated[i % allocated.length]
+          this.animalMode.setHomeBuilding(id, home.key)
+        })
+      }
       console.log(`[MainScene] Animal Mode taking over for ${citizenIds.length} citizens`)
+      // Issue 2: create an ActivityJournal for each citizen so autonomy actions are recorded
+      for (const id of citizenIds) {
+        if (!this.activityJournals.has(id)) {
+          const npc = this.npcManager.get(id)
+          this.activityJournals.set(id, new ActivityJournal(id, npc?.label ?? npc?.name ?? id, this.gameClock))
+        }
+      }
     } else {
       console.log('[MainScene] Animal Mode disabled')
     }
     void this.animalMode.setEnabled(enabled, citizenIds, this.gameClock)
+  }
+
+  /**
+   * Issue 5: Build extra map info (sculptures / benches / props) so citizens
+   * can reason about every map location, building, and sculpture. Returns a
+   * formatted string injected into the AutonomyEngine prompt.
+   */
+  private buildExtraMapInfo(): string {
+    const config = this.townBuilder.getMapConfig()
+    if (!config) return ''
+    // Group props by modelKey and area so the list stays compact.
+    const propGroups = new Map<string, Array<{ x: number; z: number }>>()
+    for (const p of config.props ?? []) {
+      const key = p.modelKey
+      if (!propGroups.has(key)) propGroups.set(key, [])
+      propGroups.get(key)!.push({ x: p.gridX, z: p.gridZ })
+    }
+    const lines: string[] = ['【地图物件】']
+    // Buildings with full detail
+    lines.push('建筑：')
+    for (const b of config.buildings ?? []) {
+      const role = (MODEL_KEY_TO_ROLE as Record<string, { name: string; category: string }>)[b.modelKey]
+      const name = role?.name ?? b.modelKey
+      lines.push(`  ${name}(${b.modelKey}) 坐标(${b.gridX},${b.gridZ}) 占地${b.widthCells}×${b.depthCells} 旋转${b.rotationY}°`)
+    }
+    // Props (sculptures, benches, bushes, etc.)
+    lines.push('物件：')
+    for (const [key, cells] of propGroups) {
+      const xs = cells.map(c => c.x)
+      const zs = cells.map(c => c.z)
+      const cx = xs.reduce((a, b) => a + b, 0) / cells.length
+      const cz = zs.reduce((a, b) => a + b, 0) / cells.length
+      lines.push(`  ${key} ×${cells.length} 中心约(${cx.toFixed(0)},${cz.toFixed(0)})`)
+    }
+    return lines.join('\n')
   }
 
   /** Execute an AutonomyAction by making the NPC walk/talk/go-indoor. */
@@ -1091,6 +1233,19 @@ __workflow 演出测试指令:
       this.animalMode.setExecuting(npcId, false)
       return
     }
+    // Issue 2: record autonomy actions to the activity journal so the Activity tab is populated
+    const journal = this.activityJournals.get(npcId)
+    const pos = npc.getPosition()
+    const areaName = getAreaName(pos.x, pos.z)
+    const recordActivity = (a: { action: import('../types').ActivityAction; detail: string; locationName?: string }) => {
+      journal?.record({
+        location: areaName,
+        locationName: a.locationName ?? areaName,
+        action: a.action,
+        detail: a.detail,
+      })
+    }
+
     // Issue 1: citizens spawn hidden (startHidden); make visible when they start acting
     if (!npc.mesh.visible) npc.setVisible(true)
     console.log(`[MainScene] executeAutonomyAction: ${npcId} → ${action.type}`)
@@ -1106,6 +1261,8 @@ __workflow 演出测试指令:
           this.animalMode.setExecuting(npcId, false)
           return
         }
+        const placeName = getBuildingName(targetPlace) ?? targetPlace
+        recordActivity({ action: 'need_urgent', detail: `前往${placeName}满足${action.need}需求`, locationName: placeName })
         // If goIndoor, become invisible on arrival
         const goIndoor = action.action.goIndoor
         npc.moveTo({ x: wp.x, z: wp.z }).then(async (status) => {
@@ -1124,6 +1281,7 @@ __workflow 演出测试指令:
             window.setTimeout(resolve, action.action.satisfyDurationMs)
           })
           this.animalMode.getNeedsEngine().satisfy(npcId, action.need, action.action.satisfyAmount)
+          recordActivity({ action: 'need_satisfied', detail: `在${placeName}满足了${action.need}需求`, locationName: placeName })
           if (goIndoor) {
             this.animalMode.getIndoorTracker().leave(npcId)
             npc.mesh.visible = true
@@ -1137,6 +1295,8 @@ __workflow 演出测试指令:
       case 'go_home': {
         const homeKey = this.animalMode.getHomeBuilding(npcId) ?? 'house_a_door'
         const wp = WAYPOINTS[homeKey]
+        const homeName = getBuildingName(homeKey) ?? homeKey
+        recordActivity({ action: 'went_indoor', detail: `回家（${homeName}）`, locationName: homeName, })
         if (wp) {
           npc.moveTo({ x: wp.x, z: wp.z }).then((status) => {
             if (status === 'arrived') {
@@ -1163,6 +1323,27 @@ __workflow 演出测试指令:
             wp = WAYPOINTS[wpKey]
           }
         }
+        if (!wp) {
+          // Fuzzy match: try matching by tag (e.g. "cafe_1" → cafe_door, "market_2" → market_door)
+          const tagMatch = action.place.match(/^(cafe|market|office|museum|house_[abc]|user_home|coffee|shop|store)/i)
+          if (tagMatch) {
+            const tag = tagMatch[1].toLowerCase()
+            const tagMap: Record<string, string> = {
+              cafe: 'cafe_door', coffee: 'cafe_door', shop: 'cafe_door',
+              market: 'market_door', store: 'market_door',
+              office: 'office_door', museum: 'museum_door',
+              house_a: 'house_a_door', house_b: 'house_b_door',
+              house_c: 'house_c_door', user_home: 'user_home_door',
+            }
+            const mappedKey = tagMap[tag]
+            if (mappedKey && WAYPOINTS[mappedKey]) {
+              wpKey = mappedKey
+              wp = WAYPOINTS[mappedKey]
+            }
+          }
+        }
+        const destName = getBuildingName(wpKey) ?? action.place
+        recordActivity({ action: 'left_indoor', detail: `前往${destName}（${action.reason}）`, locationName: destName })
         if (wp) {
           npc.moveTo({ x: wp.x, z: wp.z }).then((status) => {
             console.log(`[MainScene] ${npcId} leave_to ${wpKey}: ${status}`)
@@ -1177,15 +1358,85 @@ __workflow 演出测试指令:
       case 'talk_to': {
         const allNpcs = this.npcManager.getAll()
         const target = allNpcs.find(n => (n.label ?? n.id) === action.target || n.id === action.target)
+        recordActivity({ action: 'chatted', detail: `与${action.target}聊天（${action.reason}）` })
         if (target) {
           console.log(`[MainScene] ${npcId} talk_to ${action.target}: ${action.reason}`)
+          // Social interaction restores social + belonging needs
+          this.animalMode.getNeedsEngine().satisfy(npcId, 'social', 15)
+          this.animalMode.getNeedsEngine().satisfy(npcId, 'belonging', 8)
+          // Issue 4: notify AutonomyEngine that chat started
+          this.animalMode.getAutonomyEngine()?.notifyChatStart(npcId, action.target)
         }
         // Release after a delay (dialogue is async)
-        window.setTimeout(() => this.animalMode.setExecuting(npcId, false), 5000)
+        // Issue 4: notify chat end when the dialogue window closes
+        window.setTimeout(() => {
+          this.animalMode.getAutonomyEngine()?.notifyChatEnd(npcId)
+          this.animalMode.setExecuting(npcId, false)
+        }, 5000)
+        break
+      }
+      case 'invite_guest': {
+        // Issue 7: host invites a guest to their home
+        const allNpcs = this.npcManager.getAll()
+        const guest = allNpcs.find(n => (n.label ?? n.id) === action.target || n.id === action.target)
+        const homeKey = this.animalMode.getHomeBuilding(npcId)
+        if (!guest || !homeKey) {
+          console.warn(`[MainScene] invite_guest: guest=${action.target} home=${homeKey}`)
+          this.animalMode.setExecuting(npcId, false)
+          break
+        }
+        const homeWp = WAYPOINTS[homeKey]
+        const homeName = getBuildingName(homeKey) ?? homeKey
+        recordActivity({ action: 'chatted', detail: `邀请${action.target}来家里做客（${homeName}）`, locationName: homeName })
+
+        // Host walks home first
+        if (homeWp) {
+          npc.moveTo({ x: homeWp.x, z: homeWp.z }).then((status) => {
+            if (status === 'arrived') {
+              this.animalMode.getIndoorTracker().enter(npcId, homeKey)
+              npc.mesh.visible = false
+              console.log(`[MainScene] ${npcId} (host) went home: ${homeKey}`)
+            }
+            this.animalMode.setExecuting(npcId, false)
+          })
+        } else {
+          this.animalMode.setExecuting(npcId, false)
+        }
+
+        // Guest walks to host's home after a short delay
+        const guestId = guest.id
+        this.animalMode.setExecuting(guestId, true)
+        window.setTimeout(() => {
+          if (!homeWp) { this.animalMode.setExecuting(guestId, false); return }
+          guest.moveTo({ x: homeWp.x, z: homeWp.z }).then((status) => {
+            if (status === 'arrived') {
+              this.animalMode.getIndoorTracker().enter(guestId, homeKey)
+              guest.mesh.visible = false
+              console.log(`[MainScene] ${guestId} (guest) entered ${npcId}'s home: ${homeKey}`)
+              // Social boost for both
+              this.animalMode.getNeedsEngine().satisfy(npcId, 'social', 20)
+              this.animalMode.getNeedsEngine().satisfy(npcId, 'belonging', 15)
+              this.animalMode.getNeedsEngine().satisfy(guestId, 'social', 20)
+              this.animalMode.getNeedsEngine().satisfy(guestId, 'belonging', 15)
+              // Guest leaves after a visit duration (5-10 minutes game-time → 30-60s real)
+              const visitMs = 30000 + Math.random() * 30000
+              window.setTimeout(() => {
+                if (this.animalMode.getIndoorTracker().isIndoor(guestId)) {
+                  this.animalMode.getIndoorTracker().leave(guestId)
+                  guest.mesh.visible = true
+                  guest.transitionTo('idle')
+                  console.log(`[MainScene] ${guestId} (guest) left ${npcId}'s home after visit`)
+                }
+              }, visitMs)
+            }
+            this.animalMode.setExecuting(guestId, false)
+          })
+        }, 2000)
         break
       }
       case 'stay':
       default:
+        recordActivity({ action: 'staying', detail: action.reason })
         console.log(`[MainScene] ${npcId} staying: ${action.reason}`)
         this.animalMode.setExecuting(npcId, false)
         break
@@ -1196,6 +1447,10 @@ __workflow 演出测试指令:
 
   private topicNpcIds: string[] = []
   private topicGathering = false
+  // Issue 5: track mayor's position while topic is active so citizens
+  // re-gather around the mayor when the mayor moves.
+  private topicMayorPos: THREE.Vector3 | null = null
+  private topicFollowTimer = 0
 
   isTopicActive(): boolean {
     return this.topicNpcIds.length > 0
@@ -1208,6 +1463,14 @@ __workflow 演出测试指令:
   async gatherForTopic(npcIds: string[]): Promise<void> {
     this.topicNpcIds = npcIds
     this.topicGathering = true
+
+    // Issue 5: pause autonomous L2 decisions for topic participants.
+    // Note: pauseTopicAutonomy() was already called when the topic setup
+    // panel opened (issue 2). We only mark participants as executing here;
+    // the refcount ensures we don't double-pause.
+    if (this.animalMode.isEnabled()) {
+      for (const id of npcIds) this.animalMode.setExecuting(id, true)
+    }
 
     for (const id of npcIds) {
       const npc = this.npcManager.get(id)
@@ -1253,17 +1516,51 @@ __workflow 演出测试指令:
     await Promise.race([Promise.all(movePromises), timeout])
 
     this.topicGathering = false
+    // Issue 5: record mayor's position so citizens can re-gather when mayor moves
+    this.topicMayorPos = userNpc.mesh.position.clone()
   }
 
   dismissTopic(): void {
     const npcIds = [...this.topicNpcIds]
     this.topicNpcIds = []
+    this.topicMayorPos = null
+    this.topicFollowTimer = 0
     this.topicGathering = false
+
+    // Issue 5: resume autonomous L2 decisions for topic participants.
+    // Uses refcount so the resume balances the pause from pauseTopicAutonomy().
+    if (this.animalMode.isEnabled()) {
+      for (const id of npcIds) this.animalMode.setExecuting(id, false)
+      this.resumeTopicAutonomy()
+    }
 
     for (const npcId of npcIds) {
       const npc = this.npcManager.get(npcId)
       if (!npc) continue
       npc.transitionTo('idle')
+    }
+  }
+
+  /**
+   * Issue 2: Pause all citizens' autonomous L2 decisions (called when the
+   * steward opens the topic setup panel, before any topic text is entered).
+   * This prevents citizens from generating autonomous chat bubbles while the
+   * user is still composing the topic. Safe to call multiple times — uses a
+   * refcount so nested pause/resume calls don't prematurely resume.
+   */
+  private topicPauseRefCount = 0
+  pauseTopicAutonomy(): void {
+    if (!this.animalMode.isEnabled()) return
+    this.topicPauseRefCount++
+    if (this.topicPauseRefCount === 1) {
+      this.animalMode.pauseL2Decisions()
+    }
+  }
+  resumeTopicAutonomy(): void {
+    if (!this.animalMode.isEnabled()) return
+    if (this.topicPauseRefCount > 0) this.topicPauseRefCount--
+    if (this.topicPauseRefCount === 0) {
+      this.animalMode.resumeL2Decisions()
     }
   }
 
@@ -1302,6 +1599,32 @@ __workflow 演出测试指令:
       this.vehicleManager.loadRoadNetwork(config)
       // Update NPC waypoints/building registry so NPCs roam across the entire map
       updateWaypointsFromMapConfig(config)
+      // Issue 6: install building-aware obstacle query so NPCs avoid walking
+      // through buildings. Building rectangles are in world coords (gridX..gridX+widthCells).
+      NPC.setObstacleQuery((x, z, radius = 0.5) => {
+        for (const b of config.buildings) {
+          const minX = b.gridX - radius
+          const maxX = b.gridX + b.widthCells + radius
+          const minZ = b.gridZ - radius
+          const maxZ = b.gridZ + b.depthCells + radius
+          if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
+            // Issue 1: door zone exemption — allow NPCs to enter a 1.5-cell
+            // wide strip in front of the building's door (south side, center).
+            // This prevents NPCs from getting stuck circling the building
+            // when their target is the door marker (which sits 0.5 cells
+            // outside the building footprint).
+            const doorX = b.gridX + b.widthCells / 2
+            const doorZ = b.gridZ + b.depthCells + 0.5
+            const distToDoor = Math.sqrt((x - doorX) ** 2 + (z - doorZ) ** 2)
+            if (distToDoor < 1.8) return null
+            return {
+              minX: b.gridX, maxX: b.gridX + b.widthCells,
+              minZ: b.gridZ, maxZ: b.gridZ + b.depthCells,
+            }
+          }
+        }
+        return null
+      })
       // Update camera pan bounds to match the (possibly resized) map grid.
       this.cameraCtrl.setMapBounds(config.grid.cols, config.grid.rows)
       console.log('[MainScene] Loaded TownMapConfig:', config.grid.cols, '×', config.grid.rows,
@@ -1438,7 +1761,6 @@ __workflow 演出测试指令:
   private onNpcSpawn(event: GameEvent & { type: 'npc_spawn' }): void {
     const existing = this.npcManager.get(event.npcId)
     if (existing) {
-      // WorkflowHandler workingCitizens tracking removed.
       return
     }
     const finalCharacterKey = getCharacterKeyForNpc(
@@ -1454,12 +1776,32 @@ __workflow 演出测试指令:
 
     const homeKeys = ['house_a_door', 'house_b_door', 'house_c_door']
     const citizenIndex = parseInt(event.npcId.replace(/\D/g, ''), 10) || 0
-    // Try to pick a home from the dynamic BUILDING_REGISTRY (residential buildings)
-    const residentialBuildings = BUILDING_REGISTRY.filter(b => b.category === 'residential')
+    // Try to pick a home from the dynamic BUILDING_REGISTRY (residential buildings).
+    // Fix: exclude userHome (building_G) so citizens don't spawn in the player's house.
+    // Distribute evenly across west/east by sorting buildings by gridX and interleaving,
+    // so citizens don't all cluster on one side of the map.
+    const residentialBuildings = BUILDING_REGISTRY.filter(b =>
+      b.category === 'residential' && b.tag !== 'userHome',
+    )
     let homeKey: string
     let homeWp: { x: number; z: number } | undefined
     if (residentialBuildings.length > 0) {
-      const chosen = residentialBuildings[citizenIndex % residentialBuildings.length]
+      // Sort by gridX (west to east) then interleave: pick from front and back
+      // alternately so citizens spread across both sides of the map.
+      const sorted = [...residentialBuildings].sort((a, b) => {
+        const ax = WAYPOINTS[a.key]?.x ?? 0
+        const bx = WAYPOINTS[b.key]?.x ?? 0
+        return ax - bx
+      })
+      const n = sorted.length
+      const interleaved: typeof sorted = []
+      let lo = 0, hi = n - 1
+      let takeFront = true
+      while (lo <= hi) {
+        interleaved.push(takeFront ? sorted[lo++] : sorted[hi--])
+        takeFront = !takeFront
+      }
+      const chosen = interleaved[citizenIndex % interleaved.length]
       homeKey = chosen.key
       homeWp = WAYPOINTS[homeKey]
     } else {
@@ -1514,13 +1856,19 @@ __workflow 演出测试指令:
       this.ui.updateStewardName(config.name)
       this.dialogTarget = 'steward'
     }
-    // WorkflowHandler workingCitizens tracking removed.
 
     // Issue 2: register citizen in Animal Mode's NeedsEngine when it spawns.
     // setAnimalModeEnabled may have run before NPCs spawned (empty citizenIds),
     // so we register late-arriving citizens here to ensure they get L2 decisions.
-    if (event.category === 'citizen' && this.animalMode.isEnabled()) {
+    // Exclude the mayor (user) — the mayor is player-controlled and should not
+    // wander or make autonomous LLM decisions.
+    if (event.category === 'citizen' && event.npcId !== 'user' && this.animalMode.isEnabled()) {
       this.animalMode.registerCitizen(event.npcId)
+      // Issue 2: ensure an ActivityJournal exists for this citizen so autonomy actions are recorded
+      if (!this.activityJournals.has(event.npcId)) {
+        const npc = this.npcManager.get(event.npcId)
+        this.activityJournals.set(event.npcId, new ActivityJournal(event.npcId, npc?.label ?? npc?.name ?? event.npcId, this.gameClock))
+      }
     }
 
     if (event.arrivalFanfare) {
@@ -1613,10 +1961,6 @@ __workflow 演出测试指令:
       npc.setStatusEmoji('📋')
     }
 
-  }
-
-  private onModeChange(_event: GameEvent & { type: 'mode_change' }): void {
-    // ModeManager + WorkflowHandler removed; mode changes are no longer tracked here.
   }
 
   private onNpcMoveTo(
@@ -1782,7 +2126,6 @@ __workflow 演出测试指令:
   }
 
   private onNpcDailyBehaviorReady(_npcId: string): void {
-    // DailyScheduler removed; no-op.
   }
 
   private onNpcEmoji(_npcId: string, _emoji: string | null): void {
@@ -1896,7 +2239,6 @@ __workflow 演出测试指令:
   }
 
   private syncTopHudLayout(): void {
-    // ModeManager removed; HUD always uses non-compact (life) layout.
     this.modeIndicator?.setActionCompact(false)
     this.timeHUD?.setCompact(false)
   }
@@ -1937,12 +2279,52 @@ __workflow 演出测试指令:
       const curSceneType = this.currentSceneType
 
       if (curSceneType === 'town') {
+        // Issue 1+3: check door markers — find the NEAREST door within 3 cells.
+        // Previously used 5-cell radius which was too large and caused clicks
+        // on one building to enter a different building's door.
+        let nearestDoorId: string | null = null
+        let nearestDoorDist = Infinity
+        let nearestDoorPos: THREE.Vector3 | null = null
         for (const [buildingId, marker] of this.townBuilder.getDoorMarkers()) {
           const doorPos = new THREE.Vector3()
           marker.getWorldPosition(doorPos)
-          if (worldPos.distanceTo(doorPos) < 5) {
-            this.walkToDoor(buildingId, doorPos)
-            return
+          const d = worldPos.distanceTo(doorPos)
+          if (d < 3 && d < nearestDoorDist) {
+            nearestDoorDist = d
+            nearestDoorId = buildingId
+            nearestDoorPos = doorPos
+          }
+        }
+        if (nearestDoorId && nearestDoorPos) {
+          this.walkToDoor(nearestDoorId, nearestDoorPos)
+          return
+        }
+        // Issue 3: check building label sprites (click name to enter)
+        const labelSprites = this.townBuilder.getLabelSprites()
+        for (const [buildingId, sprite] of labelSprites) {
+          const intersects = raycaster.intersectObject(sprite)
+          if (intersects.length > 0) {
+            const doorMarker = this.townBuilder.getDoorMarker(buildingId)
+            if (doorMarker) {
+              const doorPos = new THREE.Vector3()
+              doorMarker.getWorldPosition(doorPos)
+              this.walkToDoor(buildingId, doorPos)
+              return
+            }
+          }
+        }
+        // Issue 3: check building models (click building itself to enter)
+        const buildingModels = this.townBuilder.getBuildingModels()
+        for (const [buildingId, model] of buildingModels) {
+          const intersects = raycaster.intersectObject(model, true)
+          if (intersects.length > 0) {
+            const doorMarker = this.townBuilder.getDoorMarker(buildingId)
+            if (doorMarker) {
+              const doorPos = new THREE.Vector3()
+              doorMarker.getWorldPosition(doorPos)
+              this.walkToDoor(buildingId, doorPos)
+              return
+            }
           }
         }
       }
@@ -2059,27 +2441,69 @@ __workflow 演出测试指令:
   }
 
   private walkToDoor(buildingId: string, doorPos: THREE.Vector3): void {
-    const sceneMap: Record<string, SceneType> = {
-      office: 'office', museum: 'museum',
-      exit_office: 'town', exit_museum: 'town',
+    // Map buildingId to target scene.
+    // buildingId can be a placement id (bobj_xxx) or a special key (exit_office).
+    // Issue 2+4: support all building types — office/museum have interior scenes,
+    // residential/commercial use "virtual enter" (mayor becomes invisible,
+    // UI shows "在XX中", back button returns to town).
+    let targetScene: SceneType | null = null
+    let virtualEnter: { buildingName: string; buildingKey: string } | null = null
+
+    if (buildingId === 'exit_office') {
+      targetScene = 'town'
+    } else if (buildingId === 'exit_museum') {
+      targetScene = 'town'
+    } else if (buildingId === 'exit_virtual') {
+      targetScene = 'town'
+    } else {
+      // Look up the building's modelKey from the map config to determine scene
+      const mapConfig = this.townBuilder.getMapConfig()
+      if (mapConfig) {
+        const building = mapConfig.buildings.find(b => b.id === buildingId)
+        if (building) {
+          const role = MODEL_KEY_TO_ROLE[building.modelKey]
+          if (role) {
+            if (building.modelKey === 'building_A') targetScene = 'office'
+            else if (building.modelKey === 'building_H') targetScene = 'museum'
+            else {
+              // Issue 2+4: residential/commercial — virtual enter
+              // Use getBuildingName to get the numbered display name (e.g. "住宅3", "咖啡店1")
+              virtualEnter = {
+                buildingName: getBuildingName(buildingId),
+                buildingKey: buildingId,
+              }
+            }
+          }
+        }
+      }
     }
-    const targetScene = sceneMap[buildingId]
-    if (!targetScene) return
-    if (targetScene === 'museum') return
+
+    if (!targetScene && !virtualEnter) return
+    if (targetScene === 'museum') return // museum not fully implemented yet
 
     const mayor = this.npcManager.get('user')
     if (!mayor || !mayor.mesh.visible) return
 
     const dist = mayor.mesh.position.distanceTo(doorPos)
-    if (dist < 2) {
+    // Issue 1: increased from 2 to 2.5 so the mayor enters the building
+    // sooner when close to the door, preventing circling around the door.
+    if (dist < 2.5) {
       this.pendingDoorInteraction = null
       this.followBehavior.stop()
       if (targetScene === 'town') this.postTownReturnDebugFrames = 4
-      // SceneSwitcher removed; scene switching is no longer supported.
+      if (virtualEnter) {
+        void this.enterVirtualBuilding(virtualEnter.buildingName, virtualEnter.buildingKey, doorPos)
+      } else if (targetScene) {
+        void this.switchScene(targetScene)
+      }
       return
     }
 
-    this.pendingDoorInteraction = { scene: targetScene, doorPos }
+    this.pendingDoorInteraction = {
+      scene: targetScene ?? 'town',
+      doorPos,
+      virtualEnter: virtualEnter ?? undefined,
+    }
     mayor.moveTo({ x: doorPos.x, z: doorPos.z }, 2.5)
     this.cameraCtrl.follow(mayor.mesh)
 
@@ -2088,6 +2512,56 @@ __workflow 演出测试指令:
       this.followBehavior.setTarget(mayor, steward)
       if (!this.followBehavior.isActive()) this.followBehavior.start()
     }
+  }
+
+  /** Issue 2+4: Virtual building entry — mayor becomes invisible, UI shows location. */
+  private async enterVirtualBuilding(buildingName: string, _buildingKey: string, doorPos: THREE.Vector3): Promise<void> {
+    await this.ui.fadeToBlack(300)
+    this.bubbles?.clear()
+
+    // Mayor becomes invisible (inside the building)
+    const mayor = this.npcManager.get('user')
+    const steward = this.npcManager.get('steward')
+    if (mayor) mayor.mesh.visible = false
+    if (steward) steward.mesh.visible = false
+
+    // Show "在XX中" indicator and back button
+    this.ui.showVirtualLocationIndicator(buildingName)
+    this.ui.showBackButton(true)
+    this.currentSceneType = 'town' // still town scene, just hidden
+    this.virtualEnterPos = { x: doorPos.x, z: doorPos.z }
+    this.isVirtualEnter = true
+    this.inputEnabled = false // disable movement while inside
+
+    await this.ui.fadeFromBlack(300)
+  }
+
+  /** Issue 2+4: Exit virtual building — return mayor to door position. */
+  async exitVirtualBuilding(): Promise<void> {
+    if (!this.isVirtualEnter) return
+    await this.ui.fadeToBlack(300)
+
+    const mayor = this.npcManager.get('user')
+    const steward = this.npcManager.get('steward')
+    if (mayor) {
+      mayor.mesh.visible = true
+      mayor.stopMoving()
+      mayor.mesh.position.set(this.virtualEnterPos.x + 1, 0, this.virtualEnterPos.z + 1)
+      mayor.playAnim('idle')
+    }
+    if (steward) {
+      steward.mesh.visible = true
+      steward.stopMoving()
+      steward.mesh.position.set(this.virtualEnterPos.x - 1, 0, this.virtualEnterPos.z + 1)
+      steward.playAnim('idle')
+    }
+
+    this.ui.hideVirtualLocationIndicator()
+    this.ui.showBackButton(false)
+    this.isVirtualEnter = false
+    this.inputEnabled = true
+
+    await this.ui.fadeFromBlack(300)
   }
 
   private handleGroundTap(worldPos: THREE.Vector3): void {
@@ -2132,7 +2606,6 @@ __workflow 演出测试指令:
         const pos = npc.getPosition()
         npcPositions[npc.id] = { x: pos.x, z: pos.z }
       }
-      // DailyScheduler/SceneSwitcher/ModeManager removed; snapshot only saves positions + clock.
       const snapshot = {
         townJournal: this.townJournal.toJSON(),
         npcPositions,
@@ -2153,7 +2626,6 @@ __workflow 演出测试指令:
 
   /** Restore Animal Mode state received from plugin (snapshots + clock). */
   restoreAnimalState(snapshots: Array<{ npcId: string; snapshot: any }>, clock: { dayCount: number; gameSeconds: number } | null): void {
-    // DailyScheduler removed; ActivityJournal restore is handled by AnimalMode.
     // Restore GameClock
     if (clock && typeof clock.dayCount === 'number' && typeof clock.gameSeconds === 'number') {
       this.gameClock.restoreFromPlugin(clock.dayCount, clock.gameSeconds)
@@ -2174,10 +2646,16 @@ __workflow 演出测试指令:
         const dist = mayor.mesh.position.distanceTo(this.pendingDoorInteraction.doorPos)
         if (dist < 2) {
           const target = this.pendingDoorInteraction.scene
+          const ve = this.pendingDoorInteraction.virtualEnter
+          const doorPos = this.pendingDoorInteraction.doorPos.clone()
           this.pendingDoorInteraction = null
           this.followBehavior.stop()
           if (target === 'town') this.postTownReturnDebugFrames = 4
-          // SceneSwitcher removed; scene switching is no longer supported.
+          if (ve) {
+            void this.enterVirtualBuilding(ve.buildingName, ve.buildingKey, doorPos)
+          } else {
+            void this.switchScene(target)
+          }
           return
         }
       }
@@ -2200,6 +2678,35 @@ __workflow 演出测试指令:
 
     this.followBehavior.update(deltaTime * 1000)
     this.citizenChat.update(deltaTime * 1000)
+
+    // Issue 5: if topic is active and mayor has moved, re-gather citizens around mayor
+    if (this.topicNpcIds.length > 0 && !this.topicGathering && this.topicMayorPos) {
+      this.topicFollowTimer += deltaTime
+      if (this.topicFollowTimer >= 0.5) {
+        this.topicFollowTimer = 0
+        const mayor = this.npcManager.get('user')
+        if (mayor && mayor.mesh.visible) {
+          const mayorPos = mayor.mesh.position
+          const moved = mayorPos.distanceTo(this.topicMayorPos)
+          if (moved > 1.5) {
+            // Mayor moved significantly — re-gather citizens
+            this.topicMayorPos = mayorPos.clone()
+            const center = mayorPos.clone()
+            const RADIUS = 3.0
+            const ARC_SPAN = Math.PI
+            const startAngle = -ARC_SPAN / 2
+            for (let i = 0; i < this.topicNpcIds.length; i++) {
+              const npc = this.npcManager.get(this.topicNpcIds[i])
+              if (!npc) continue
+              const angle = startAngle + (ARC_SPAN / Math.max(this.topicNpcIds.length - 1, 1)) * i
+              const tx = center.x + Math.sin(angle) * RADIUS
+              const tz = center.z + Math.cos(angle) * RADIUS
+              npc.moveTo({ x: tx, z: tz }, 2.5)
+            }
+          }
+        }
+      }
+    }
 
     this.timeHUD?.update(this.gameClock, this.weatherSystem?.getDisplayWeather())
 
@@ -2235,13 +2742,18 @@ __workflow 演出测试指令:
       const allNpcs = this.npcManager?.getAll() ?? []
       // Skip NPC random behaviors when gateway is offline
       if (this.dataSource.connected) {
-        // DailyScheduler removed; DailyBehavior update loop is gone.
-        this.encounterManager?.update(deltaTime * 1000, allNpcs)
-        this.casualEncounter?.update(
-          deltaTime * 1000, allNpcs,
-          this.weatherSystem?.getDisplayWeather(),
-          this.gameClock?.getPeriod(),
-        )
+        // Issue 7: when a topic is active (citizens gathered around mayor),
+        // suspend casual encounters and deep dialogues so citizens stay put
+        // and don't make autonomous decisions while the topic is in progress.
+        const topicActive = this.topicNpcIds.length > 0
+        if (!topicActive) {
+          this.encounterManager?.update(deltaTime * 1000, allNpcs)
+          this.casualEncounter?.update(
+            deltaTime * 1000, allNpcs,
+            this.weatherSystem?.getDisplayWeather(),
+            this.gameClock?.getPeriod(),
+          )
+        }
       }
     }
     this.vfx?.update(deltaTime)
@@ -2291,10 +2803,108 @@ __workflow 演出测试指令:
     return this.implicitChatFn({ ...req, ...(agentId ? { agentId } : {}) })
   }
 
-  /** Switch the active scene. With old workflow removed, only 'town' is used. */
-  switchScene(scene: SceneType): void {
-    // SceneSwitcher removed; Animal Mode only uses the town scene.
+  /** Switch the active scene with fade transition, NPC repositioning, and camera change. */
+  async switchScene(scene: SceneType): Promise<void> {
+    if (this.currentSceneType === scene) return
+
+    // Fade to black
+    await this.ui.fadeToBlack(300)
+
+    // Clear chat bubbles
+    this.bubbles?.clear()
+
     this.currentSceneType = scene
+
+    let targetScene: THREE.Scene
+    if (scene === 'office') {
+      targetScene = this.officeScene
+      this.vfx?.setScene(this.officeScene)
+      this.weatherSystem?.setEnabled(false)
+
+      // Move steward and user into the office scene
+      const visitNpcIds = ['steward', 'user']
+      this.npcManager.moveNpcsToScene(visitNpcIds, this.officeScene)
+
+      // Position NPCs at the office door, then walk them inside
+      const OFFICE_DOOR = this.officeBuilder.doorPos
+      const movePromises: Promise<unknown>[] = []
+      for (const id of visitNpcIds) {
+        const npc = this.npcManager.get(id)
+        if (npc) {
+          npc.mesh.position.set(
+            OFFICE_DOOR.x + (id === 'user' ? 1.5 : -1.5),
+            0,
+            OFFICE_DOOR.z,
+          )
+          npc.playAnim('walk')
+          movePromises.push(
+            npc.moveTo({ x: OFFICE_DOOR.x + (id === 'user' ? 1.5 : -1.5), z: 12 }, 2.5)
+            .then(() => npc.playAnim('idle')),
+          )
+        }
+      }
+      Promise.allSettled(movePromises).then(() => {
+        this.inputEnabled = true
+      })
+
+      this.ui.showBackButton(false)
+      this.cameraCtrl.enterOfficeMode()
+    } else if (scene === 'museum') {
+      targetScene = this.museumScene
+      this.vfx?.setScene(this.museumScene)
+      this.weatherSystem?.setEnabled(false)
+      this.npcManager.setScene(this.museumScene)
+      this.ui.showBackButton(true)
+      this.cameraCtrl.setAutoPilot(false)
+      this.cameraCtrl.follow(null)
+      this.engine.camera.position.set(12, 20, 18)
+      this.engine.camera.lookAt(12, 0, 9)
+    } else {
+      // Return to town
+      targetScene = this.townScene
+      this.vfx?.setScene(this.townScene)
+      this.weatherSystem?.setEnabled(true)
+
+      // Find the door position to return to
+      const mapConfig = this.townBuilder.getMapConfig()
+      let returnPos = { x: WAYPOINTS.plaza_center?.x ?? 18, z: WAYPOINTS.plaza_center?.z ?? 13 }
+
+      // Try to find the office building's door position
+      if (mapConfig) {
+        const officeBuilding = mapConfig.buildings.find(b => b.modelKey === 'building_A')
+        if (officeBuilding) {
+          returnPos = {
+            x: officeBuilding.gridX + officeBuilding.widthCells / 2,
+            z: officeBuilding.gridZ + officeBuilding.depthCells + 1,
+          }
+        }
+      }
+
+      this.npcManager.setScene(this.townScene)
+      this.ui.showBackButton(false)
+
+      const userNpc = this.npcManager.get('user')
+      const stewardNpc = this.npcManager.get('steward')
+      if (userNpc) {
+        userNpc.stopMoving()
+        userNpc.mesh.position.set(returnPos.x + 1, 0, returnPos.z + 1)
+        userNpc.playAnim('idle')
+      }
+      if (stewardNpc) {
+        stewardNpc.stopMoving()
+        stewardNpc.mesh.position.set(returnPos.x - 1, 0, returnPos.z + 1)
+        stewardNpc.playAnim('idle')
+      }
+      this.cameraCtrl.leaveOfficeMode()
+      this.cameraCtrl.setAutoPilot(false)
+      this.cameraCtrl.moveTo({ x: returnPos.x, z: returnPos.z + 4 })
+    }
+
+    this.engine.world.scene = targetScene
+    this.bubbles?.updateCamera(this.engine.camera)
+
+    // Fade from black
+    await this.ui.fadeFromBlack(300)
   }
 
   /** Get NPCs within a radius of the given NPC (for AnimalMode spatial awareness). */
@@ -2334,7 +2944,6 @@ __workflow 演出测试指令:
   destroy(): void {
     this.stopSnapshotSaving()
     this.citizenChat.destroy()
-    // DailyScheduler/WorkflowHandler/ModeManager removed.
     this.encounterManager?.destroy()
     this.townJournal?.destroy()
     this.minigame?.unmount()

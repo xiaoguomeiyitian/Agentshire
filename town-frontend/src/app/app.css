@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/*
+ * Tailwind v4 默认扫描整个项目根目录。app.css 只服务 React ChatUI(index.html → main.tsx),
+ * 这里用 @source 显式约束扫描范围,只覆盖实际使用 Tailwind 工具类的目录:
+ *   - ./app      React ChatUI 全部组件(AgentList / ChatView / TopNav 等)
+ *   - ../index.html  入口 HTML 的内联 class
+ *
+ * 注意:editor/、game/、npc/、ui/ 等目录的 Tailwind 类由 styles.css(town 页)负责扫描,
+ *       这里不重复扫描,避免两份 CSS 重复生成相同工具类。
+ */
+@source "./app";
+@source "../index.html";
+
 /* Trap — self-hosted (free for commercial use, by Aayush Mayank) */
 @font-face {
   font-family: 'Trap';

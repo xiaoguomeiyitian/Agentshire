@@ -217,12 +217,76 @@ export function writeDefaultModel(modelRef: string | undefined): string | undefi
   cfg.agents = cfg.agents ?? {};
   cfg.agents.defaults = cfg.agents.defaults ?? {};
   if (ref) {
-    cfg.agents.defaults.model = { primary: ref };
+    // Preserve existing fallbacks when updating primary
+    const existingFallbacks = cfg.agents.defaults.model?.fallbacks;
+    cfg.agents.defaults.model = {
+      primary: ref,
+      ...(Array.isArray(existingFallbacks) && existingFallbacks.length > 0
+        ? { fallbacks: existingFallbacks }
+        : {}),
+    };
   } else {
     delete cfg.agents.defaults.model;
   }
   saveOpenClawConfig(cfg);
   return ref || undefined;
+}
+
+/**
+ * Read the global default fallback model refs (`agents.defaults.model.fallbacks`).
+ * Returns an empty array if not set.
+ */
+export function readDefaultFallbacks(): string[] {
+  const cfg = loadOpenClawConfig();
+  const model = cfg?.agents?.defaults?.model;
+  if (!model || typeof model !== "object") return [];
+  const fallbacks = model.fallbacks;
+  return Array.isArray(fallbacks) ? fallbacks.filter((f: any) => typeof f === "string" && f) : [];
+}
+
+/**
+ * Write the global default fallback model refs (`agents.defaults.model.fallbacks`).
+ * Validates that each ref points to an existing provider/model.
+ * Pass an empty array to clear fallbacks.
+ */
+export function writeDefaultFallbacks(fallbacks: string[]): string[] {
+  const cfg = loadOpenClawConfig();
+  const providers = getProviders(cfg);
+  const cleaned: string[] = [];
+  for (const ref of fallbacks ?? []) {
+    const r = String(ref ?? "").trim();
+    if (!r) continue;
+    const slashIdx = r.indexOf("/");
+    if (slashIdx <= 0) {
+      throw new ModelConfigError("EMPTY_MODEL_ID", `Fallback model ref must be "providerId/modelId", got "${r}"`);
+    }
+    const providerId = r.slice(0, slashIdx);
+    const modelId = r.slice(slashIdx + 1);
+    const provider = providers[providerId];
+    if (!provider) {
+      throw new ModelConfigError("PROVIDER_NOT_FOUND", `Provider "${providerId}" not found`);
+    }
+    const exists = (provider.models ?? []).some((m) => m.id === modelId);
+    if (!exists) {
+      throw new ModelConfigError("MODEL_NOT_FOUND", `Model "${modelId}" not found in provider "${providerId}"`);
+    }
+    // Deduplicate
+    if (!cleaned.includes(r)) cleaned.push(r);
+  }
+
+  cfg.agents = cfg.agents ?? {};
+  cfg.agents.defaults = cfg.agents.defaults ?? {};
+  cfg.agents.defaults.model = cfg.agents.defaults.model ?? {};
+  if (typeof cfg.agents.defaults.model === "string") {
+    cfg.agents.defaults.model = { primary: cfg.agents.defaults.model };
+  }
+  if (cleaned.length > 0) {
+    cfg.agents.defaults.model.fallbacks = cleaned;
+  } else {
+    delete cfg.agents.defaults.model.fallbacks;
+  }
+  saveOpenClawConfig(cfg);
+  return cleaned;
 }
 
 // ── Write (whole file) ──

@@ -5,6 +5,8 @@ import type {
   TerrainType, PlacedItem,
 } from '../../editor/TownMapConfig'
 import { TERRAIN_COLORS_HEX } from '../../editor/TownMapConfig'
+import { MODEL_KEY_TO_ROLE } from '../../types'
+import { getLocale } from '../../i18n'
 
 interface WindowDef {
   pos: [number, number, number]
@@ -100,8 +102,12 @@ export interface TownLightingRefs {
 export class TownBuilder {
   private scene: THREE.Scene
   private doorMarkers: Map<string, THREE.Mesh> = new Map()
+  private labelSprites: Map<string, THREE.Sprite> = new Map()
   private townGroup = new THREE.Group()
   private lightingRefs: TownLightingRefs | null = null
+  private static labelCanvasCache: Map<string, THREE.CanvasTexture> = new Map()
+  /** Per-modelKey sequential counter for building numbering (e.g. 住宅1, 住宅2). */
+  private buildingNumberCounters: Map<string, number> = new Map()
 
   // ── Config-driven scene editing state ──
   private mapConfig: TownMapConfig | null = null
@@ -147,6 +153,16 @@ export class TownBuilder {
     return this.doorMarkers
   }
 
+  /** Issue 3: get building label sprites for click detection. */
+  getLabelSprites(): Map<string, THREE.Sprite> {
+    return this.labelSprites
+  }
+
+  /** Issue 3: get building model groups for click detection. */
+  getBuildingModels(): Map<string, THREE.Group> {
+    return this.modelMap
+  }
+
   // ═══════════════════════════════════════════════════════
   //  Config-driven scene editing (AI steward tools)
   // ═══════════════════════════════════════════════════════
@@ -176,6 +192,9 @@ export class TownBuilder {
     this.townGroup.name = 'town'
     this.scene.add(this.townGroup)
     this.townGroup.add(this.terrainGroup)
+
+    // Reset building number counters so labels stay stable across rebuilds
+    this.buildingNumberCounters.clear()
 
     this.buildSkyAndFog()
     this.buildLighting()
@@ -238,6 +257,97 @@ export class TownBuilder {
     door.name = `door_${b.id}`
     this.townGroup.add(door)
     this.doorMarkers.set(b.id, door)
+
+    // Building name label (Issue 3)
+    this.addBuildingLabel(b)
+  }
+
+  /** Create a floating text label above a building showing its name. */
+  private addBuildingLabel(b: BuildingPlacement): void {
+    // Determine display name: explicit displayName > MODEL_KEY_TO_ROLE lookup > id
+    let label = b.displayName || ''
+    if (!label) {
+      const role = MODEL_KEY_TO_ROLE[b.modelKey]
+      if (role) {
+        label = getLocale() === 'en' ? role.nameEn : role.name
+      }
+    }
+    if (!label) label = b.id
+
+    // Append a sequential number per display name (e.g. 住宅1, 住宅2, 住宅3, 咖啡店1)
+    // so each building is uniquely identifiable, like real-world street numbers.
+    // Group by role.name (not modelKey) so that building_B/C/D all share the "住宅" counter.
+    if (!b.displayName) {
+      const role = MODEL_KEY_TO_ROLE[b.modelKey]
+      const groupKey = role ? role.name : b.modelKey
+      const idx = (this.buildingNumberCounters.get(groupKey) ?? 0) + 1
+      this.buildingNumberCounters.set(groupKey, idx)
+      label = `${label}${idx}`
+    }
+
+    const sprite = this.makeTextSprite(label)
+    // Position above the building center, at a height proportional to building scale
+    const cx = b.gridX + b.widthCells / 2
+    const cz = b.gridZ + b.depthCells / 2
+    const height = (b.scale ?? 1) * 2.5 + 2
+    sprite.position.set(cx, height, cz)
+    sprite.name = `label_${b.id}`
+    sprite.userData = { itemId: b.id, kind: 'building-label' }
+    this.townGroup.add(sprite)
+    this.labelSprites.set(b.id, sprite)
+  }
+
+  /** Create (or reuse a cached) text sprite with a semi-transparent rounded background. */
+  private makeTextSprite(text: string): THREE.Sprite {
+    const cacheKey = text
+    let tex = TownBuilder.labelCanvasCache.get(cacheKey)
+    if (!tex) {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')!
+      const fontSize = 48
+      ctx.font = `bold ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
+      const metrics = ctx.measureText(text)
+      const padX = 24, padY = 14
+      const w = Math.ceil(metrics.width) + padX * 2
+      const h = fontSize + padY * 2
+      canvas.width = w
+      canvas.height = h
+      // Re-set font after canvas resize (canvas resize resets context state)
+      ctx.font = `bold ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'center'
+      // Rounded background
+      const r = 10
+      ctx.fillStyle = 'rgba(20, 22, 30, 0.72)'
+      ctx.beginPath()
+      ctx.moveTo(r, 0)
+      ctx.lineTo(w - r, 0)
+      ctx.quadraticCurveTo(w, 0, w, r)
+      ctx.lineTo(w, h - r)
+      ctx.quadraticCurveTo(w, h, w - r, h)
+      ctx.lineTo(r, h)
+      ctx.quadraticCurveTo(0, h, 0, h - r)
+      ctx.lineTo(0, r)
+      ctx.quadraticCurveTo(0, 0, r, 0)
+      ctx.closePath()
+      ctx.fill()
+      // Text
+      ctx.fillStyle = '#f0f0f5'
+      ctx.fillText(text, w / 2, h / 2)
+      tex = new THREE.CanvasTexture(canvas)
+      tex.minFilter = THREE.LinearFilter
+      tex.magFilter = THREE.LinearFilter
+      TownBuilder.labelCanvasCache.set(cacheKey, tex)
+    }
+    const mat = new THREE.SpriteMaterial({
+      map: tex, transparent: true, depthTest: true, depthWrite: false,
+    })
+    const sprite = new THREE.Sprite(mat)
+    // Scale so the label is readable but not huge; aspect ratio from texture
+    const aspect = tex.image.width / tex.image.height
+    const baseH = 1.1
+    sprite.scale.set(baseH * aspect, baseH, 1)
+    return sprite
   }
 
   /** Add a single prop to the scene (incremental). */
@@ -291,6 +401,8 @@ export class TownBuilder {
     if (m) { this.townGroup.remove(m); this.modelMap.delete(objectId) }
     const dm = this.doorMarkers.get(objectId)
     if (dm) { this.townGroup.remove(dm); this.doorMarkers.delete(objectId) }
+    const ls = this.labelSprites.get(objectId)
+    if (ls) { this.townGroup.remove(ls); this.labelSprites.delete(objectId) }
   }
 
   /** Update an existing object's transform (move / rotate / scale / flip). */
@@ -309,6 +421,12 @@ export class TownBuilder {
       // Move door marker
       const dm = this.doorMarkers.get(b.id)
       if (dm) dm.position.set(b.gridX + b.widthCells / 2, 0.05, b.gridZ + b.depthCells + 0.5)
+      // Move label sprite
+      const ls = this.labelSprites.get(b.id)
+      if (ls) {
+        const height = (b.scale ?? 1) * 2.5 + 2
+        ls.position.set(b.gridX + b.widthCells / 2, height, b.gridZ + b.depthCells / 2)
+      }
     } else if (item.kind === 'prop') {
       const p = item.data as PropPlacement
       const s = p.scale ?? 1
@@ -416,6 +534,11 @@ export class TownBuilder {
       this.townGroup.remove(door)
       this.doorMarkers.delete(itemId)
     }
+    const label = this.labelSprites.get(itemId)
+    if (label) {
+      this.townGroup.remove(label)
+      this.labelSprites.delete(itemId)
+    }
   }
 
   /** Find a placed item by objectId. */
@@ -458,6 +581,7 @@ export class TownBuilder {
     this.terrainMeshes = []
     this.modelMap.clear()
     this.doorMarkers.clear()
+    this.labelSprites.clear()
     this.mapConfig = null
   }
 

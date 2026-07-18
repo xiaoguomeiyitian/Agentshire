@@ -101,7 +101,6 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
   const [showMentionPicker, setShowMentionPicker] = useState(false)
   const [mentionFilter, setMentionFilter] = useState('')
   const [mentionIndex, setMentionIndex] = useState(0)
-  const [activeMentions, setActiveMentions] = useState<string[]>([])
   const [attachments, setAttachments] = useState<Array<{ file: File; preview?: string }>>([])
   // Command autocomplete state
   const cmdSuggestions = useMemo(() => getCommandSuggestions(inputText), [inputText])
@@ -127,18 +126,20 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
   const mentionItemRefs = useRef<Array<HTMLButtonElement | null>>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Build mentionable citizens from group participants
+  // Build mentionable citizens from group participants (sorted by npcId for stable order)
   const mentionableCitizens: MentionableCitizen[] = useMemo(() => {
     if (!groupInfo) return []
-    return groupInfo.participants.map(p => {
-      const agent = agents.find(a => a.id === p.npcId)
-      return {
-        npcId: p.npcId,
-        name: p.name,
-        specialty: p.specialty,
-        avatarUrl: agent?.avatarUrl,
-      }
-    })
+    return groupInfo.participants
+      .map(p => {
+        const agent = agents.find(a => a.id === p.npcId)
+        return {
+          npcId: p.npcId,
+          name: p.name,
+          specialty: p.specialty,
+          avatarUrl: agent?.avatarUrl,
+        }
+      })
+      .sort((a, b) => a.npcId.localeCompare(b.npcId))
   }, [groupInfo, agents])
 
   // Auto-scroll to bottom on new messages
@@ -174,11 +175,9 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
     const lastAt = value.lastIndexOf('@')
     const before = lastAt >= 0 ? value.slice(0, lastAt) : value
     const mentionTag = citizen === 'all' ? '@所有人' : `@${citizen.name}`
-    const npcId = citizen === 'all' ? 'all' : citizen.npcId
     const newValue = `${before}${mentionTag} `
 
     setInputText(newValue)
-    setActiveMentions(prev => prev.includes(npcId) ? prev : [...prev, npcId])
     setShowMentionPicker(false)
     setMentionFilter('')
     setMentionIndex(0)
@@ -234,7 +233,6 @@ export function GroupChatView({ visible, agents, groupInfo, messages, onSend, on
     const mentions = parseMentions(text)
     onSend(text, mentions)
     setInputText('')
-    setActiveMentions([])
     // Clear attachments
     setAttachments(prev => {
       for (const a of prev) if (a.preview) URL.revokeObjectURL(a.preview)

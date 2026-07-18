@@ -47,12 +47,30 @@ export class NPC {
 
   private static assetLoader: AssetLoader | null = null
 
+  /**
+   * Issue 6: obstacle query for building-aware pathfinding.
+   * Returns the building rectangle (in world coords) that contains the
+   * given point, or null if the point is free. Set by MainScene after the
+   * map is loaded so NPCs can avoid walking through buildings.
+   */
+  static obstacleQuery: ((x: number, z: number, radius?: number) => {
+    minX: number; maxX: number; minZ: number; maxZ: number
+  } | null) | null = null
+
   private targetPos: THREE.Vector3 | null = null
   private speed: number = 3
   private moveResolve: ((status: 'arrived' | 'interrupted') => void) | null = null
 
   private bobPhase: number = 0
   private isMoving: boolean = false
+  /** Public read-only accessor for isMoving (used by NPCManager separation). */
+  get moving(): boolean { return this.isMoving }
+  /** Stuck detection: consecutive frames blocked by obstacle. */
+  private stuckFrames: number = 0
+  /** No-progress detection: frames where NPC moved but barely changed position. */
+  private noProgressFrames: number = 0
+  private lastPosX: number = 0
+  private lastPosZ: number = 0
 
   private bodyMesh: THREE.Mesh | null = null
   private headMesh: THREE.Mesh | null = null
@@ -96,6 +114,13 @@ export class NPC {
 
   static setAssetLoader(loader: AssetLoader): void {
     NPC.assetLoader = loader
+  }
+
+  /** Issue 6: install the building-aware obstacle query (called by MainScene). */
+  static setObstacleQuery(fn: ((x: number, z: number, radius?: number) => {
+    minX: number; maxX: number; minZ: number; maxZ: number
+  } | null) | null): void {
+    NPC.obstacleQuery = fn
   }
 
   private _modelUrl?: string
@@ -556,6 +581,10 @@ export class NPC {
       this.moveResolve = resolve
       this.speed = speed ?? 3
       this.targetPos = new THREE.Vector3(target.x, 0, target.z)
+      this.stuckFrames = 0
+      this.noProgressFrames = 0
+      this.lastPosX = this.mesh.position.x
+      this.lastPosZ = this.mesh.position.z
 
       // Force transition to walking regardless of current state.
       // transitionTo only allows walking from idle/working, so we may need
@@ -647,15 +676,166 @@ export class NPC {
       const dz = this.targetPos.z - current.z
       const dist = Math.sqrt(dx * dx + dz * dz)
 
-      if (dist < 0.15) {
+      if (dist < 0.5) {
         current.set(this.targetPos.x, 0, this.targetPos.z)
         this.finishMove('arrived')
       } else {
         const step = Math.min(this.speed * deltaTime, dist)
-        const nx = dx / dist
-        const nz = dz / dist
+        let nx = dx / dist
+        let nz = dz / dist
+
+        // Issue 6/7: building-aware obstacle avoidance. Before stepping forward,
+        // check if the next position is inside a building. If so, slide along
+        // the building's edge (tangential movement) instead of walking through.
+        // Fix: robust sliding with stuck detection — if blocked for too long,
+        // give up the current move target (prevents permanent stuck + shaking).
+        // Issue 7: improved with diagonal slide, larger probe radius, longer
+        // stuck timeout, and a "detour mode" that maintains slide direction.
+        const PROBE_RADIUS = 0.5
+        if (NPC.obstacleQuery) {
+          const probeX = current.x + nx * step
+          const probeZ = current.z + nz * step
+          const obstacle = NPC.obstacleQuery(probeX, probeZ, PROBE_RADIUS)
+          if (obstacle) {
+            const centerX = (obstacle.minX + obstacle.maxX) / 2
+            const centerZ = (obstacle.minZ + obstacle.maxZ) / 2
+            const sideX = current.x - centerX
+            const sideZ = current.z - centerZ
+            // Dead-zone: if |sideX| and |sideZ| are nearly equal (corner region),
+            // use edge-distance comparison for stable axis selection.
+            const margin = 0.3
+            const absX = Math.abs(sideX)
+            const absZ = Math.abs(sideZ)
+            let blockX: boolean
+            if (Math.abs(absX - absZ) < margin) {
+              const distToXEdge = Math.min(
+                Math.abs(current.x - obstacle.minX),
+                Math.abs(current.x - obstacle.maxX),
+              )
+              const distToZEdge = Math.min(
+                Math.abs(current.z - obstacle.minZ),
+                Math.abs(current.z - obstacle.maxZ),
+              )
+              blockX = distToXEdge < distToZEdge
+            } else {
+              blockX = absX > absZ
+            }
+            // Try both tangent directions, pick the one that's not blocked
+            // and moves most toward the target.
+            let sx = 0, sz = 0
+            const trySlide = (bX: boolean) => {
+              let tsx = 0, tsz = 0
+              if (bX) { tsz = nz >= 0 ? 1 : -1 } else { tsx = nx >= 0 ? 1 : -1 }
+              const toward = tsx * (dx / dist) + tsz * (dz / dist)
+              if (toward < 0) {
+                if (bX) { tsz = -tsz } else { tsx = -tsx }
+              }
+              const probeBX = current.x + tsx * step
+              const probeBZ = current.z + tsz * step
+              const blocked = NPC.obstacleQuery!(probeBX, probeBZ, PROBE_RADIUS)
+              return { sx: tsx, sz: tsz, blocked, toward }
+            }
+            // Issue 7: also try diagonal slides (45°) for tighter spaces
+            const tryDiagSlide = (sign: number) => {
+              // Combine forward and tangent: 70% tangent + 30% forward
+              const tsx = (blockX ? 0 : (nx >= 0 ? 1 : -1)) * 0.7 + nx * 0.3 * sign
+              const tsz = (blockX ? (nz >= 0 ? 1 : -1) : 0) * 0.7 + nz * 0.3 * sign
+              const len = Math.sqrt(tsx * tsx + tsz * tsz) || 1
+              const nx2 = tsx / len
+              const nz2 = tsz / len
+              const probeBX = current.x + nx2 * step
+              const probeBZ = current.z + nz2 * step
+              const blocked = NPC.obstacleQuery!(probeBX, probeBZ, PROBE_RADIUS)
+              const toward = nx2 * (dx / dist) + nz2 * (dz / dist)
+              return { sx: nx2, sz: nz2, blocked, toward }
+            }
+            const slide1 = trySlide(blockX)
+            const slide2 = trySlide(!blockX)
+            const diag1 = tryDiagSlide(1)
+            const diag2 = tryDiagSlide(-1)
+            if (!slide1.blocked) {
+              sx = slide1.sx; sz = slide1.sz
+              this.stuckFrames = 0
+            } else if (!slide2.blocked) {
+              sx = slide2.sx; sz = slide2.sz
+              this.stuckFrames = 0
+            } else if (!diag1.blocked && diag1.toward > 0) {
+              // Issue 7: diagonal slide as fallback for tight corridors
+              sx = diag1.sx; sz = diag1.sz
+              this.stuckFrames = 0
+            } else if (!diag2.blocked && diag2.toward > 0) {
+              sx = diag2.sx; sz = diag2.sz
+              this.stuckFrames = 0
+            } else {
+              // All slides blocked — try backing away from the obstacle
+              // (move toward the NPC's current side relative to building center)
+              const backX = sideX === 0 ? (Math.random() - 0.5) : sideX
+              const backZ = sideZ === 0 ? (Math.random() - 0.5) : sideZ
+              const backLen = Math.sqrt(backX * backX + backZ * backZ) || 1
+              const bx = (backX / backLen) * step
+              const bz = (backZ / backLen) * step
+              const backBlocked = NPC.obstacleQuery!(current.x + bx, current.z + bz, PROBE_RADIUS)
+              if (!backBlocked) {
+                sx = bx / step; sz = bz / step
+                this.stuckFrames = 0
+              } else {
+                // Completely surrounded — increment stuck counter
+                this.stuckFrames++
+                sx = 0; sz = 0
+              }
+            }
+            nx = sx
+            nz = sz
+          } else {
+            this.stuckFrames = 0
+          }
+        } else {
+          this.stuckFrames = 0
+        }
+
+        // Stuck detection: if blocked for too long, give up the move target
+        // to prevent permanent stuck + shaking. Also treat as arrived if
+        // close enough to target.
+        // Issue 7: increased from 20 to 90 frames (~1.5s at 60fps) to give
+        // NPCs more time to navigate around large buildings before giving up.
+        if (this.stuckFrames > 90) {
+          this.stuckFrames = 0
+          // If we're within 3 units of target, treat as arrived
+          if (dist < 3.0) {
+            this.finishMove('arrived')
+            return
+          }
+          // Otherwise abandon — resolve as interrupted so caller can re-plan
+          this.finishMove('interrupted')
+          return
+        }
+
         current.x += nx * step
         current.z += nz * step
+
+        // No-progress detection: if NPC barely moved despite not being "stuck",
+        // it may be oscillating (sliding back and forth between obstacles).
+        // Track position delta across frames; if consistently tiny, give up.
+        const movedDist = Math.sqrt(
+          (current.x - this.lastPosX) ** 2 + (current.z - this.lastPosZ) ** 2,
+        )
+        if (movedDist < step * 0.3) {
+          this.noProgressFrames++
+        } else {
+          this.noProgressFrames = 0
+        }
+        this.lastPosX = current.x
+        this.lastPosZ = current.z
+        // If no real progress for 120 frames (~2s), give up to prevent spinning
+        if (this.noProgressFrames > 120) {
+          this.noProgressFrames = 0
+          if (dist < 3.0) {
+            this.finishMove('arrived')
+            return
+          }
+          this.finishMove('interrupted')
+          return
+        }
 
         this.desiredRotationY = Math.atan2(nx, nz)
       }

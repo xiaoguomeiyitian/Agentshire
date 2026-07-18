@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { NeedsEngine, type NeedKey } from '../NeedsEngine'
+import { NeedsEngine } from '../NeedsEngine'
 
 describe('NeedsEngine', () => {
   let engine: NeedsEngine

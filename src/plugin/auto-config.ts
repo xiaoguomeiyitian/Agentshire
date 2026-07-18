@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { stateDir } from "./paths.js";
 
 const AGENT_ID = "town-steward";
+const UTILITY_AGENT_ID = "town-utility";
 const CHANNEL_ID = "agentshire";
 const TEMPLATE_DIR = "town-workspace";
 
@@ -94,6 +95,32 @@ export async function ensureTownAgentConfig(): Promise<void> {
         identity: { name: "shire", emoji: "🏘️" },
       });
       dirty = true;
+    }
+
+    // Ensure the utility agent exists (for summary/soul generation via
+    // OpenClaw runtime, inheriting the global default model + fallbacks).
+    const hasUtilityAgent = agents.some((a: any) => a.id === UTILITY_AGENT_ID);
+    if (!hasUtilityAgent) {
+      const utilityWorkspace = join(stateDir(), `workspace-${UTILITY_AGENT_ID}`);
+      mkdirSync(utilityWorkspace, { recursive: true });
+      // Minimal SOUL.md so the agent has a persona
+      if (!existsSync(join(utilityWorkspace, "SOUL.md"))) {
+        writeFileSync(
+          join(utilityWorkspace, "SOUL.md"),
+          "# Utility Agent\n\n你是一个工具型助手，负责摘要生成、灵魂文件生成等后台任务。请直接完成任务，不要寒暄。\n",
+          "utf-8",
+        );
+      }
+      cfg.agents = cfg.agents ?? {};
+      cfg.agents.list = cfg.agents.list ?? [];
+      cfg.agents.list.push({
+        id: UTILITY_AGENT_ID,
+        name: "utility",
+        workspace: utilityWorkspace,
+        identity: { name: "utility", emoji: "🔧" },
+      });
+      dirty = true;
+      console.log(`[agentshire] Auto-configured ${UTILITY_AGENT_ID} agent for background LLM tasks`);
     }
 
     if (!hasBinding) {

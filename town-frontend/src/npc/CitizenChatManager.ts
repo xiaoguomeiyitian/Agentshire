@@ -95,15 +95,11 @@ export class CitizenChatManager {
 
   private disconnectSilent(): void {
     if (!this.interaction) return
-    const { npcId } = this.interaction
-    // DailyBehavior removed; resumeFromDialogue is a no-op now.
     this.interaction = null
   }
 
   disconnect(): void {
     if (!this.interaction) return
-    // DailyBehavior removed; resumeFromDialogue is a no-op now.
-
     this.interaction = null
     this.deps.onDialogTargetChange('steward')
     this.deps.onInputTargetChange(null)

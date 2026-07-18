@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Cpu, ChevronDown, ChevronRight, User, Brain, MessageSquare, Zap, Save,
+  Cpu, ChevronDown, ChevronRight, User, Brain, MessageSquare, Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { apiUrl } from '@/utils/api-base'
@@ -318,9 +318,7 @@ export function AgentModelsPanel() {
                   <AgentConfigEditor
                     agent={agent}
                     config={cfg}
-                    modelOptions={modelOptions}
                     fallbacks={fallbacks}
-                    updating={isUpdating}
                     onUpdate={updateConfig}
                   />
                 )}
@@ -353,13 +351,11 @@ export function AgentModelsPanel() {
 // ── Agent config editor (expanded section) ──
 
 function AgentConfigEditor({
-  agent, config, modelOptions, fallbacks, updating, onUpdate,
+  agent, config, fallbacks, onUpdate,
 }: {
   agent: AgentInfo
   config: AgentConfig
-  modelOptions: ModelOption[]
   fallbacks: string[]
-  updating: boolean
   onUpdate: (agent: AgentInfo, patch: Record<string, any>) => void
 }) {
   const identity = config.identity ?? {}

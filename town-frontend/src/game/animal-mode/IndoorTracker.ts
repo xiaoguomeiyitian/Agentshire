@@ -7,8 +7,8 @@
  * and AutonomyEngine keep running. This tracker records the indoor state
  * so other systems can query it.
  *
- * Public buildings (cafe/market/museum) do NOT use this tracker — citizens
- * stay visible there (using the existing occupancy mechanism in DailyBehavior).
+ * Issue 2: commercial buildings (cafe/market) also use this tracker —
+ * citizens become invisible inside and recover hunger/social needs.
  */
 
 export class IndoorTracker {

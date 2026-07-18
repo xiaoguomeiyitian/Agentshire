@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026.7.18 — Town UX Polish & Topic Mode Fixes
+
+### NPC Stuck at Buildings (Issue 1)
+
+Citizens frequently got stuck spinning in place around building perimeters. Root cause: door markers sit 0.5 cells outside the building footprint, but `obstacleQuery` with `PROBE_RADIUS=0.5` blocked NPCs from reaching the door. Fixed by:
+- Adding a **door zone exemption** in `obstacleQuery` — positions within 1.8 units of a door marker are never treated as obstacles.
+- Changing `handleTap` door detection from first-match (< 5) to **nearest-match (< 3)**, preventing wrong-building selection when tapping near overlapping door zones.
+- Increasing the `walkToDoor` arrival threshold from 2.0 to 2.5 so NPCs stop earlier and don't overshoot into walls.
+
+### Unique Building Names (Issue 2)
+
+All buildings in the town now have unique names. Previously the first building of each type had no number suffix (e.g. "住宅" vs "住宅2"), causing ambiguity. Now every building appends its occurrence index within its role group (e.g. "住宅1", "住宅2", "办公室1"). Applied in both `updateWaypointsFromMapConfig` (types.ts) and `addBuildingLabel` (TownBuilder.ts).
+
+### Topic Panel No Longer Covered (Issue 3)
+
+The "发起话题" (Start Topic) setup panel was partially obscured by the bottom input bar. Fixed by raising the panel `z-index` from 70 to 1200 (above the bottom panel's 1100) and adding `margin-bottom: 80px` so the card content clears the input bar.
+
+### Popup Overlap Fixes (Issue 4)
+
+Audited all overlay/popup z-indexes to prevent stacking issues:
+- `.town-confirm-backdrop` (confirm dialog): 60 → 1200
+- `#town-skill-overlay` (skill learn card): 500 → 1200
+- `#town-topic-overlay` (topic setup): 70 → 1200
+
+### Mayor Follow During Topic (Issue 5)
+
+When citizens are gathered around the mayor for a topic and the mayor moves, all participants now follow. Added `topicMayorPos` tracking and a 0.5s interval check in the update loop — if the mayor moves more than 1.5 units, citizens re-gather at the mayor's new position.
+
+### Quick Action Bar (Issue 6)
+
+The "发起话题", "居民详情", "群发消息" (and "话题详情" when a topic is active) buttons are now **always visible as a horizontal button bar above the input bar**, instead of being hidden behind the "更多 ▾" dropdown. The "更多" button is now hidden by default. The quick action bar re-renders automatically when topic state changes (start/end topic, broadcast mode toggle).
+
+### Autonomous Decisions Paused During Topic (Issue 7)
+
+When citizens are gathered for a topic, their autonomous behavior is now fully suspended:
+- **L2 LLM decisions** — already paused via `pauseL2Decisions()` (refcounted) when the topic setup panel opens.
+- **Casual encounters & deep dialogues** — now skipped in the update loop when `topicNpcIds.length > 0`, so citizens don't wander off or generate chat bubbles while the topic is in progress.
+
+Both resume automatically when the topic ends (`dismissTopic`).
+
 ## 2026.7.17 — Animal Mode Activation & NPC Card Rework
 
 ### Citizens Visible & Autonomous

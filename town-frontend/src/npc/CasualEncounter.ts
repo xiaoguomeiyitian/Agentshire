@@ -212,7 +212,7 @@ export class CasualEncounter {
   }
 
   /** Parse LLM response into two chat lines (fallback: split by newline). */
-  private parseChatLines(text: string, a: NPC, b: NPC): string[] {
+  private parseChatLines(text: string, _a: NPC, _b: NPC): string[] {
     const trimmed = text.trim()
     const parts = trimmed.split(/\n+/).filter((s) => s.trim().length > 0)
     if (parts.length >= 2) return [parts[0].trim(), parts[1].trim()]
@@ -259,14 +259,24 @@ export class CasualEncounter {
         const nz = len > 0.1 ? dz / len : 1
         const halfDist = FACE_DISTANCE / 2
 
-        chat.npcA.mesh.position.x = midX - nx * halfDist
-        chat.npcA.mesh.position.z = midZ - nz * halfDist
-        chat.npcB.mesh.position.x = midX + nx * halfDist
-        chat.npcB.mesh.position.z = midZ + nz * halfDist
-
-        const angleAtoB = Math.atan2(dx, dz)
-        chat.npcA.mesh.rotation.y = angleAtoB
-        chat.npcB.mesh.rotation.y = angleAtoB + Math.PI
+        // Issue 3: walk NPCs to face-to-face positions instead of teleporting.
+        // Previously this directly set mesh.position, causing a visible jump.
+        // Now both NPCs walk (short distance) to their facing spots; once
+        // both arrive, they turn to face each other and the chat proceeds.
+        const targetA = { x: midX - nx * halfDist, z: midZ - nz * halfDist }
+        const targetB = { x: midX + nx * halfDist, z: midZ + nz * halfDist }
+        chat.npcA.moveTo(targetA, 2).then((status) => {
+          if (status === 'arrived') {
+            const angleAtoB = Math.atan2(dx, dz)
+            chat.npcA.mesh.rotation.y = angleAtoB
+          }
+        })
+        chat.npcB.moveTo(targetB, 2).then((status) => {
+          if (status === 'arrived') {
+            const angleAtoB = Math.atan2(dx, dz)
+            chat.npcB.mesh.rotation.y = angleAtoB + Math.PI
+          }
+        })
       }
 
       const expectedLine = Math.floor(chat.timer / chat.lineInterval)

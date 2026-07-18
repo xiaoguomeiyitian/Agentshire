@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Plus, Edit3, Trash2, Download, Upload, X, Cpu,
+  Plus, Edit3, Trash2, Download, Upload, X,
   ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -42,6 +42,8 @@ export interface ApiResult {
   success?: boolean
   providers?: ProvidersMap
   defaultModel?: string
+  defaultFallbacks?: string[]
+  fallbacks?: string[]
   file?: { providers: ProvidersMap }
   error?: string
   code?: string
@@ -86,6 +88,8 @@ export function maskKey(key: string): string {
 export function ModelPanel() {
   const [providers, setProviders] = useState<ProvidersMap>({})
   const [defaultModel, setDefaultModel] = useState<string | undefined>(undefined)
+  const [defaultFallbacks, setDefaultFallbacks] = useState<string[]>([])
+  const [fallbackPickerOpen, setFallbackPickerOpen] = useState(false)
   const [activeProviderId, setActiveProviderId] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
 
@@ -110,6 +114,7 @@ export function ModelPanel() {
     if (res.providers) {
       setProviders(res.providers)
       setDefaultModel(res.defaultModel)
+      setDefaultFallbacks(res.defaultFallbacks ?? [])
       const ids = Object.keys(res.providers)
       if (!activeProviderId || !res.providers[activeProviderId]) {
         setActiveProviderId(ids[0] ?? null)
@@ -139,6 +144,29 @@ export function ModelPanel() {
       showToast(t('claw.mm_default_failed'), true)
     }
   }, [showToast])
+
+  const handleAddFallback = useCallback(async (ref: string) => {
+    if (!ref || defaultFallbacks.includes(ref)) return
+    const next = [...defaultFallbacks, ref]
+    const res = await apiPost('set-fallbacks', { fallbacks: next })
+    if (res.success) {
+      setDefaultFallbacks(res.fallbacks ?? next)
+      showToast(t('claw.mm_fallback_added'))
+    } else {
+      showToast(res.error ?? t('claw.mm_fallback_failed'), true)
+    }
+  }, [defaultFallbacks, showToast])
+
+  const handleRemoveFallback = useCallback(async (ref: string) => {
+    const next = defaultFallbacks.filter((f) => f !== ref)
+    const res = await apiPost('set-fallbacks', { fallbacks: next })
+    if (res.success) {
+      setDefaultFallbacks(res.fallbacks ?? next)
+      showToast(t('claw.mm_fallback_removed'))
+    } else {
+      showToast(res.error ?? t('claw.mm_fallback_failed'), true)
+    }
+  }, [defaultFallbacks, showToast])
 
   const handleSaveProvider = useCallback(async (id: string, provider: ProviderConfig, editId: string | null) => {
     if (!id) { showToast(t('claw.mm_id_empty'), true); return false }
@@ -320,39 +348,110 @@ export function ModelPanel() {
           </button>
         </div>
 
-        {/* Default model selector + Import/Export buttons in one row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-3 mb-5 bg-bg-surface border border-[rgba(212,165,116,0.3)] rounded-xl">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[14px] font-semibold text-text-primary">{t('claw.mm_default_model')}</span>
-            <span className="text-[11px] text-text-tertiary">{t('claw.mm_default_model_hint')}</span>
+        {/* ── Model routing card: default model + fallbacks + import/export ── */}
+        <div className="flex flex-col gap-4 px-4 py-4 mb-5 bg-bg-surface border border-[rgba(212,165,116,0.3)] rounded-xl">
+          {/* Card header: title + import/export on the right */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[14px] font-semibold text-text-primary">模型路由设置</span>
+              <span className="text-[11px] text-text-tertiary">配置默认模型与备用链，导入导出供应商配置</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setImportModal(true)}
+                title={t('claw.mm_import')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
+              >
+                <Upload size={13} strokeWidth={1.8} />
+                <span className="hidden sm:inline">{t('claw.mm_import')}</span>
+              </button>
+              <button
+                onClick={handleExport}
+                title={t('claw.mm_export')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
+              >
+                <Download size={13} strokeWidth={1.8} />
+                <span className="hidden sm:inline">{t('claw.mm_export')}</span>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+
+          {/* Default model row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
+            <div className="flex flex-col gap-0.5 shrink-0">
+              <span className="text-[13px] font-medium text-text-primary">{t('claw.mm_default_model')}</span>
+              <span className="text-[11px] text-text-tertiary">{t('claw.mm_default_model_hint')}</span>
+            </div>
             <select
               value={defaultModel ?? ''}
               onChange={(e) => handleSetDefaultModel(e.target.value || undefined)}
-              className="w-full sm:w-auto sm:min-w-[240px] bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary font-mono cursor-pointer outline-none focus:border-brand-primary"
+              className="w-full sm:w-auto sm:min-w-[280px] bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary font-mono cursor-pointer outline-none focus:border-brand-primary"
             >
               <option value="">{t('claw.mm_not_set')}</option>
               {getAllModelRefs().map((ref) => (
                 <option key={ref} value={ref}>{ref}</option>
               ))}
             </select>
-            <div className="flex items-center gap-2">
+          </div>
+
+          {/* Divider */}
+          <div className="h-px bg-border-subtle" />
+
+          {/* Fallback models row */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-medium text-text-primary">{t('claw.mm_default_fallbacks')}</span>
+                <span className="text-[11px] text-text-tertiary">{t('claw.mm_default_fallbacks_hint')}</span>
+              </div>
               <button
-                onClick={() => setImportModal(true)}
-                title={t('claw.mm_import')}
-                className="flex items-center justify-center px-2.5 py-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
+                onClick={() => setFallbackPickerOpen((v) => !v)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] text-text-primary bg-bg-elevated hover:brightness-110 cursor-pointer transition-colors border border-border-subtle shrink-0"
               >
-                <Upload size={14} strokeWidth={1.8} />
-              </button>
-              <button
-                onClick={handleExport}
-                title={t('claw.mm_export')}
-                className="flex items-center justify-center px-2.5 py-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-elevated cursor-pointer transition-colors border border-border-subtle"
-              >
-                <Download size={14} strokeWidth={1.8} />
+                <Plus size={12} strokeWidth={2.5} />
+                {t('claw.mm_add_fallback')}
               </button>
             </div>
+            {fallbackPickerOpen && (
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleAddFallback(e.target.value)
+                    setFallbackPickerOpen(false)
+                  }
+                }}
+                className="w-full sm:w-auto sm:min-w-[280px] bg-bg-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary font-mono cursor-pointer outline-none focus:border-brand-primary"
+              >
+                <option value="">{t('claw.mm_select_fallback')}</option>
+                {getAllModelRefs()
+                  .filter((ref) => ref !== defaultModel && !defaultFallbacks.includes(ref))
+                  .map((ref) => (
+                    <option key={ref} value={ref}>{ref}</option>
+                  ))}
+              </select>
+            )}
+            {defaultFallbacks.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {defaultFallbacks.map((ref, i) => (
+                  <div
+                    key={ref}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-elevated border border-border-subtle text-[11px] text-text-secondary font-mono"
+                  >
+                    <span className="text-text-tertiary">{i + 1}.</span>
+                    <span>{ref}</span>
+                    <button
+                      onClick={() => handleRemoveFallback(ref)}
+                      className="text-text-tertiary hover:text-red-400 cursor-pointer ml-0.5"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[11px] text-text-tertiary italic">{t('claw.mm_no_fallbacks')}</span>
+            )}
           </div>
         </div>
 

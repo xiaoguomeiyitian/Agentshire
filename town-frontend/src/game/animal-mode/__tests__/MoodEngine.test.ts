@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { MoodEngine, type MoodLevel } from '../MoodEngine'
+import { MoodEngine } from '../MoodEngine'
 import { NeedsEngine } from '../NeedsEngine'
 
 describe('MoodEngine', () => {

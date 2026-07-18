@@ -18,11 +18,11 @@ describe('NeedActionMapper', () => {
     expect(action!.satisfyAmount).toBe(90)
   })
 
-  it('maps hunger to cafe (goIndoor=false)', () => {
+  it('maps hunger to cafe (goIndoor=true)', () => {
     const action = mapper.resolveAction('hunger', 'house_a_door')
     expect(action).not.toBeNull()
     expect(action!.targetPlace).toBe('cafe_door')
-    expect(action!.goIndoor).toBe(false)
+    expect(action!.goIndoor).toBe(true)
     expect(action!.anim).toBe('sitting')
   })
 

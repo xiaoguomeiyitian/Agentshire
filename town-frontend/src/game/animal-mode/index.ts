@@ -1,12 +1,5 @@
 /**
  * animal-mode — Animal Mode subsystem (借鉴动森的自治小镇模式)
- *
- * Phase 1 exports: skeleton + config + toggle
- * Phase 2 exports: NeedsEngine + MoodEngine (already here)
- * Phase 3 exports: AutonomyEngine (TODO)
- * Phase 4 exports: RelationshipEngine (TODO)
- * Phase 5 exports: FestivalEngine (TODO)
- * Phase 6 exports: MoveEngine (TODO)
  */
 
 export { AnimalModeManager, getAnimalModeManager, ANIMAL_MODE_DEFAULTS } from './AnimalModeManager'

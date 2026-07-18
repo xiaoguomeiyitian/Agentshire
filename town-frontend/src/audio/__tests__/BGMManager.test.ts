@@ -38,7 +38,7 @@ function createMockAudioContext() {
       sources.push(s)
       return s
     }),
-    decodeAudioData: vi.fn(async (buf: ArrayBuffer) => ({
+    decodeAudioData: vi.fn(async (_buf: ArrayBuffer) => ({
       duration: 100,
       getChannelData: () => new Float32Array(100),
     } as unknown as AudioBuffer)),
@@ -65,7 +65,6 @@ describe('BGMManager', () => {
     it('stops current source when disabled', () => {
       const bgm = new BGMManager()
       const mockCtx = createMockAudioContext() as any
-      const mockDest = createMockGain() as any
 
       // Manually inject a "current" source to verify stopSource is called
       const source = createMockSource()

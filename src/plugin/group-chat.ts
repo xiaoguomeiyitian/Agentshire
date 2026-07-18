@@ -870,11 +870,13 @@ export function getGroupInfo(groupId: string): {
     groupId: group.groupId,
     name: group.name,
     isDefault: group.isDefault,
-    participants: group.participants.map(p => ({
-      npcId: p.npcId,
-      name: p.name,
-      specialty: p.specialty,
-    })),
+    participants: group.participants
+      .map(p => ({
+        npcId: p.npcId,
+        name: p.name,
+        specialty: p.specialty,
+      }))
+      .sort((a, b) => a.npcId.localeCompare(b.npcId)),
     topic: group.topic,
     messageCount: group.history.length,
     compactionCount: group.compactionCount,

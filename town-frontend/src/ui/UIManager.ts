@@ -27,7 +27,6 @@ type UIEventCallback = (event: UIEvent) => void
  */
 export class UIManager {
   private listeners: UIEventCallback[] = []
-  private activeTab: TabType = 'world'
 
   private tabBtns!: NodeListOf<Element>
   private chatPanelEl!: HTMLElement
@@ -69,9 +68,6 @@ export class UIManager {
 
     const npcCardEl = document.getElementById('npc-card') as HTMLElement
     this.npcCardPanel = new NpcCardPanel(npcCardEl)
-    this.npcCardPanel.setOnChatWith((npcId, label) =>
-      this.emit({ type: 'chat_with_citizen', npcId, label }),
-    )
 
     this.gamePublishPanel = new GamePublishPanel((url) =>
       this.emit({ type: 'play_now', gameUrl: url }),
@@ -126,7 +122,6 @@ export class UIManager {
   // ── Tab management ──
 
   setActiveTab(tab: TabType): void {
-    this.activeTab = tab
     this.tabBtns.forEach(btn => {
       btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tab)
     })
@@ -239,6 +234,30 @@ export class UIManager {
 
   showBackButton(show: boolean): void { if (this.backBtn) this.backBtn.style.display = show ? 'block' : 'none' }
 
+  /** Issue 2+4: Show a "在XX中" indicator when mayor is inside a virtual building. */
+  showVirtualLocationIndicator(buildingName: string): void {
+    let indicator = document.getElementById('virtual-location-indicator')
+    if (!indicator) {
+      indicator = document.createElement('div')
+      indicator.id = 'virtual-location-indicator'
+      Object.assign(indicator.style, {
+        position: 'fixed', top: '80px', left: '50%', transform: 'translateX(-50%)',
+        background: 'rgba(20,20,40,0.92)', color: '#fff', padding: '8px 20px',
+        borderRadius: '16px', fontSize: '14px', zIndex: '700', pointerEvents: 'none',
+        border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(4px)',
+      } as CSSStyleDeclaration)
+      document.body.appendChild(indicator)
+    }
+    indicator.textContent = `在${buildingName}中`
+    indicator.style.display = 'block'
+  }
+
+  /** Issue 2+4: Hide the virtual location indicator. */
+  hideVirtualLocationIndicator(): void {
+    const indicator = document.getElementById('virtual-location-indicator')
+    if (indicator) indicator.style.display = 'none'
+  }
+
   showToast(msg: string): void {
     let toast = document.getElementById('media-toast')
     if (!toast) {
@@ -285,7 +304,6 @@ export class UIManager {
 
   // ── Chat target switcher (reuses #town-agent-status .tas-line) ──
 
-  private tasClickWrap: HTMLElement | null = null
   private tasAvatarWrap: HTMLElement | null = null
   private tasNameEl: HTMLElement | null = null
   private tasArrowEl: HTMLElement | null = null
@@ -297,12 +315,14 @@ export class UIManager {
   private onSwitchToCitizen: (() => void) | null = null
   private onSwitchToSpecificCitizen: ((npcId: string) => void) | null = null
   private getAllCitizenTargets: (() => NPCConfig[]) | null = null
+  private isNpcOnMap: ((npcId: string) => boolean) | null = null
 
   initChatTargetIndicator(opts: {
     onSwitchToSteward: () => void
     onSwitchToCitizen: () => void
     onSwitchToSpecificCitizen?: (npcId: string) => void
     getAllCitizenTargets?: () => NPCConfig[]
+    isNpcOnMap?: (npcId: string) => boolean
     stewardName?: string
     stewardConfig?: NPCConfig
   }): void {
@@ -310,6 +330,7 @@ export class UIManager {
     this.onSwitchToCitizen = opts.onSwitchToCitizen
     this.onSwitchToSpecificCitizen = opts.onSwitchToSpecificCitizen ?? null
     this.getAllCitizenTargets = opts.getAllCitizenTargets ?? null
+    this.isNpcOnMap = opts.isNpcOnMap ?? null
     if (opts.stewardName) this.stewardName = opts.stewardName
     if (opts.stewardConfig) this.stewardConfig = opts.stewardConfig
 
@@ -319,7 +340,6 @@ export class UIManager {
 
     const wrap = document.createElement('span')
     wrap.className = 'tas-click-wrap'
-    this.tasClickWrap = wrap
 
     const avatarWrap = document.createElement('span')
     avatarWrap.className = 'tas-avatar-wrap'
@@ -472,39 +492,42 @@ export class UIManager {
     if (!this.activeCitizenTarget && !this.getAllCitizenTargets) return
     this.tasDropdown.innerHTML = ''
 
-    const currentName = this.tasNameEl?.textContent ?? ''
-    const citizenName = this.activeCitizenTarget
-      ? (this.activeCitizenTarget.label || this.activeCitizenTarget.name)
-      : ''
+    const activeId = this.activeCitizenTarget?.id ?? null
 
-    // Build item list: steward first, then all citizens
+    // Build item list in FIXED order: steward first, then all citizens in config order.
+    // The active citizen is NOT moved to the top — order stays stable regardless of selection.
     const items: Array<{ label: string; npc: NPCConfig | null; action: () => void }> = [
       { label: this.stewardName, npc: this.stewardConfig, action: () => this.onSwitchToSteward?.() },
     ]
 
-    if (this.activeCitizenTarget) {
-      items.push({ label: citizenName, npc: this.activeCitizenTarget, action: () => this.onSwitchToCitizen?.() })
-    }
-
-    // Add all citizens from config
     if (this.getAllCitizenTargets) {
       const allCitizens = this.getAllCitizenTargets()
       for (const c of allCitizens) {
         const cName = c.label || c.name
-        // Skip if already in list (active citizen)
-        if (this.activeCitizenTarget && c.id === this.activeCitizenTarget.id) continue
+        const isActive = activeId === c.id
         items.push({
           label: cName,
           npc: c,
-          action: () => this.onSwitchToSpecificCitizen?.(c.id),
+          action: isActive
+            ? () => this.onSwitchToCitizen?.()
+            : () => this.onSwitchToSpecificCitizen?.(c.id),
         })
       }
+    } else if (this.activeCitizenTarget) {
+      // Fallback: only the active citizen is available
+      const cName = this.activeCitizenTarget.label || this.activeCitizenTarget.name
+      items.push({ label: cName, npc: this.activeCitizenTarget, action: () => this.onSwitchToCitizen?.() })
     }
 
     for (const item of items) {
       const el = document.createElement('div')
       el.className = 'tas-dropdown-item'
-      if (item.label === currentName) el.classList.add('tas-dropdown-active')
+      // Mark active by NPC id (steward or active citizen), not by label text
+      // (tasNameEl now includes "· specialty" so label comparison is unreliable).
+      const itemId = item.npc?.id ?? (item.label === this.stewardName ? 'steward' : '')
+      const isActiveItem = (this.activeCitizenTarget && itemId === this.activeCitizenTarget.id) ||
+                           (!this.activeCitizenTarget && itemId === 'steward')
+      if (isActiveItem) el.classList.add('tas-dropdown-active')
 
       if (item.npc) {
         const avatar = buildAvatarEl('tas-dropdown-avatar', item.npc, 18)
@@ -519,6 +542,17 @@ export class UIManager {
         specSpan.className = 'tas-dropdown-specialty'
         specSpan.textContent = item.npc.specialty
         el.appendChild(specSpan)
+      }
+      // Show on-map status indicator for citizens (green dot = on map, gray = off map)
+      if (item.npc && item.npc.id !== 'steward' && item.npc.id !== 'user') {
+        const onMap = this.isNpcOnMap ? this.isNpcOnMap(item.npc.id) : true
+        const statusDot = document.createElement('span')
+        statusDot.className = 'tas-dropdown-onmap'
+        statusDot.title = onMap ? '在地图上' : '不在地图上'
+        statusDot.style.cssText = onMap
+          ? 'width:8px;height:8px;border-radius:50%;background:#44dd66;display:inline-block;flex-shrink:0;margin-left:auto;'
+          : 'width:8px;height:8px;border-radius:50%;background:#88888888;display:inline-block;flex-shrink:0;margin-left:auto;'
+        el.appendChild(statusDot)
       }
 
       el.addEventListener('click', (e) => {
@@ -612,6 +646,8 @@ export class UIManager {
     chatMessages?: Array<{ from: string; text: string; timestamp: number }>;
     chatFetcher?: () => Array<{ from: string; text: string; timestamp: number; targetNpcId?: string }>;
     agentId?: string;
+    homeBuilding?: string | null;
+    currentLocation?: string | null;
   }): void {
     this.npcCardPanel.show(opts)
   }

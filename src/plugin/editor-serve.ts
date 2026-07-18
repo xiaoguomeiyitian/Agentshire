@@ -1075,39 +1075,6 @@ function computeChangeset(
 
 const SOUL_GEN_TIMEOUT_MS = 90_000;
 
-async function generateSoulViaAgent(system: string, user: string): Promise<string> {
-  const rt = getTownRuntime();
-  const cfg = rt.config.current() as any;
-  const sessionKey = `agent:town-steward:soul-gen:${Date.now()}`;
-  const message = `【系统指令】\n${system}\n\n【用户输入】\n${user}`;
-
-  let responseText = "";
-  const agentDone = rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: buildTownInboundContext({
-      rt,
-      body: message,
-      from: "agentshire:user",
-      to: "agentshire:steward",
-      sessionKey,
-      accountId: "default",
-    }),
-    cfg,
-    dispatcherOptions: {
-      deliver: async (payload: any) => {
-        const text = payload?.text ?? payload?.body;
-        if (text) responseText = text;
-      },
-    },
-  });
-
-  const timeout = new Promise<void>((_, reject) =>
-    setTimeout(() => reject(new Error("Soul generation timed out")), SOUL_GEN_TIMEOUT_MS),
-  );
-
-  await Promise.race([agentDone, timeout]);
-  return responseText;
-}
-
 async function handleCitizenWorkshopApi(
   req: any,
   res: any,
@@ -1233,7 +1200,7 @@ async function handleCitizenWorkshopApi(
       // ── Steward (town-steward) model ref update ──
       // The steward is the main Agent in openclaw.json, not a citizen agent.
       // Apply its modelRef change directly to openclaw.json so channel.ts /
-      // llm-agent-proxy pick up the new model on the next conversation.
+      // the OpenClaw runtime pick up the new model on the next conversation.
       if (changeset.stewardModelUpdated) {
         try {
           const { updateAgentModel } = await import("./citizen-agent-manager.js");
@@ -1353,7 +1320,15 @@ async function handleCitizenWorkshopApi(
       }
       const { getAgentConfig } = await import("./citizen-agent-manager.js");
       const agent = getAgentConfig(agentId);
-      jsonRes(res, { success: true, agentId, agent: agent ?? null });
+      // Include the global default model so the frontend can display it for
+      // agents that inherit the default (no explicit model set).
+      let defaultModel: string | undefined;
+      try {
+        const rt = getTownRuntime();
+        const cfg = rt.config.current() as any;
+        defaultModel = cfg?.agents?.defaults?.model?.primary;
+      } catch {}
+      jsonRes(res, { success: true, agentId, agent: agent ?? null, defaultModel });
     } catch (err: any) {
       jsonRes(res, { error: err?.message ?? "Failed to get agent config" }, 500);
     }
@@ -1458,27 +1433,19 @@ async function handleCitizenWorkshopApi(
       return true;
     }
     try {
-      const { chat, isAvailable } = await import("./llm-agent-proxy.js");
+      const { chatViaAgent } = await import("./llm-via-agent.js");
       const { buildPersonaPrompt } = await import("./soul-prompt-template.js");
       const prompt = buildPersonaPrompt({ name, bio, specialty: specialty || "通用助手" });
 
-      if (isAvailable()) {
-        const result = await chat({
-          system: prompt.system,
-          user: prompt.user,
-          maxTokens: 2000,
-          temperature: 0.8,
-          stop: [],
-        });
-        if (result.text) {
-          jsonRes(res, { content: result.text });
-          return true;
-        }
-      }
+      const result = await chatViaAgent({
+        system: prompt.system,
+        user: prompt.user,
+        sessionScope: `soul-gen:${name}`,
+        timeoutMs: 90_000,
+      });
 
-      const text = await generateSoulViaAgent(prompt.system, prompt.user);
-      if (text) {
-        jsonRes(res, { content: text });
+      if (result.text) {
+        jsonRes(res, { content: result.text });
       } else {
         jsonRes(res, { error: "LLM 返回为空" }, 500);
       }
@@ -1550,16 +1517,25 @@ async function handleModelsApi(
     switch (route) {
       case "load": {
         const file = m.readModelsConfig();
-        jsonRes(res, { providers: file.providers, defaultModel: m.readDefaultModel() });
+        jsonRes(res, { providers: file.providers, defaultModel: m.readDefaultModel(), defaultFallbacks: m.readDefaultFallbacks() });
         return true;
       }
       case "get-default": {
-        jsonRes(res, { success: true, defaultModel: m.readDefaultModel() });
+        jsonRes(res, { success: true, defaultModel: m.readDefaultModel(), defaultFallbacks: m.readDefaultFallbacks() });
         return true;
       }
       case "set-default": {
         const ref = m.writeDefaultModel(body.modelRef);
         jsonRes(res, { success: true, defaultModel: ref });
+        return true;
+      }
+      case "get-fallbacks": {
+        jsonRes(res, { success: true, fallbacks: m.readDefaultFallbacks() });
+        return true;
+      }
+      case "set-fallbacks": {
+        const fallbacks = m.writeDefaultFallbacks(Array.isArray(body.fallbacks) ? body.fallbacks : []);
+        jsonRes(res, { success: true, fallbacks });
         return true;
       }
       case "save": {

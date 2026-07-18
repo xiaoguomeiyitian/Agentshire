@@ -72,8 +72,6 @@ export class EncounterManager {
   private onBubble: ((npc: NPC, text: string, durationMs: number) => void) | null = null
   private onBubbleEnd: ((npc: NPC) => void) | null = null
   private getJournal: ((npcId: string) => ActivityJournal | undefined) | null = null
-  // DailyBehavior removed; accessor kept for API compat but returns undefined.
-  private getBehavior: ((npcId: string) => unknown) | null = null
   private onDialogueComplete: ((initiatorId: string, responderId: string, turns: Array<{ speaker: string; text: string }>, summary: string) => void) | null = null
 
   constructor(_gameClock: GameClock) {
@@ -93,10 +91,6 @@ export class EncounterManager {
 
   setJournalAccessor(fn: (npcId: string) => ActivityJournal | undefined): void {
     this.getJournal = fn
-  }
-
-  setBehaviorAccessor(fn: (npcId: string) => unknown): void {
-    this.getBehavior = fn
   }
 
   setPersonaStore(store: PersonaStore): void {
@@ -165,7 +159,6 @@ export class EncounterManager {
   }
 
   private isEligibleState(_npcId: string): boolean {
-    // DailyBehavior removed; AutonomyEngine now manages NPC state.
     // Always allow encounters — AutonomyEngine decides who can talk.
     return true
   }
@@ -363,14 +356,12 @@ export class EncounterManager {
     )
   }
 
-  // ── NPC pause/resume (DailyBehavior removed; no-op) ──
+  // ── NPC pause/resume (no-op; AutonomyEngine handles movement) ──
 
   private pauseNpcForDialogue(_a: NPC, _b: NPC): void {
-    // DailyBehavior removed; AutonomyEngine handles movement.
   }
 
   private resumeNpcFromDialogue(_a: NPC, _b: NPC): void {
-    // DailyBehavior removed; AutonomyEngine handles movement.
   }
 
   // ── Cooldowns ──

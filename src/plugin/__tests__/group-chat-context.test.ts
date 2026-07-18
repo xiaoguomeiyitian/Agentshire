@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock dependencies
-vi.mock('../llm-agent-proxy.js', () => ({
-  chat: vi.fn(),
+vi.mock('../llm-via-agent.js', () => ({
+  chatViaAgent: vi.fn(),
 }))
 
 vi.mock('../group-chat-history.js', () => ({

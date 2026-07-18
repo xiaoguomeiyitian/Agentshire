@@ -4,10 +4,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 describe('paths', () => {
-  let logSpy: ReturnType<typeof vi.spyOn>
-
   beforeEach(() => {
-    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
   })
 
   afterEach(() => {

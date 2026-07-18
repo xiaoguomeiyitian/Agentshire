@@ -22,7 +22,7 @@
     }
     .loading-label { color: rgba(212,165,116,0.5); font-size: 20px; font-weight: 900; letter-spacing: 0.3em; }
     .loading-dots .dot { opacity: 0; }
-    #town-bottom-panel { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; }
+    #town-bottom-panel { position: fixed; bottom: 0; left: 0; right: 0; z-index: 1100; }
   </style>
 </head>
 <body>
@@ -116,6 +116,8 @@
 
   <!-- ── Bottom Input Panel (OpenClaw input bar) ── -->
   <div id="town-bottom-panel">
+    <!-- Issue 6: quick action bar — always visible above the agent status row -->
+    <div id="town-quick-actions"></div>
     <div id="town-agent-status">
       <div class="tas-meta">
         <div class="tas-line">
@@ -125,7 +127,7 @@
       </div>
       <div style="position:relative;flex-shrink:0;display:flex;gap:6px;align-items:center;">
         <button id="town-end-topic-btn" type="button" style="display:none;">结束话题</button>
-        <button id="town-more-btn" type="button" title="More" data-i18n="more_btn">更多 <span style="font-size:10px;">▾</span></button>
+        <button id="town-more-btn" type="button" title="More" data-i18n="more_btn" style="display:none;">更多 <span style="font-size:10px;">▾</span></button>
         <div id="town-action-dropdown" style="display:none;"></div>
       </div>
     </div>

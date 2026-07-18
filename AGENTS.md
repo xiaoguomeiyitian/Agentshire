@@ -374,6 +374,8 @@ Test distribution:
 | Modify per-agent LLM model routing | `src/plugin/llm-agent-proxy.ts` |
 | Modify per-agent model proxy UI | `town-frontend/src/app/AgentModelsPanel.tsx` |
 | Modify Animal Mode (citizen autonomy) | `town-frontend/src/game/animal-mode/AnimalModeManager.ts` + `MainScene.setAnimalModeEnabled()` |
+| Modify topic mode (gather/dismiss/follow) | `town-frontend/src/game/MainScene.ts` (`gatherForTopic` / `dismissTopic` / `pauseTopicAutonomy` / update loop follow logic) |
+| Modify bottom panel quick actions | `town-frontend/town.html` (`#town-quick-actions`) + `town-frontend/src/main.ts` (`refreshQuickActions`) + `town-frontend/src/ui/town-panel.css` (`.town-quick-btn`) |
 | Modify Town lazy-loading | `town-frontend/src/app/App.tsx` (`getTabFromHash`) + `app/TownView.tsx` (`loaded` state) |
 | Modify citizen spatial tools | `src/plugin/tools.ts` (3 spatial tools) + `town-frontend/src/game/MainScene.ts` (NPC query handler) |
 | Add frontend GameEvent handler | `town-frontend/src/game/EventDispatcher.ts` |

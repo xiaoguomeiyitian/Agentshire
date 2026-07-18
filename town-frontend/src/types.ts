@@ -119,9 +119,34 @@ export function getBuildingName(key: string): string {
   return BUILDING_REGISTRY.find(b => b.key === key)?.name ?? key
 }
 
+/**
+ * Get the area/zone name for a given world position.
+ * Divides the map into logical zones so citizens can describe their location
+ * in human-readable terms (e.g. "西区", "广场", "东区").
+ */
+export function getAreaName(x: number, _z: number): string {
+  const en = getLocale() === 'en'
+  // Plaza area (center-west, around plaza_center waypoint)
+  const plazaX = WAYPOINTS.plaza_center?.x ?? 18
+  const plazaZ = WAYPOINTS.plaza_center?.z ?? 13
+  if (Math.abs(x - plazaX) < 8 && Math.abs(_z - plazaZ) < 8) {
+    return en ? 'Plaza' : '广场'
+  }
+  // Park area (around park_center)
+  const parkX = WAYPOINTS.park_center?.x ?? 12
+  const parkZ = WAYPOINTS.park_center?.z ?? 20
+  if (Math.abs(x - parkX) < 6 && Math.abs(_z - parkZ) < 6) {
+    return en ? 'Park' : '公园'
+  }
+  // West zone (x < 35)
+  if (x < 35) return en ? 'West Zone' : '西区'
+  // East zone (x >= 35)
+  return en ? 'East Zone' : '东区'
+}
+
 // ── Dynamic building registration from TownMapConfig ──
 // Maps building modelKey to (category, tag, scene, name) for NPC behavior.
-const MODEL_KEY_TO_ROLE: Record<string, {
+export const MODEL_KEY_TO_ROLE: Record<string, {
   category: BuildingCategory
   tag: string
   scene: SceneType
@@ -199,11 +224,14 @@ export function updateWaypointsFromMapConfig(config: TownMapConfig): void {
       standardKeyAssigned[stdKey] = true
     }
 
-    // Generate a unique display name based on modelKey
-    modelKeyCount[b.modelKey] = (modelKeyCount[b.modelKey] ?? 0) + 1
-    const idx = modelKeyCount[b.modelKey]
-    const name = idx > 1 ? `${role.name}${idx}` : role.name
-    const nameEn = idx > 1 ? `${role.nameEn} ${idx}` : role.nameEn
+    // Generate a unique display name based on role.name (group all residential models together)
+    // Issue 2: always append a number (even for the first one) so every building
+    // has a unique name like 住宅1, 住宅2, 咖啡店1, etc.
+    const nameGroupKey = role.name
+    modelKeyCount[nameGroupKey] = (modelKeyCount[nameGroupKey] ?? 0) + 1
+    const idx = modelKeyCount[nameGroupKey]
+    const name = `${role.name}${idx}`
+    const nameEn = `${role.nameEn} ${idx}`
 
     BUILDING_REGISTRY.push({
       key,

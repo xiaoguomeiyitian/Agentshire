@@ -117,7 +117,7 @@ export class MoveEngine {
   }
 
   /** Decide whether a citizen actually moves out (probabilistic). */
-  shouldMoveOut(candidate: MoveCandidate): boolean {
+  shouldMoveOut(_candidate: MoveCandidate): boolean {
     return Math.random() < this.config.moveChancePerCheck
   }
 

@@ -8,20 +8,22 @@
   display: none; flex-direction: column;
   background: rgba(30, 30, 30, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px; padding: 16px; z-index: 50;
+  /* Issue 6: allow text selection/copy inside the card */
+  -webkit-user-select: text; user-select: text;
+  border-radius: 20px; padding: 16px; z-index: 1000;
   backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   animation: slideUp 0.25s ease;
 }
 #npc-card.has-logs {
-  top: 20%; bottom: 140px; max-height: none;
+  top: 12px; bottom: 140px; max-height: none;
 }
 /* Issue 6: screen-adaptive — clamp card so it never overflows the viewport */
 @media (max-height: 600px) {
-  #npc-card.has-logs { top: 8%; bottom: 140px; }
+  #npc-card.has-logs { top: 8px; bottom: 140px; }
 }
 body.embedded-mode #npc-card { bottom: 150px; }
-body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
+body.embedded-mode #npc-card.has-logs { top: 10px; bottom: 150px; }
 
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
@@ -48,13 +50,11 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
 #npc-card .card-status-dot.offline {
   background: rgba(255,255,255,0.25);
 }
-#npc-card .card-meta { color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 2px; }
-/* Persona inline in the header row (saves vertical space for the tab area) */
-#npc-card .card-bio-inline {
-  color: rgba(255,255,255,0.55); font-size: 12px; line-height: 1.5;
-  margin-top: 4px;
+#npc-card .card-meta {
+  color: rgba(255,255,255,0.5); font-size: 12px; margin-top: 2px;
+  line-height: 1.5;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -94,6 +94,7 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
   border-bottom: 2px solid transparent;
   transition: color 0.2s, border-color 0.2s;
   white-space: nowrap; flex-shrink: 0;
+  -webkit-user-select: none; user-select: none;
 }
 #npc-card .card-tab:hover { color: rgba(255, 255, 255, 0.7); }
 #npc-card .card-tab.active {
@@ -363,6 +364,7 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
   color: rgba(255,255,255,0.35); cursor: pointer;
   width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;
   border-radius: 50%; transition: background 0.15s, color 0.15s; flex-shrink: 0; z-index: 1;
+  -webkit-user-select: none; user-select: none;
 }
 #npc-card .card-close:hover { color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.08); }
 
@@ -378,6 +380,21 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
   background: rgba(0, 0, 0, 0.2); border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.04);
   flex-shrink: 0;
+}
+/* ── Location info rows (inside card-mood-area) ── */
+#npc-card .card-info-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+#npc-card .card-info-row:last-child { margin-bottom: 0; }
+#npc-card .card-info-label {
+  font-size: 12px; color: rgba(255, 255, 255, 0.55); font-weight: 500;
+  flex-shrink: 0;
+}
+#npc-card .card-info-value {
+  font-size: 12px; color: rgba(255, 255, 255, 0.85); font-weight: 600;
+  text-align: right; margin-left: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 #npc-card .card-mood-row {
   display: flex; align-items: center; justify-content: space-between;
@@ -454,6 +471,33 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
   font-size: 11px; color: rgba(255,255,255,0.4);
   width: 32px; text-align: right; flex-shrink: 0;
 }
+/* Issue 2: full relationship rows in the dedicated 关系 tab */
+#npc-card .card-rel-row-full {
+  flex-wrap: wrap; gap: 4px 8px; padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+#npc-card .card-rel-row-full:last-child { border-bottom: none; }
+#npc-card .card-rel-name-wrap {
+  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+}
+#npc-card .card-rel-bar-wrap {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+}
+#npc-card .card-rel-bar {
+  flex: 1; height: 4px; border-radius: 2px;
+  background: rgba(255,255,255,0.08); overflow: hidden;
+}
+#npc-card .card-rel-bar-fill {
+  height: 100%; border-radius: 2px; transition: width 0.3s;
+}
+#npc-card .card-rel-bar-fill.rel-close { background: #34d399; }
+#npc-card .card-rel-bar-fill.rel-friend { background: #a3e635; }
+#npc-card .card-rel-bar-fill.rel-acquaintance { background: rgba(255,255,255,0.3); }
+#npc-card .card-rel-bar-fill.rel-dislike { background: #fbbf24; }
+#npc-card .card-rel-bar-fill.rel-enemy { background: #f87171; }
+#npc-card .card-rel-count {
+  font-size: 10px; color: rgba(255,255,255,0.35); flex-shrink: 0;
+}
 
 /* ── Recent activities area ── */
 #npc-card .card-activity-area {
@@ -485,29 +529,36 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
 }
 
 /* ── Topic detail panel ── */
+/* Issue 4: sized to match the NPC detail card — absolute positioned above
+   the input bar, not a full-screen overlay, so it never covers the input. */
 #topic-detail-panel {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  z-index: 100;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex; align-items: center; justify-content: center;
-  animation: fadeIn 0.2s ease;
+  position: absolute; bottom: 140px; left: 16px; right: 16px;
+  max-height: 42%; max-width: 768px;
+  margin-left: auto; margin-right: auto;
+  display: flex; flex-direction: column;
+  background: rgba(30, 30, 30, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px; padding: 16px; z-index: 1000;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  animation: slideUp 0.25s ease;
+  -webkit-user-select: text; user-select: text;
+}
+body.embedded-mode #topic-detail-panel { bottom: 150px; }
+@media (max-height: 600px) {
+  #topic-detail-panel { bottom: 130px; max-height: 50%; }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
 #topic-detail-panel > .tdp-inner {
-  width: 90%; max-width: 600px; max-height: 80vh;
   display: flex; flex-direction: column;
-  background: rgba(30, 30, 30, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  flex: 1; min-height: 0;
   overflow: hidden;
-  animation: slideUp 0.25s ease;
 }
 
 #topic-detail-panel .tdp-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,0.08);
+  padding: 0 0 12px 0; border-bottom: 1px solid rgba(255,255,255,0.08);
   flex-shrink: 0;
 }
 #topic-detail-panel .tdp-title {
@@ -523,7 +574,7 @@ body.embedded-mode #npc-card.has-logs { top: 10%; bottom: 150px; }
   background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.9);
 }
 #topic-detail-panel .tdp-body {
-  flex: 1; overflow-y: auto; padding: 16px 20px;
+  flex: 1; overflow-y: auto; padding: 12px 4px 0 4px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.12) transparent;

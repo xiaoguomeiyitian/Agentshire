@@ -27,6 +27,7 @@ const en: Record<string, string> = {
   'input.gathering': 'Gathering...',
   'input.topic': 'Topic...',
   'input.group': 'Group message, @someone or @all...',
+  'input.broadcast': 'Broadcast to all residents...',
 
   // ── Bottom panel ──
   'steward': 'Steward',
@@ -44,6 +45,8 @@ const en: Record<string, string> = {
   'menu.start_topic': 'Start Topic',
   'menu.enter_group': 'Town Square (Group)',
   'menu.exit_group': 'Exit Group',
+  'menu.broadcast': 'Broadcast to All',
+  'menu.broadcast_active': 'Exit Broadcast',
   'menu.settings': 'Settings',
   'menu.citizen_detail': 'Citizen Detail',
   'menu.topic_detail': 'Topic Detail',
@@ -89,6 +92,8 @@ const en: Record<string, string> = {
   'topic.end_title': 'End topic?',
   'topic.end_desc': 'Citizens will return to daily life',
   'topic.not_in_town': 'Citizen is not in town yet',
+  'topic.select_all': 'Select All',
+  'topic.deselect_all': 'Deselect All',
 
   // ── Group chat ──
   'group.title': 'Town Square',
@@ -578,6 +583,14 @@ const en: Record<string, string> = {
   'claw.mm_not_set': '— Not set —',
   'claw.mm_default_updated': 'Default model updated',
   'claw.mm_default_failed': 'Failed to set default model',
+  'claw.mm_default_fallbacks': 'Default Fallback Models',
+  'claw.mm_default_fallbacks_hint': 'Tried in order when the primary model is unavailable (applies to all agents)',
+  'claw.mm_add_fallback': 'Add Fallback',
+  'claw.mm_select_fallback': 'Select a fallback model…',
+  'claw.mm_no_fallbacks': 'No fallback models set; primary model failures will not retry',
+  'claw.mm_fallback_added': 'Fallback model added',
+  'claw.mm_fallback_removed': 'Fallback model removed',
+  'claw.mm_fallback_failed': 'Fallback model operation failed',
   'claw.mm_empty_hint': 'Select a provider from the left, or click "+ Add" to create one.',
   'claw.mm_import': 'Import',
   'claw.mm_export': 'Export',

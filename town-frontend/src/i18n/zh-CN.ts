@@ -27,6 +27,7 @@ const zhCN: Record<string, string> = {
   'input.gathering': '居民赶来中...',
   'input.topic': '输入话题...',
   'input.group': '群聊消息，@某人或@所有人...',
+  'input.broadcast': '群发消息给所有居民...',
 
   // ── Bottom panel ──
   'steward': '管家',
@@ -44,6 +45,8 @@ const zhCN: Record<string, string> = {
   'menu.start_topic': '发起话题',
   'menu.enter_group': '小镇广场（群聊）',
   'menu.exit_group': '退出群聊',
+  'menu.broadcast': '群发消息',
+  'menu.broadcast_active': '退出群发',
   'menu.settings': '设置',
   'menu.citizen_detail': '居民详情',
   'menu.topic_detail': '话题详情',
@@ -89,6 +92,8 @@ const zhCN: Record<string, string> = {
   'topic.end_title': '结束话题？',
   'topic.end_desc': '居民将回归日常生活',
   'topic.not_in_town': '当前居民还不在小镇',
+  'topic.select_all': '全选',
+  'topic.deselect_all': '取消全选',
 
   // ── Group chat ──
   'group.title': '小镇广场',
@@ -578,6 +583,14 @@ const zhCN: Record<string, string> = {
   'claw.mm_not_set': '— 未设置 —',
   'claw.mm_default_updated': '默认模型已更新',
   'claw.mm_default_failed': '设置默认模型失败',
+  'claw.mm_default_fallbacks': '默认备用模型',
+  'claw.mm_default_fallbacks_hint': '当主模型不可用时，按顺序尝试这些备用模型（对所有 Agent 生效）',
+  'claw.mm_add_fallback': '添加备用',
+  'claw.mm_select_fallback': '选择备用模型…',
+  'claw.mm_no_fallbacks': '暂无备用模型，主模型不可用时将直接失败',
+  'claw.mm_fallback_added': '备用模型已添加',
+  'claw.mm_fallback_removed': '备用模型已移除',
+  'claw.mm_fallback_failed': '备用模型操作失败',
   'claw.mm_empty_hint': '从左侧选择一个供应商，或点击「+ 添加」新建供应商。',
   'claw.mm_import': '导入',
   'claw.mm_export': '导出',

@@ -52,22 +52,19 @@ export class NpcCardPanel {
   private npcCardLogContainer: HTMLElement | null = null
   private npcCardThinkingEl: HTMLElement | null = null
   private npcCardThinkingText: HTMLElement | null = null
-  private onChatWith: ((npcId: string, label: string) => void) | null = null
   // Issue 2 (user msg visibility): track chat list + fetcher for live refresh
   private chatListEl: HTMLElement | null = null
   private chatFetcher: (() => Array<DialogMessage>) | null = null
   // Issue 4: current NPC specialty for chat record alignment with ChatView
   private currentSpecialty: string | null = null
+  // Issue 5: preserved tab name to restore after card rebuild
+  private preservedTabName: string | null = null
 
   constructor(npcCard: HTMLElement) {
     this.npcCard = npcCard
     this.npcCard.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).classList.contains('card-close')) this.hide()
     })
-  }
-
-  setOnChatWith(fn: (npcId: string, label: string) => void): void {
-    this.onChatWith = fn
   }
 
   show(opts: {
@@ -80,9 +77,13 @@ export class NpcCardPanel {
     needs?: NeedsInfo | null;
     relationships?: RelationshipInfo[];
     chatMessages?: Array<{ from: string; text: string; timestamp: number }>;
-    /** Issue 2 (user msg visibility): fetcher to re-query chat messages for live refresh. */
+    /** Issue 2/3: fetcher to re-query chat messages for live refresh. */
     chatFetcher?: () => Array<{ from: string; text: string; timestamp: number; targetNpcId?: string; usage?: DialogMessage['usage']; model?: string; contextInfo?: DialogMessage['contextInfo'] }>;
     agentId?: string;
+    /** Home building display name (e.g. "住宅3") */
+    homeBuilding?: string | null;
+    /** Current location display name (e.g. "广场", "西区") */
+    currentLocation?: string | null;
   }): void {
     if (!this.npcCard) return
 
@@ -90,6 +91,15 @@ export class NpcCardPanel {
       this.hide()
       return
     }
+
+    // Preserve the currently active tab when re-showing the same NPC
+    // (prevents auto-switching to the Activity tab while the user is chatting).
+    this.preservedTabName = null
+    if (this.npcCardCurrentId === opts.npc.id) {
+      const activeTab = this.npcCard.querySelector('.card-tab.active')
+      if (activeTab) this.preservedTabName = activeTab.textContent ?? null
+    }
+
     this.npcCardCurrentId = opts.npc.id
     this.chatFetcher = opts.chatFetcher ?? null
     this.currentSpecialty = opts.specialty ?? null
@@ -125,16 +135,11 @@ export class NpcCardPanel {
     const parts: string[] = []
     if (opts.specialty) parts.push(opts.specialty)
     parts.push(localizeState(opts.state))
+    // Persona (bio) on the same line as specialty · state (no new line)
+    if (opts.persona) parts.push(opts.persona)
     meta.textContent = parts.join(' · ')
     info.appendChild(nm)
     info.appendChild(meta)
-    // Persona (bio) inline in the header row to save vertical space for the tab area
-    if (opts.persona) {
-      const bio = document.createElement('div')
-      bio.className = 'card-bio-inline'
-      bio.textContent = opts.persona
-      info.appendChild(bio)
-    }
     header.appendChild(av)
     header.appendChild(info)
 
@@ -152,6 +157,8 @@ export class NpcCardPanel {
       opts.mood ?? null,
       opts.needs ?? null,
       opts.relationships ?? [],
+      opts.homeBuilding ?? null,
+      opts.currentLocation ?? null,
     )
     this.npcCard.appendChild(tabArea)
     requestAnimationFrame(() => {
@@ -179,8 +186,10 @@ export class NpcCardPanel {
     // How much the input panel top has risen above the default bottom line
     const panelTopFromBottom = window.innerHeight - panelRect.top
     const extra = Math.max(panelTopFromBottom - defaultBottom, 0)
-    // Move the card up by `extra` px via transform; height stays unchanged
-    this.npcCard.style.transform = extra > 0 ? `translateY(${-extra}px)` : ''
+    // Card now fills the screen; adjust `bottom` so it sits just above the input panel
+    // (keeps the card height responsive instead of using a transform that would clip the top).
+    this.npcCard.style.bottom = `${defaultBottom + extra}px`
+    this.npcCard.style.transform = ''
   }
 
   appendActivity(npcId: string, log: { type: string; icon: string; message: string; time?: string; status?: boolean | null }): void {
@@ -287,6 +296,8 @@ export class NpcCardPanel {
         this.chatListEl.appendChild(this.createChatEl(msg as DialogMessage))
       }
     }
+    // Auto-scroll to bottom so the latest message is visible
+    this.chatListEl.scrollTop = this.chatListEl.scrollHeight
   }
 
   // ── private helpers ──
@@ -351,6 +362,45 @@ export class NpcCardPanel {
         list.appendChild(this.createTodoItem(t))
       }
     }
+  }
+
+  private buildLocationArea(homeBuilding: string | null, currentLocation: string | null): HTMLElement {
+    const area = document.createElement('div')
+    area.className = 'card-mood-area'
+
+    const title = document.createElement('div')
+    title.className = 'card-section-title'
+    title.textContent = getLocale() === 'en' ? 'Location' : '位置信息'
+    area.appendChild(title)
+
+    const en = getLocale() === 'en'
+    if (homeBuilding) {
+      const row = document.createElement('div')
+      row.className = 'card-info-row'
+      const label = document.createElement('span')
+      label.className = 'card-info-label'
+      label.textContent = en ? 'Home' : '房子'
+      const val = document.createElement('span')
+      val.className = 'card-info-value'
+      val.textContent = homeBuilding
+      row.appendChild(label)
+      row.appendChild(val)
+      area.appendChild(row)
+    }
+    if (currentLocation) {
+      const row = document.createElement('div')
+      row.className = 'card-info-row'
+      const label = document.createElement('span')
+      label.className = 'card-info-label'
+      label.textContent = en ? 'Current' : '当前位置'
+      const val = document.createElement('span')
+      val.className = 'card-info-value'
+      val.textContent = currentLocation
+      row.appendChild(label)
+      row.appendChild(val)
+      area.appendChild(row)
+    }
+    return area
   }
 
   private buildMoodNeedsArea(mood: MoodInfo | null, needs: NeedsInfo | null): HTMLElement {
@@ -447,27 +497,63 @@ export class NpcCardPanel {
     return area
   }
 
-  private buildRecentActivitiesArea(activities: RecentActivity[]): HTMLElement {
+  /**
+   * Issue 2: Build a full relationships area for the dedicated "关系" tab.
+   * Shows ALL relationships (not just top 5), sorted by sentiment descending,
+   * with interaction count and a sentiment bar for richer detail.
+   */
+  private buildAllRelationshipsArea(rels: RelationshipInfo[]): HTMLElement {
     const area = document.createElement('div')
-    area.className = 'card-activity-area'
+    area.className = 'card-rel-area'
+    const en = getLocale() === 'en'
     const title = document.createElement('div')
     title.className = 'card-section-title'
-    title.textContent = getLocale() === 'en' ? 'Recent Activities' : '最近活动'
+    title.textContent = en ? `Relationships (${rels.length})` : `人际关系（${rels.length}）`
     area.appendChild(title)
+
     const list = document.createElement('div')
-    list.className = 'card-activity-list'
-    for (const act of activities) {
+    list.className = 'card-rel-list'
+    const sorted = [...rels].sort((a, b) => b.sentiment - a.sentiment)
+    for (const rel of sorted) {
       const row = document.createElement('div')
-      row.className = 'card-activity-row'
-      const time = document.createElement('span')
-      time.className = 'card-activity-time'
-      time.textContent = act.time
-      const desc = document.createElement('span')
-      desc.className = 'card-activity-desc'
-      const actionLabel = this.actionToLabel(act.action)
-      desc.textContent = `${actionLabel} · ${act.location}${act.detail ? ' · ' + act.detail : ''}`
-      row.appendChild(time)
-      row.appendChild(desc)
+      row.className = 'card-rel-row card-rel-row-full'
+
+      const nameWrap = document.createElement('div')
+      nameWrap.className = 'card-rel-name-wrap'
+      const name = document.createElement('span')
+      name.className = 'card-rel-name'
+      name.textContent = rel.name
+      nameWrap.appendChild(name)
+      const levelLabel = en ? rel.level : (RELATIONSHIP_LABELS_ZH[rel.level as keyof typeof RELATIONSHIP_LABELS_ZH] ?? rel.level)
+      const level = document.createElement('span')
+      level.className = `card-rel-level rel-${rel.level}`
+      level.textContent = levelLabel
+      nameWrap.appendChild(level)
+      row.appendChild(nameWrap)
+
+      // Sentiment bar (−100..+100 mapped to 0..100%)
+      const barWrap = document.createElement('div')
+      barWrap.className = 'card-rel-bar-wrap'
+      const bar = document.createElement('div')
+      bar.className = 'card-rel-bar'
+      const fill = document.createElement('div')
+      fill.className = `card-rel-bar-fill rel-${rel.level}`
+      const pct = (rel.sentiment + 100) / 2 // -100→0%, 0→50%, +100→100%
+      fill.style.width = `${Math.round(pct)}%`
+      bar.appendChild(fill)
+      barWrap.appendChild(bar)
+      const sentiment = document.createElement('span')
+      sentiment.className = 'card-rel-sentiment'
+      sentiment.textContent = `${rel.sentiment > 0 ? '+' : ''}${rel.sentiment}`
+      barWrap.appendChild(sentiment)
+      row.appendChild(barWrap)
+
+      // Interaction count
+      const count = document.createElement('span')
+      count.className = 'card-rel-count'
+      count.textContent = en ? `${rel.interactionCount} interactions` : `互动 ${rel.interactionCount} 次`
+      row.appendChild(count)
+
       list.appendChild(row)
     }
     area.appendChild(list)
@@ -504,6 +590,8 @@ export class NpcCardPanel {
     mood: MoodInfo | null = null,
     needs: NeedsInfo | null = null,
     relationships: RelationshipInfo[] = [],
+    homeBuilding: string | null = null,
+    currentLocation: string | null = null,
   ): HTMLElement {
     const area = document.createElement('div')
     area.className = 'card-tab-area'
@@ -514,6 +602,7 @@ export class NpcCardPanel {
 
     // Issue 2/3: tab names shortened to 2 chars to avoid wrapping on mobile.
     // Tab order: 状态 → 活动 → 日志 → 聊天 → 会话; 活动 is default active.
+    // Issue 3: "关系" tab removed — relationships now shown in 状态 tab.
     const tabStatus = document.createElement('button')
     tabStatus.className = 'card-tab'
     tabStatus.textContent = getLocale() === 'en' ? 'Status' : '状态'
@@ -551,11 +640,15 @@ export class NpcCardPanel {
     statusPanel.className = 'card-tab-panel'
     const statusScroll = document.createElement('div')
     statusScroll.className = 'card-status-scroll'
+    if (homeBuilding || currentLocation) {
+      statusScroll.appendChild(this.buildLocationArea(homeBuilding, currentLocation))
+    }
     if (mood || needs) {
       statusScroll.appendChild(this.buildMoodNeedsArea(mood, needs))
     }
+    // Issue 3: show full relationships (moved from the removed 关系 tab)
     if (relationships.length > 0) {
-      statusScroll.appendChild(this.buildRelationshipsArea(relationships))
+      statusScroll.appendChild(this.buildAllRelationshipsArea(relationships))
     }
     if (!mood && !needs && relationships.length === 0) {
       const empty = document.createElement('div')
@@ -622,6 +715,8 @@ export class NpcCardPanel {
     sessionsPanel.appendChild(sessionsList)
     panels.appendChild(sessionsPanel)
 
+    // Issue 3: "关系" tab removed — relationships now shown in 状态 tab.
+
     // Tab switching — order matches allTabs/allPanels: status, activities, logs, chat, sessions
     const allTabs = [tabStatus, tabActivities, tabLogs, tabChat, tabSessions]
     const allPanels = [statusPanel, activitiesPanel, logsPanel, chatPanel, sessionsPanel]
@@ -644,6 +739,27 @@ export class NpcCardPanel {
       switchTab(tabSessions, sessionsPanel, null)
       this.loadSessions(sessionsList, agentId, npcId)
     })
+
+    // Issue 5: restore the previously active tab if we're re-showing the same NPC
+    // (prevents auto-switching to Activity while the user is on Chat/Logs/etc.)
+    if (this.preservedTabName) {
+      const tabMap: Record<string, { tab: HTMLElement; panel: HTMLElement; logContainer: HTMLElement | null }> = {
+        [tabStatus.textContent ?? '']: { tab: tabStatus, panel: statusPanel, logContainer: null },
+        [tabActivities.textContent ?? '']: { tab: tabActivities, panel: activitiesPanel, logContainer: null },
+        [tabLogs.textContent ?? '']: { tab: tabLogs, panel: logsPanel, logContainer: logList },
+        [tabChat.textContent ?? '']: { tab: tabChat, panel: chatPanel, logContainer: chatList },
+        [tabSessions.textContent ?? '']: { tab: tabSessions, panel: sessionsPanel, logContainer: null },
+      }
+      const target = tabMap[this.preservedTabName]
+      if (target) {
+        switchTab(target.tab, target.panel, target.logContainer)
+        // If restoring the chat tab, scroll to bottom
+        if (target.tab === tabChat) {
+          requestAnimationFrame(() => { chatList.scrollTop = chatList.scrollHeight })
+        }
+      }
+      this.preservedTabName = null
+    }
 
     return area
   }
@@ -937,23 +1053,6 @@ export class NpcCardPanel {
     row.appendChild(deleteBtn)
 
     return row
-  }
-
-  private buildLogArea(logs: Array<{ type: string; icon: string; message: string; time?: string; status?: boolean | null }>): HTMLElement {
-    const area = document.createElement('div')
-    area.className = 'card-log-area'
-    const title = document.createElement('div')
-    title.className = 'card-log-area-title'
-    title.textContent = t('card.work_logs')
-    area.appendChild(title)
-    const list = document.createElement('div')
-    list.className = 'card-log-list'
-    for (const log of logs) {
-      list.appendChild(this.createLogEl(log))
-    }
-    area.appendChild(list)
-    this.npcCardLogContainer = list
-    return area
   }
 
   private createLogEl(log: { type: string; icon: string; message: string; time?: string; status?: boolean | null }): HTMLElement {

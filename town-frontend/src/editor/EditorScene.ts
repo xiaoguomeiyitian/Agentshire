@@ -57,7 +57,6 @@ export class EditorScene {
 
   private isDragging = false
   private dragItem: PlacedItem | null = null
-  private dragStartGrid = { x: 0, z: 0 }
   private dragMouseStartGrid = { x: 0, z: 0 }
   private dragMouseStartPx = { x: 0, y: 0 }
   private dragActivated = false
@@ -70,7 +69,6 @@ export class EditorScene {
   private marqueeDiv: HTMLDivElement | null = null
 
   isInsideGroup = false
-  private activeGroupId: string | null = null
 
   private isBrushing = false
   private activeTerrain: TerrainType = 'grass'
@@ -692,7 +690,6 @@ export class EditorScene {
       this.isDragging = true
       this.dragActivated = false
       this.dragItem = item
-      this.dragStartGrid = { x: item.data.gridX, z: item.data.gridZ }
       this.dragMouseStartGrid = { x: gx, z: gz }
       this.dragMouseStartPx = { x: e.clientX, y: e.clientY }
 
@@ -1470,17 +1467,14 @@ export class EditorScene {
     }
     this.editor.undoStack.push(cmd)
     this.isInsideGroup = false
-    this.activeGroupId = null
   }
 
-  enterGroup(groupId: string): void {
+  enterGroup(_groupId: string): void {
     this.isInsideGroup = true
-    this.activeGroupId = groupId
   }
 
   exitGroup(): void {
     this.isInsideGroup = false
-    this.activeGroupId = null
   }
 
   getGroupBounds(group: GroupDef): THREE.Box3 {

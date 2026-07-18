@@ -18,7 +18,12 @@
   bottom: 16px;
   left: 16px;
   right: 16px;
-  z-index: 100;
+  /* Issue 1: above #npc-card (z-index:1000) so the citizen switcher
+     dropdown (#tas-target-dropdown, a child of #town-agent-status) can
+     float above the resident detail panel. The bottom panel itself does
+     not overlap the npc-card vertically (npc-card bottom:140px), so this
+     only affects the dropdown's stacking. */
+  z-index: 1100;
   max-width: 768px;
   margin-left: auto;
   margin-right: auto;
@@ -136,7 +141,9 @@
   border-radius: 10px; padding: 4px;
   backdrop-filter: blur(16px);
   box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
-  z-index: 40;
+  /* Issue 1: above #npc-card (z-index:1000) so the citizen switcher
+     dropdown is never covered by the resident detail panel. */
+  z-index: 1100;
 }
 .tas-dropdown-item {
   display: flex; align-items: center; gap: 8px;
@@ -269,6 +276,36 @@
   box-shadow: 0 -4px 24px rgba(0,0,0,0.5);
   z-index: 40;
 }
+/* Issue 6: quick action bar — always visible above the agent status row */
+#town-quick-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 12px 0;
+  flex-wrap: wrap;
+}
+.town-quick-btn {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.town-quick-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(212, 165, 116, 0.24);
+  color: #ffffff;
+}
+.town-quick-btn.disabled {
+  opacity: 0.35; pointer-events: none; cursor: default;
+}
 .town-action-item {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; font-size: 13px;
@@ -301,7 +338,7 @@
 
 /* ── Confirm dialog ── */
 .town-confirm-backdrop {
-  position: fixed; inset: 0; z-index: 60;
+  position: fixed; inset: 0; z-index: 1200;
   background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   animation: town-fade-in 0.15s ease-out;
@@ -339,7 +376,7 @@
 
 /* ── Topic setup panel ── */
 #town-topic-overlay {
-  position: fixed; inset: 0; z-index: 70;
+  position: fixed; inset: 0; z-index: 1200;
   background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   animation: town-fade-in 0.15s ease-out;
@@ -348,6 +385,8 @@
   background: rgba(18,18,35,0.98); border: 1px solid rgba(255,255,255,0.1);
   border-radius: 16px; padding: 20px; width: 320px; max-height: 70vh;
   display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+  /* Issue 3: shift card up so it's not covered by the bottom input panel */
+  margin-bottom: 80px;
 }
 .topic-card-title {
   color: #fff; font-size: 15px; font-weight: 600; margin-bottom: 4px;
@@ -390,6 +429,22 @@
 }
 .topic-citizen-check svg { display: none; }
 .topic-citizen-row.selected .topic-citizen-check svg { display: block; }
+/* Select-all row: sticky at top, distinct style */
+.topic-select-all-row {
+  position: sticky; top: 0; z-index: 2;
+  background: rgba(30, 30, 30, 0.95);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 2px;
+}
+.topic-select-all-row .topic-citizen-check.checked {
+  background: #D4A574; border-color: #D4A574;
+}
+.topic-select-all-row .topic-citizen-check.checked svg { display: block; }
+.topic-select-all-row .topic-citizen-check.partial {
+  background: rgba(212,165,116,0.5); border-color: #D4A574;
+}
+.topic-select-all-row .topic-citizen-check.partial svg { display: block; }
+.topic-select-all-row .topic-citizen-name { font-weight: 600; color: rgba(255,255,255,0.85); }
 .topic-citizen-name { color: #fff; font-size: 13px; font-weight: 500; }
 .topic-citizen-spec { color: rgba(255,255,255,0.4); font-size: 11px; margin-left: auto; }
 .topic-gather-btn {
@@ -520,7 +575,7 @@
 #town-skill-overlay {
   position: fixed;
   inset: 0;
-  z-index: 500;
+  z-index: 1200;
   background: var(--town-bg, #050508);
   display: none;
   flex-direction: column;

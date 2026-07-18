@@ -141,6 +141,15 @@ export class RelationshipEngine {
     })
   }
 
+  /** Get top N relationships by sentiment (most positive first). */
+  getTopRelationships(npcA: string, limit = 3): Array<{ name: string; sentiment: number }> {
+    const all = this.getAllRelationships(npcA)
+    return all
+      .sort((a, b) => b.sentiment - a.sentiment)
+      .slice(0, limit)
+      .map((r) => ({ name: r.name, sentiment: r.sentiment }))
+  }
+
   /** Build a relationship description fragment for LLM prompts. */
   buildPromptFragment(npcA: string, locale: 'zh-CN' | 'en' = 'zh-CN'): string {
     const rels = this.getAllRelationships(npcA)

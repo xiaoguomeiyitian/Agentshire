@@ -1,18 +1,53 @@
 import { join } from "node:path";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { SessionLogWatcher } from "./session-log-watcher.js";
 import { broadcastAgentEvent } from "./ws-server.js";
 import { stateDir } from "./paths.js";
 
 const TOWN_AGENT_ID = "town-steward";
 
-function getSessionsDir(): string {
-  return join(stateDir(), "agents", TOWN_AGENT_ID, "sessions");
+/**
+ * Resolve the sessions directory for a given parent agent id.
+ * Steward sessions live under agents/town-steward/sessions; citizen agents
+ * live under agents/citizen-<id>/sessions. This allows subagent-tracker to
+ * monitor sub-agents spawned by ANY agent (steward or citizen), enabling
+ * residents to spawn their own sub-agents for parallel task processing.
+ */
+function getSessionsDir(parentAgentId?: string): string {
+  const agentId = parentAgentId && parentAgentId !== TOWN_AGENT_ID ? parentAgentId : TOWN_AGENT_ID;
+  return join(stateDir(), "agents", agentId, "sessions");
 }
 
+/**
+ * Try to resolve a session file id from a child session key, searching the
+ * steward's sessions index first, then falling back to citizen agent indexes.
+ * This handles the case where a citizen spawns a sub-agent — the child
+ * session key is registered in the citizen's sessions.json, not the steward's.
+ */
 function resolveSessionFileId(childSessionKey: string): string | null {
+  // Try steward first (most common case)
+  const stewardDir = getSessionsDir(TOWN_AGENT_ID);
+  const stewardResult = tryResolveFromDir(stewardDir, childSessionKey);
+  if (stewardResult) return stewardResult;
+
+  // Fall back: scan all citizen agent directories
+  const agentsRoot = join(stateDir(), "agents");
+  if (!existsSync(agentsRoot)) return null;
   try {
-    const indexPath = join(getSessionsDir(), "sessions.json");
+    for (const entry of readdirSync(agentsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name === TOWN_AGENT_ID) continue; // already tried
+      const dir = join(agentsRoot, entry.name, "sessions");
+      const result = tryResolveFromDir(dir, childSessionKey);
+      if (result) return result;
+    }
+  } catch {}
+  return null;
+}
+
+function tryResolveFromDir(sessionsDir: string, childSessionKey: string): string | null {
+  try {
+    const indexPath = join(sessionsDir, "sessions.json");
     if (!existsSync(indexPath)) return null;
     const index = JSON.parse(readFileSync(indexPath, "utf-8"));
     const entry = index[childSessionKey];
@@ -26,6 +61,7 @@ interface TrackedAgent {
   sessionId: string;
   label: string;
   townSessionId: string | undefined;
+  parentAgentId: string;
   watcher: SessionLogWatcher;
 }
 
@@ -45,8 +81,19 @@ export function onSubagentSpawned(
     return;
   }
 
+  // Determine parent agent id from the event (for citizen-spawned sub-agents).
+  // OpenClaw provides parentAgentId / parentSessionKey in the subagent_spawned
+  // payload. Default to town-steward for backward compatibility.
+  const parentAgentId = String(
+    (event as any).parentAgentId ??
+    (typeof (event as any).parentSessionKey === "string"
+      ? ((event as any).parentSessionKey as string).match(/^agent:([^:]+):/)?.[1]
+      : undefined) ??
+    TOWN_AGENT_ID,
+  );
+
   const label = String(event.label ?? event.displayName ?? sessionFileId);
-  const filePath = join(getSessionsDir(), `${sessionFileId}.jsonl`);
+  const filePath = join(getSessionsDir(parentAgentId), `${sessionFileId}.jsonl`);
 
   const watcher = new SessionLogWatcher(filePath, childSessionKey, (events) => {
     for (const ev of events) {
@@ -63,7 +110,7 @@ export function onSubagentSpawned(
     }
   });
 
-  tracked.set(childSessionKey, { childSessionKey, sessionId: sessionFileId, label, townSessionId, watcher });
+  tracked.set(childSessionKey, { childSessionKey, sessionId: sessionFileId, label, townSessionId, parentAgentId, watcher });
   watcher.start();
   console.log(`[agentshire] 📖 Session watcher started: ${label} (${sessionFileId.slice(0, 8)}…)`);
 }

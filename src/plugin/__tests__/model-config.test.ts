@@ -1,6 +1,6 @@
 // @desc Tests for model-config: OpenClaw openclaw.json models.providers CRUD
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 

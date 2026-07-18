@@ -4,7 +4,7 @@
  * to keep per-citizen context within token budget.
  */
 
-import { chat as llmChat } from "./llm-agent-proxy.js";
+import { chatViaAgent } from "./llm-via-agent.js";
 import { loadSummary, saveSummary } from "./group-chat-history.js";
 
 export interface GroupMessage {
@@ -41,6 +41,64 @@ function estimateTokens(text: string): number {
   const cjk = (text.match(/[\u4e00-\u9fff]/g) ?? []).length;
   const other = text.length - cjk;
   return Math.ceil(cjk * 1.5 + other / 4);
+}
+
+/**
+ * Issue 4/5: Build a compact map-location summary so citizens know where every
+ * place is (buildings, plaza, sculptures). Cached after first load. Injected
+ * into group-chat context so citizens can act on "来中心广场集合" requests.
+ */
+let _mapInfoCache: string | null = null;
+function buildMapInfoForChat(): string {
+  if (_mapInfoCache !== null) return _mapInfoCache;
+  try {
+    const { readFileSync, existsSync } = require("node:fs");
+    const { join } = require("node:path");
+    const { fileURLToPath } = require("node:url");
+    const pluginDir = join(fileURLToPath(import.meta.url), "..", "..", "..");
+    const mapPath = join(pluginDir, "town-data", "town-map.json");
+    if (!existsSync(mapPath)) { _mapInfoCache = ""; return _mapInfoCache; }
+    const config = JSON.parse(readFileSync(mapPath, "utf-8"));
+    const lines: string[] = ["【小镇地图】"];
+    // Buildings
+    const bNames: Record<string, string> = {
+      building_A: "办公室", building_B: "住宅", building_C: "住宅",
+      building_D: "住宅", building_E: "市场", building_F: "咖啡店",
+      building_G: "玩家家", building_H: "博物馆",
+    };
+    lines.push("建筑：");
+    for (const b of config.buildings ?? []) {
+      const baseName = bNames[b.modelKey] ?? b.modelKey;
+      lines.push(`  ${baseName}(${b.id}) 坐标(${b.gridX},${b.gridZ})`);
+    }
+    // Props grouped by modelKey (sculptures, benches, etc.)
+    const propGroups = new Map<string, Array<{ x: number; z: number }>>();
+    for (const p of config.props ?? []) {
+      if (!propGroups.has(p.modelKey)) propGroups.set(p.modelKey, []);
+      propGroups.get(p.modelKey)!.push({ x: p.gridX, z: p.gridZ });
+    }
+    if (propGroups.size > 0) {
+      lines.push("物件/雕塑：");
+      for (const [key, cells] of propGroups) {
+        const xs = cells.map(c => c.x);
+        const zs = cells.map(c => c.z);
+        const cx = xs.reduce((a: number, b: number) => a + b, 0) / cells.length;
+        const cz = zs.reduce((a: number, b: number) => a + b, 0) / cells.length;
+        lines.push(`  ${key} ×${cells.length} 中心约(${cx.toFixed(0)},${cz.toFixed(0)})`);
+      }
+    }
+    // Detect plaza area: cluster of benches / bushes → center plaza
+    const benches = propGroups.get("bench") ?? [];
+    if (benches.length >= 2) {
+      const cx = benches.reduce((a, c) => a + c.x, 0) / benches.length;
+      const cz = benches.reduce((a, c) => a + c.z, 0) / benches.length;
+      lines.push(`中心广场：约(${cx.toFixed(0)},${cz.toFixed(0)})（长椅聚集处，居民集合/散步的社交中心）`);
+    }
+    _mapInfoCache = lines.join("\n");
+  } catch {
+    _mapInfoCache = "";
+  }
+  return _mapInfoCache;
 }
 
 /** Build the context message for a specific citizen. */
@@ -90,6 +148,13 @@ export function buildContextForCitizen(
   context += `用 @所有人 可以呼叫所有居民。不必要时请勿 @，避免打扰他人。\n`;
   if (topic) {
     context += `话题：${topic}\n`;
+  }
+  // Issue 4/5: inject map info so citizens know where every place is and
+  // can act on "来中心广场集合" type requests instead of just replying.
+  const mapInfo = buildMapInfoForChat();
+  if (mapInfo) {
+    context += `${mapInfo}\n`;
+    context += `如果有人喊大家去某个地点（如"来中心广场集合"），请回复表示你会前往，并在日常自主行动中前往该地点。\n`;
   }
   context += `\n`;
 
@@ -173,12 +238,11 @@ async function generateSummary(
 未决问题: ...`;
 
   try {
-    const result = await llmChat({
+    const result = await chatViaAgent({
       system,
       user: transcript,
-      maxTokens: MAX_SUMMARY_TOKENS,
-      temperature: 0.3,
-      stop: [],
+      sessionScope: `summary:${groupId}`,
+      timeoutMs: 60_000,
     });
 
     if (!result.text) return;
@@ -193,7 +257,7 @@ async function generateSummary(
       summaryUpToIndex: history.length - RECENT_WINDOW,
       updatedAt: Date.now(),
     });
-    console.log(`[group-chat-context] Generated summary for ${groupId}, covering ${toSummarize.length} messages`);
+    console.log(`[group-chat-context] Generated summary for ${groupId}, covering ${toSummarize.length} messages (via OpenClaw agent, ${result.latencyMs}ms)`);
   } catch (err) {
     console.warn(`[group-chat-context] Summary generation failed for ${groupId}:`, (err as Error).message);
   }

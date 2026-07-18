@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { RelationshipEngine } from '../RelationshipEngine'
 import type { ActivityJournal } from '../../../npc/ActivityJournal'
 

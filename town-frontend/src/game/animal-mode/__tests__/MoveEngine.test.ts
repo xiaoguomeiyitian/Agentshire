@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { MoveEngine } from '../MoveEngine'
 import { NeedsEngine } from '../NeedsEngine'
 import { MoodEngine } from '../MoodEngine'
