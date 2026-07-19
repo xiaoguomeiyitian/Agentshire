@@ -133,133 +133,6 @@ describe('DirectorBridge — Phase State Machine', () => {
     })
   })
 
-  describe('processWorldAction — workflow_phase_complete (state transitions)', () => {
-    it('summoning → assigning transition', () => {
-      // First, trigger summoning by sending sub_agent started event
-      bridge.processAgentEvent({
-        type: 'sub_agent',
-        subtype: 'started',
-        agentId: 'agent_1',
-        displayName: 'Worker One',
-        task: 'build feature',
-      } as AgentEvent)
-
-      // Should be in summoning phase now
-      expect(modeChanges().some(e => 'workSubState' in e && e.workSubState === 'summoning')).toBe(true)
-
-      // Complete summoning phase
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
-
-      // Should transition to assigning
-      expect(modeChanges().some(e => 'workSubState' in e && e.workSubState === 'assigning')).toBe(true)
-
-      // Should emit workflow_assign event
-      const assignEvents = emittedEvents.filter(e => e.type === 'workflow_assign')
-      expect(assignEvents).toHaveLength(1)
-    })
-
-    it('assigning → going_to_office transition', () => {
-      // Setup: get to assigning phase
-      bridge.processAgentEvent({
-        type: 'sub_agent',
-        subtype: 'started',
-        agentId: 'agent_1',
-        displayName: 'Worker One',
-        task: 'task',
-      } as AgentEvent)
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
-
-      // Complete assigning phase
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
-
-      // Should transition to going_to_office
-      expect(modeChanges().some(e => 'workSubState' in e && e.workSubState === 'going_to_office')).toBe(true)
-
-      // Should emit workflow_go_office event
-      const goOfficeEvents = emittedEvents.filter(e => e.type === 'workflow_go_office')
-      expect(goOfficeEvents).toHaveLength(1)
-    })
-
-    it('going_to_office → working transition', () => {
-      // Setup: get to going_to_office phase
-      bridge.processAgentEvent({
-        type: 'sub_agent',
-        subtype: 'started',
-        agentId: 'agent_1',
-        displayName: 'Worker One',
-        task: 'task',
-      } as AgentEvent)
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
-
-      // Complete going_to_office phase
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
-
-      // Should transition to working
-      expect(modeChanges().some(e => 'workSubState' in e && e.workSubState === 'working')).toBe(true)
-
-      // Should emit progress event
-      const progressEvents = emittedEvents.filter(e => e.type === 'progress')
-      expect(progressEvents).toHaveLength(1)
-    })
-
-    it('publishing → returning transition', () => {
-      // Setup: get to working phase first
-      bridge.processAgentEvent({
-        type: 'sub_agent',
-        subtype: 'started',
-        agentId: 'agent_1',
-        displayName: 'Worker One',
-        task: 'task',
-      } as AgentEvent)
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
-
-      // Manually set phase to publishing (via internal state — we test the transition logic)
-      // Since publishing is reached via handleProjectComplete, we test the returning transition
-      // by directly calling workflow_phase_complete with 'publishing'
-      // But phase must be 'publishing' for the transition to fire.
-      // We verify the guard: transition only fires if current phase matches.
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'publishing' })
-
-      // Since phase is 'working' (not 'publishing'), no returning transition should occur
-      expect(modeChanges().some(e => 'workSubState' in e && e.workSubState === 'returning')).toBe(false)
-    })
-
-    it('returning → idle transition (full cycle)', () => {
-      // Setup: complete full cycle to returning phase
-      bridge.processAgentEvent({
-        type: 'sub_agent',
-        subtype: 'started',
-        agentId: 'agent_1',
-        displayName: 'Worker One',
-        task: 'task',
-      } as AgentEvent)
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'assigning' })
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'going_to_office' })
-
-      // We can't easily reach 'returning' without full project flow,
-      // but we can verify the idle transition guard works (phase mismatch = no transition)
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'returning' })
-
-      // Since phase is 'working' (not 'returning'), no idle transition
-      expect(modeChanges().some(e => 'mode' in e && e.mode === 'life')).toBe(false)
-    })
-
-    it('ignores phase_complete when current phase does not match', () => {
-      // In idle phase, completing 'summoning' should not transition
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'summoning' })
-      expect(modeChanges().some(e => 'workSubState' in e && e.workSubState === 'assigning')).toBe(false)
-    })
-
-    it('ignores unknown phase_complete values', () => {
-      bridge.processWorldAction({ type: 'workflow_phase_complete', phase: 'unknown_phase' })
-      expect(modeChanges()).toHaveLength(0)
-    })
-  })
-
   describe('processWorldAction — unknown action type', () => {
     it('returns null for unknown action', () => {
       const result = bridge.processWorldAction({ type: 'unknown_action' })
@@ -377,8 +250,8 @@ describe('DirectorBridge — Phase State Machine', () => {
   describe('restoreWorkState', () => {
     it('does nothing when agents array is empty', () => {
       bridge.restoreWorkState({ phase: 'working', agents: [] })
-      // No restore_work_state event should be emitted
-      expect(emittedEvents.filter(e => e.type === 'restore_work_state')).toHaveLength(0)
+      // No npc_activity_restore event should be emitted
+      expect(emittedEvents.filter(e => e.type === 'npc_activity_restore')).toHaveLength(0)
     })
 
     it('defers restore when townConfig is not ready', () => {
@@ -387,8 +260,8 @@ describe('DirectorBridge — Phase State Machine', () => {
         phase: 'working',
         agents: [{ id: 'agent_1', displayName: 'Worker', task: 'task', status: 'working' }],
       })
-      // Should not emit restore_work_state yet (deferred)
-      expect(emittedEvents.filter(e => e.type === 'restore_work_state')).toHaveLength(0)
+      // Should not emit npc_activity_restore yet (deferred)
+      expect(emittedEvents.filter(e => e.type === 'npc_activity_restore')).toHaveLength(0)
     })
 
     it('restores immediately when townConfig is ready', () => {
@@ -397,7 +270,8 @@ describe('DirectorBridge — Phase State Machine', () => {
         phase: 'working',
         agents: [{ id: 'agent_1', displayName: 'Worker', task: 'task', status: 'working' }],
       })
-      expect(emittedEvents.filter(e => e.type === 'restore_work_state')).toHaveLength(1)
+      // restore_work_state event removed; only npc_activity_restore may emit (none here — no activityLog)
+      expect(emittedEvents.filter(e => e.type === 'npc_activity_restore')).toHaveLength(0)
     })
 
     it('executes pending restore after townConfig is set', () => {
@@ -411,7 +285,7 @@ describe('DirectorBridge — Phase State Machine', () => {
       expect(result).toBe(true)
       // Execute pending restore
       bridge.executePendingRestore()
-      expect(emittedEvents.filter(e => e.type === 'restore_work_state')).toHaveLength(1)
+      expect(emittedEvents.filter(e => e.type === 'npc_activity_restore')).toHaveLength(0)
     })
   })
 })

@@ -4,11 +4,6 @@ import type { TownConfig } from './TownConfig'
 import { getSpecialtyLabel } from './TownConfig'
 import { NarrativeEngine } from '../narrative/NarrativeEngine'
 import { MockDialog } from '../narrative/MockDialog'
-import {
-  ACT_3_REQUEST,
-  ACT_4_SUMMON, ACT_5_ASSIGN, ACT_6_TO_OFFICE,
-  ACT_7_WORK, ACT_8_PUBLISH,
-} from '../narrative/sequences'
 import type { SceneType } from '../types'
 
 type GameEventHandler = (event: GameEvent) => void
@@ -177,36 +172,19 @@ export class MockDataSource implements IWorldDataSource {
 
   private handleUserMessage(text: string): void {
     if (this.phase === 'working') {
-      this.emit({ type: 'dialog_message', npcId: 'steward', text: '团队正在办公室干活呢，稍等一下~', isStreaming: false })
+      this.emit({ type: 'dialog_message', npcId: 'steward', text: '居民们正在忙自己的手艺呢，稍等一下~', isStreaming: false })
       return
     }
 
     const { reply, event } = this.mockDialog.matchReply(text)
     this.emit({ type: 'dialog_message', npcId: 'steward', text: reply, isStreaming: false })
-
-    if (event === 'summon_team') {
-      this.phase = 'working'
-      this.startWorkDemo()
-    }
-  }
-
-  private async startWorkDemo(): Promise<void> {
-    const acts = [
-      ACT_3_REQUEST, ACT_4_SUMMON, ACT_5_ASSIGN,
-      ACT_6_TO_OFFICE, ACT_7_WORK, ACT_8_PUBLISH,
-    ]
-    for (const act of acts) {
-      this.narrative.load(act)
-      await this.narrative.play()
-    }
-    this.phase = 'daily'
   }
 
   // ── Narrative handler bridge (reuses existing sequences) ──
 
   private setupNarrativeHandlers(): void {
     const npcIdMap: Record<string, string> = {
-      producer: 'steward',
+      steward: 'steward',
       planner: 'citizen_1',
       explorer: 'citizen_2',
       coder: 'citizen_3',

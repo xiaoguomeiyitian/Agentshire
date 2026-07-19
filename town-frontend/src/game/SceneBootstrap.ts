@@ -26,6 +26,8 @@ export interface SceneBootstrapDeps {
   startSnapshotSaving: () => void
   setInputEnabled: (v: boolean) => void
   setDialogTarget: (id: string, name: string) => void
+  /** Returns true if runtime state (NPC positions) was restored from plugin. */
+  isRuntimeStateRestored: () => boolean
 }
 
 export interface AgentConfigEntry {
@@ -115,12 +117,17 @@ export class SceneBootstrap {
     const result = await dataSource.connect(finalConfig)
     this.spawnFromConfig(finalConfig)
 
+    const { npcManager, cameraCtrl } = this.deps
+
     if (result.hasWorkRestore) {
       const executeRestore = (dataSource as any)._executeRestore as (() => void) | undefined
       executeRestore?.()
       this.deps.setInputEnabled(true)
       this.deps.setDialogTarget('steward', finalConfig.steward.name)
       this.deps.startSnapshotSaving()
+      // Camera follows the mayor (user) by default.
+      const mayorNpc = npcManager.get('user')
+      if (mayorNpc) cameraCtrl.follow(mayorNpc.mesh)
     } else {
       this.playReturnAnimation(finalConfig)
     }
@@ -173,18 +180,25 @@ export class SceneBootstrap {
     if (userNpc) userNpc.setVisible(true)
     cameraCtrl.moveTo({ x: 39, z: 32 })
 
-    await Promise.all([
-      userNpc?.moveTo({ x: 40, z: 34 }, 2.5),
-      stewardNpc?.moveTo({ x: 38, z: 34 }, 3),
-    ])
+    // If runtime state was restored from plugin (page refresh / restart),
+    // skip the return-to-center walk animation — keep NPCs at their saved positions.
+    if (this.deps.isRuntimeStateRestored()) {
+      console.log('[SceneBootstrap] playReturnAnimation: runtime state restored, skipping center walk')
+    } else {
+      await Promise.all([
+        userNpc?.moveTo({ x: 40, z: 34 }, 2.5),
+        stewardNpc?.moveTo({ x: 38, z: 34 }, 3),
+      ])
 
-    if (stewardNpc) stewardNpc.lookAtTarget?.({ x: 40, z: 34 })
-    if (userNpc) userNpc.lookAtTarget?.({ x: 38, z: 34 })
+      if (stewardNpc) stewardNpc.lookAtTarget?.({ x: 40, z: 34 })
+      if (userNpc) userNpc.lookAtTarget?.({ x: 38, z: 34 })
+    }
 
     await this.delay(200)
 
-    if (stewardNpc) {
-      cameraCtrl.follow(stewardNpc.mesh)
+    // Camera follows the mayor (user) by default, not the steward.
+    if (userNpc) {
+      cameraCtrl.follow(userNpc.mesh)
     }
 
     this.deps.setInputEnabled(true)

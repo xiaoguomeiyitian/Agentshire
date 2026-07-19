@@ -13,7 +13,6 @@ retargeting.js
 
 # local test & docs (not part of the open-source repo)
 test/
-docs/
 
 # debug pages
 town-frontend/npc-anim-preview.html
@@ -34,4 +33,4 @@ coverage/
 # local user data
 town-data/custom-assets/characters/
 town-data/custom-assets/thumbnails/
-town-data/souls/
+.github/tmp/

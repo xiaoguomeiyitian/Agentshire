@@ -278,3 +278,28 @@ export function loadClockState(): ClockState | null {
     return null;
   }
 }
+
+/** Clear the saved GameClock state (reset town → clock restarts at day 1). */
+export function clearClockState(): void {
+  try {
+    const filePath = clockFilePath();
+    if (existsSync(filePath)) unlinkSync(filePath);
+  } catch (err) {
+    console.warn(`[animal-memory] Failed to clear clock state:`, (err as Error).message);
+  }
+}
+
+/** Clear all ActivityJournal snapshots (reset town → relationships/plans reset). */
+export function clearAllSnapshots(): void {
+  try {
+    const dir = memoriesDir();
+    if (!existsSync(dir)) return;
+    for (const file of readdirSync(dir)) {
+      if (file.endsWith(".snapshot.json")) {
+        unlinkSync(join(dir, file));
+      }
+    }
+  } catch (err) {
+    console.warn(`[animal-memory] Failed to clear all snapshots:`, (err as Error).message);
+  }
+}

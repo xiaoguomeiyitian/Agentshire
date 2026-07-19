@@ -6,20 +6,20 @@
 
 ```
 src/bridge/
-├── DirectorBridge.ts      # 中央编排器：7阶段Phase状态机 + 事件分发
+├── DirectorBridge.ts      # 中央编排器：idle-only（居民自由生活）+ 事件分发
 ├── EventTranslator.ts     # 兜底翻译：AgentEvent → GameEvent 简单映射
 ├── RouteManager.ts        # A*寻路 + moveNpcAndWait(带ack/超时) + 目的地评分
 ├── CitizenManager.ts      # 居民生命周期：persona检测 → spawn动画编排 → 寻路
 ├── ActivityStream.ts      # 活动日志 + thinking流缓冲（500ms flush）
-├── NpcEventQueue.ts       # 对话/phase事件排队（保护气泡不被快速覆盖）
-├── StateTracker.ts        # agentId↔npcId双向映射 + 工位池(A-J共10个)
-├── ToolVfxMapper.ts       # 纯函数：工具名 → VFX事件/emoji/动画phase
+├── NpcEventQueue.ts       # 对话事件排队（保护气泡不被快速覆盖）
+├── StateTracker.ts        # agentId↔npcId双向映射 + 工作台池(A-J共10个)
+├── ToolVfxMapper.ts       # 纯函数：工具名 → VFX事件/emoji/动画
 ├── ReconnectManager.ts    # WebSocket指数退避重连
 ├── implicit-chat.ts       # NPC隐式LLM调用（10种场景，DI注入）
 ├── index.ts               # barrel export
 └── data/
     ├── route-config.ts    # 路由图类型 + 导入
-    └── route-config.json  # 小镇/办公室节点图 + 居民目的地坐标
+    └── route-config.json  # 小镇/工坊节点图 + 居民目的地坐标
 ```
 
 ## 数据流
@@ -29,7 +29,7 @@ hook-translator (plugin层)  →  AgentEvent
     │
     ▼  WebSocket
 DirectorBridge.processAgentEvent(event)
-    ├─ sub_agent.started  → 注册映射 + npc_spawn + 启动summon收集窗口(3s)
+    ├─ sub_agent.started  → 注册映射 + npc_spawn
     ├─ sub_agent.progress → 转发内部事件给对应NPC的queue
     ├─ sub_agent.done     → npc_work_done + 更新进度
     ├─ text/text_delta    → handleStewardText() → 对话气泡 + activity
@@ -40,7 +40,7 @@ DirectorBridge.processAgentEvent(event)
     ├─ bus_message        → NPC互看 + connectionBeam VFX
     ├─ hook_activity      → hookFlash VFX
     ├─ media_output       → deliverable_card
-    ├─ error              → NPC error phase
+    ├─ error              → NPC error state
     └─ default            → EventTranslator.translate() (兜底)
     │
     ▼  emit GameEvent[]
@@ -53,20 +53,10 @@ DirectorBridge.processCitizenEvent(npcId, event)
 ## Phase 状态机
 
 ```
-idle → summoning → assigning → going_to_office → working → publishing → returning → idle
+idle  （居民自由生活——无中央工作流）
 ```
 
-| Phase | 触发条件 | 发出事件 | 前端编排 |
-|-------|---------|---------|---------|
-| idle | 初始/返回完成 | — | — |
-| summoning | 首个 `sub_agent.started` | `workflow_summon`（收集窗口3s后） | SummonOrchestrator |
-| assigning | 前端 `workflow_phase_complete(summoning)` | `workflow_assign` | BriefingOrchestrator |
-| going_to_office | 前端 `workflow_phase_complete(assigning)` | `workflow_go_office` + 工位分配 | MainScene 场景切换 |
-| working | 前端 `workflow_phase_complete(going_to_office)` | `progress` + 转发sub_agent事件 | 工位屏幕 + 小游戏 |
-| publishing | `project_complete` tool_result | `workflow_publish` + deliverable_card | MainScene VFX |
-| returning | 前端 `workflow_phase_complete(publishing)` | `workflow_return` | MainScene 散场 |
-
-**迟到者处理**：working 阶段到达的 `sub_agent.started` 不走 summoning，直接分配工位。
+工作流编排已删除。居民是独立 Agent，有自己的手艺和日常节奏，由 `animal-mode/` 驱动自主行为。Bridge 仅负责事件分发与寻路，不再召唤/分工/发布。
 
 **临时工机制**：未在 TownConfig 中配置的 agent 自动分配随机 avatar，标记为临时工。
 
@@ -101,15 +91,15 @@ idle → summoning → assigning → going_to_office → working → publishing 
 | CitizenManager | persona检测 + 居民spawn动画序列 | RouteManager, CharacterRoster（DI注入） |
 | ActivityStream | 活动日志 + thinking流 + todo活动 | — |
 | NpcEventQueue | 对话保护期 + phase缓冲 | — |
-| StateTracker | 双向ID映射 + 工位池管理 | — |
+| StateTracker | 双向ID映射 + 工作台池管理 | — |
 | ToolVfxMapper | 工具→VFX/动画 纯函数 | — |
 | implicit-chat | 隐式LLM调用 + 统计 | DI注入chatFn |
 
 ## 编排原则
 
 - **Bridge 发高级意图事件，不做 setTimeout 微操**：NPC 完成时发 `npc_work_done`，前端 MainScene 用 async/await 编排完整序列
-- **工位延迟释放**：Bridge 在 `sub_agent.done` 时不立即释放，等前端 `workstation_released` action 回传后才释放（12s安全网兜底）
-- **Phase 前进靠前端回传**：前端通过 `workflow_phase_complete` 推动状态机，Bridge 不假设动画时长
+- **工作台延迟释放**：Bridge 在 `sub_agent.done` 时不立即释放，等前端 `workstation_released` action 回传后才释放（12s安全网兜底）
+- **居民自由生活**：居民是独立 Agent，由 `animal-mode/` 驱动自主行为，Bridge 不再编排工作流
 
 ## 常见改动
 
@@ -120,7 +110,7 @@ idle → summoning → assigning → going_to_office → working → publishing 
 | 修改活动日志描述/图标 | `ActivityStream.ts` 的 `toolActivityMsg/toolActivityIcon` |
 | 修改居民spawn动画序列 | `CitizenManager.spawnCitizenSequence()` |
 | 修改寻路图节点 | `data/route-config.json` |
-| 修改Phase编排 | `DirectorBridge` 的 phase 切换逻辑（发意图事件，不编排动画） |
+| 修改小镇生活编排 | `DirectorBridge`（idle-only，仅事件分发） |
 | 新增隐式LLM场景 | `implicit-chat.ts` 的 `SCENE_CONFIG` |
 | 修改对话保护时长 | `NpcEventQueue.ts` 的 `calcDialogDuration()` |
 
@@ -129,7 +119,7 @@ idle → summoning → assigning → going_to_office → working → publishing 
 ```
 src/bridge/__tests__/
 ├── EventTranslator.test.ts   # AgentEvent → GameEvent 映射
-├── NpcEventQueue.test.ts     # 对话保护 + phase 缓冲
+├── NpcEventQueue.test.ts     # 对话保护
 ├── RouteManager.test.ts      # A*寻路 + 移动 + 目的地
 ├── ActivityStream.test.ts    # thinking流 + 活动日志
 └── CitizenManager.test.ts    # 居民检测 + 名字匹配

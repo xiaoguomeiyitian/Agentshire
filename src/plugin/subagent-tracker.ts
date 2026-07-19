@@ -141,10 +141,6 @@ export function stopAll(): void {
   }
 }
 
-export function getTrackedCount(): number {
-  return tracked.size;
-}
-
 export function hasRunningSubagents(): boolean {
   return tracked.size > 0;
 }

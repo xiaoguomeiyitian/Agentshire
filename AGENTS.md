@@ -59,8 +59,7 @@
 │  ┌───────────────────────────────────────────────────────────────── ──┐  │
 │  │                       DirectorBridge                               │  │
 │  │                                                                    │  │
-│  │   Phase: idle → summoning → assigning → going_to_office            │  │
-│  │          → working → publishing → returning ──→ idle               │  │
+│  │   Phase: idle (citizens live freely — no central workflow)          │  │
 │  └────────────────────────────────────────────────────────────────────┘  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
 │  │    Event-    │  │    Route-    │  │   Citizen-   │  │   implicit-  │  │
@@ -125,9 +124,8 @@ agentshire/
 │   │   ├── channel.ts             # ChannelPlugin implementation
 │   │   ├── hook-translator.ts     # Hook → AgentEvent translation
 │   │   ├── ws-server.ts           # WebSocket server + session management
-│   │   ├── tools.ts               # AI tool registration (14 tools)
+│   │   ├── tools.ts               # AI tool registration (8 tools)
 │   │   ├── auto-config.ts         # Zero-config auto-create Agent + Binding
-│   │   ├── plan-manager.ts        # Multi-agent plan state machine
 │   │   ├── citizen-agent-manager.ts # Independent citizen Agent create/disable/update + get/updateAgentConfig
 │   │   ├── citizen-chat-router.ts # User ↔ citizen Agent message routing
 │   │   ├── citizen-workshop-manager.ts # Citizen workshop config persistence
@@ -148,7 +146,7 @@ agentshire/
 │   │   └── runtime.ts             # Runtime injection
 │   │
 │   ├── bridge/                    # Bridge layer (12 files, see bridge/AGENTS.md)
-│   │   ├── DirectorBridge.ts      # Central orchestrator (Phase state machine)
+│   │   ├── DirectorBridge.ts      # Central orchestrator (idle-only, citizens live freely)
 │   │   ├── EventTranslator.ts     # AgentEvent → GameEvent fallback translation
 │   │   ├── RouteManager.ts        # A* pathfinding + move acknowledgment + destination scoring
 │   │   ├── CitizenManager.ts      # Citizen spawn animation sequence + persona switch detection
@@ -183,12 +181,12 @@ agentshire/
         ├── game/                  # Scene management (see game/AGENTS.md)
         │   ├── MainScene.ts       # Main scene (1600+ lines, update loop + subsystem orchestration)
         │   ├── EventDispatcher.ts # 65 GameEvent type routing
-        │   ├── DialogManager.ts   # Dialog streaming display + work logs + recentlyFlushed dedup
+        │   ├── DialogManager.ts   # Dialog streaming display + activity logs + recentlyFlushed dedup
         │   ├── GameClock.ts       # 24h cycle (6 periods, night 3x speed)
         │   ├── WeatherSystem.ts   # 12 weather types + 10 daily themes state machine
         │   ├── SceneBootstrap.ts  # Boot flow (PublishedCitizenConfig loading)
         │   ├── animal-mode/       # ★ Animal Mode autonomy system (replaces workflow/ + DailyScheduler)
-        │   ├── minigame/          # ★ Banwei Buster mini-game (MinigameSlot interface)
+        │   ├── minigame/          # ★ Town Trouble Events mini-game (MinigameSlot interface)
         │   ├── scene/             # 3D scenes (Town/Office/Museum Builder)
         │   └── visual/            # VFX + camera + lighting + weather particles + asset loading
         │
@@ -244,32 +242,20 @@ agentshire/
                                     ▼
 ┌──────────┐ GameEvent  ┌──────────────────┐ AgentEvent  ┌──────────────┐
 │MainScene │◀───────────│ DirectorBridge   │◀────────────│    hook-     │
-│          │ (65 types) │  Phase SM        │ (26+ types) │  translator  │
+│          │ (65 types) │  idle-only       │ (26+ types) │  translator  │
 └────┬─────┘            └──────────────────┘             └──────────────┘
      │                          ▲
-     │  GameAction (14 types)   │  workflow_phase_complete
-     │  workstation_released    │  npc_move_completed
+     │  GameAction (14 types)   │  npc_move_completed
+     │  workstation_released    │
      └──────────────────────────┘
 ```
 
 ### Phase State Machine
 
 ```
-         sub_agent          3s collect         phase              phase
-         .started            window           complete            complete
-┌──────┐ ─────────▶ ┌───────────┐ ────▶ ┌──────────┐ ────▶ ┌──────────────┐
-│ idle │            │ summoning │       │assigning │       │going_to_office│
-└──┬───┘            └───────────┘       └──────────┘       └──────┬───────┘
-   ▲                                                               │
-   │ phase                                                phase    │
-   │ complete                                            complete  │
-   │                                                               ▼
-┌──┴───────┐ phase   ┌────────────┐  project   ┌─────────────────────┐
-│returning │◀─ ── ── │ publishing │◀─ ── ── ── │       working       │
-└──────────┘complete └────────────┘  _complete │                     │
-                                               │  late sub_agent     │
-                                               │  → assignLateArrival│
-                                               └─────────────────────┘
+┌──────┐
+│ idle │  (citizens live freely — no central workflow)
+└──────┘
 ```
 
 ### Citizen Independent Chat
@@ -323,18 +309,17 @@ agentshire/
 
 | Module | Path | When to Read |
 |--------|------|-------------|
-| Plugin Layer | [src/plugin/AGENTS.md](src/plugin/AGENTS.md) | Modifying hooks / tools / plans / citizen agents / editor API |
-| Bridge Layer | [src/bridge/AGENTS.md](src/bridge/AGENTS.md) | Modifying Phase state machine / event translation / pathfinding / citizen spawn |
+| Plugin Layer | [src/plugin/AGENTS.md](src/plugin/AGENTS.md) | Modifying hooks / tools / citizen agents / editor API |
+| Bridge Layer | [src/bridge/AGENTS.md](src/bridge/AGENTS.md) | Modifying event translation / pathfinding / citizen spawn |
 | Town Frontend | [town-frontend/AGENTS.md](town-frontend/AGENTS.md) | Modifying any frontend UI / styles / text — **brand colors & i18n rules** |
-| Frontend Game | [town-frontend/src/game/AGENTS.md](town-frontend/src/game/AGENTS.md) | Modifying scenes / workflow / mini-game / VFX / weather |
+| Frontend Game | [town-frontend/src/game/AGENTS.md](town-frontend/src/game/AGENTS.md) | Modifying scenes / mini-game / VFX / weather |
 
 ## Core Architecture Constraints
 
-1. **Bridge emits high-level intents, not micro-ops** — Bridge only emits `workflow_*` / `npc_work_done` intent events; detailed animation choreography lives in `workflow/`
+1. **Bridge emits high-level intents, not micro-ops** — Bridge emits `npc_work_done` intent events; detailed animation choreography lives in `animal-mode/`
 2. **NPC state machine driven** — Animations driven via `NPC.transitionTo(state)`, never call `playAnim()` directly
 3. **Deferred workstation release** — Bridge does not release workstations immediately; waits for the frontend NPC to physically leave, confirmed via `workstation_released` callback
-4. **Phase advances on frontend feedback** — Frontend sends `workflow_phase_complete` after finishing animations; only then does Bridge advance the state machine
-5. **Citizen dual-track** — Citizens can be sub-agents (during work) or independent agents (daily chat, managed via `citizen-agent-manager`)
+4. **Citizens live freely** — Citizens are independent agents with their own crafts and daily rhythm (managed via `citizen-agent-manager`); the steward is the town guide, not a task dispatcher
 
 ## Testing
 
@@ -362,11 +347,10 @@ Test distribution:
 |-----------|---------------|
 | Add Hook → AgentEvent mapping | `src/plugin/hook-translator.ts` |
 | Add new AI tool | `src/plugin/tools.ts` |
-| Modify multi-agent plan orchestration | `src/plugin/plan-manager.ts` |
 | Modify editor backend API | `src/plugin/editor-serve.ts` |
 | Modify citizen agent management | `src/plugin/citizen-agent-manager.ts` |
 | Add AgentEvent → GameEvent mapping | `src/bridge/EventTranslator.ts` |
-| Modify Phase state machine | `src/bridge/DirectorBridge.ts` |
+| Modify town life orchestration | `src/bridge/DirectorBridge.ts` (idle-only) |
 | Modify citizen spawn animation | `src/bridge/CitizenManager.ts` |
 | Modify NPC implicit behavior scenes | `src/bridge/implicit-chat.ts` |
 | Modify group chat system | `src/plugin/group-chat.ts` + `group-chat-history.ts` + `group-chat-context.ts` |
@@ -381,7 +365,7 @@ Test distribution:
 | Add frontend GameEvent handler | `town-frontend/src/game/EventDispatcher.ts` |
 | Modify NPC animation / state machine | `town-frontend/src/npc/NPC.ts` — driven by `transitionTo()` |
 | Modify casual social encounters | `town-frontend/src/npc/CasualEncounter.ts` + `DialogueScripts.ts` |
-| Modify mini-game | `town-frontend/src/game/minigame/BanweiGame.ts` |
+| Modify mini-game | `town-frontend/src/game/minigame/TroubleGame.ts` |
 | Modify weather effects | `WeatherSystem.ts` (state machine) + `WeatherEffects.ts` (visual) + `AmbientSoundManager.ts` (audio) |
 | Modify 3D scenes | `town-frontend/src/game/scene/TownBuilder.ts` |
 | Modify editor | `town-frontend/src/editor/` |

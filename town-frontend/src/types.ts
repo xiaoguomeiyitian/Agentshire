@@ -24,7 +24,7 @@ export interface GameTimeState {
   isNight: boolean
 }
 
-export type NPCRole = 'producer' | 'worker' | 'user'
+export type NPCRole = 'steward' | 'worker' | 'user'
 
 export interface NPCConfig {
   id: string
@@ -39,7 +39,7 @@ export interface NPCConfig {
   modelTransform?: { scale: number; rotationX: number; rotationY: number; rotationZ: number; offsetX: number; offsetY: number; offsetZ: number }
   animMapping?: Partial<Record<string, string>>
   animFileUrls?: string[]
-  /** Issue 2: citizen occupation/specialty for display in dropdown + tas-name. */
+  /** citizen specialty (craft) for display in dropdown + tas-name. */
   specialty?: string
 }
 
@@ -74,11 +74,11 @@ export const WAYPOINTS: Record<string, Waypoint> = {
 }
 
 export const NPC_CONFIGS: NPCConfig[] = [
-  { id: 'producer', name: 'Producer', color: 0x4488CC, spawn: { x: WAYPOINTS.plaza_side.x, y: 0, z: WAYPOINTS.plaza_side.z }, role: 'producer', label: '制作人·阿P' },
-  { id: 'planner', name: 'Planner', color: 0xBB66CC, spawn: { x: WAYPOINTS.cafe_door.x, y: 0, z: WAYPOINTS.cafe_door.z }, role: 'worker', label: '策划·小策' },
-  { id: 'explorer', name: 'Explorer', color: 0x44AA44, spawn: { x: WAYPOINTS.house_a_door.x, y: 0, z: WAYPOINTS.house_a_door.z }, role: 'worker', label: '美术·小画' },
-  { id: 'coder', name: 'Coder', color: 0x6688AA, spawn: { x: WAYPOINTS.house_b_door.x, y: 0, z: WAYPOINTS.house_b_door.z }, role: 'worker', label: '开发·阿码' },
-  { id: 'architect', name: 'Architect', color: 0xCC8844, spawn: { x: WAYPOINTS.house_c_door.x, y: 0, z: WAYPOINTS.house_c_door.z }, role: 'worker', label: '开发·阿构' },
+  { id: 'steward', name: 'Steward', color: 0x4488CC, spawn: { x: WAYPOINTS.plaza_side.x, y: 0, z: WAYPOINTS.plaza_side.z }, role: 'steward', label: '管家·小夏' },
+  { id: 'planner', name: 'Planner', color: 0xBB66CC, spawn: { x: WAYPOINTS.cafe_door.x, y: 0, z: WAYPOINTS.cafe_door.z }, role: 'worker', label: '出点子·小橙' },
+  { id: 'explorer', name: 'Explorer', color: 0x44AA44, spawn: { x: WAYPOINTS.house_a_door.x, y: 0, z: WAYPOINTS.house_a_door.z }, role: 'worker', label: '木工·小岩' },
+  { id: 'coder', name: 'Coder', color: 0x6688AA, spawn: { x: WAYPOINTS.house_b_door.x, y: 0, z: WAYPOINTS.house_b_door.z }, role: 'worker', label: '修理·小烈' },
+  { id: 'architect', name: 'Architect', color: 0xCC8844, spawn: { x: WAYPOINTS.house_c_door.x, y: 0, z: WAYPOINTS.house_c_door.z }, role: 'worker', label: '绘画·小棠' },
   { id: 'user', name: 'Jin', color: 0xDDAA44, spawn: { x: WAYPOINTS.road_entrance.x, y: 0, z: WAYPOINTS.road_entrance.z }, role: 'user', label: 'Jin' },
 ]
 
@@ -98,20 +98,20 @@ export interface BuildingDef {
 }
 
 export const BUILDING_REGISTRY: BuildingDef[] = [
-  { key: 'office_door',    name: '办公室',  scene: 'office',    category: 'workspace',    tag: 'office',   stayRange: [5000, 12000],   capacity: 4 },
+  { key: 'office_door',    name: '工坊',  scene: 'office',    category: 'workspace',    tag: 'office',   stayRange: [5000, 12000],   capacity: 4 },
   { key: 'house_a_door',   name: '住宅A',   scene: 'house_a',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
   { key: 'house_b_door',   name: '住宅B',   scene: 'house_b',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
   { key: 'house_c_door',   name: '住宅C',   scene: 'house_c',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
   { key: 'market_door',    name: '市场',    scene: 'market',    category: 'commercial',   tag: 'market',   stayRange: [4000, 10000],   capacity: 6 },
   { key: 'cafe_door',      name: '咖啡店',  scene: 'cafe',      category: 'commercial',   tag: 'cafe',     stayRange: [5000, 12000],   capacity: 4 },
-  { key: 'user_home_door', name: '玩家家',  scene: 'user_home', category: 'residential',  tag: 'userHome', stayRange: [3000, 8000],    capacity: 1 },
+  { key: 'user_home_door', name: '镇长的家', scene: 'user_home', category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
   { key: 'museum_door',    name: '博物馆',  scene: 'museum',    category: 'public',       tag: 'museum',   stayRange: [5000, 12000],   capacity: 5 },
 ]
 
 const BUILDING_NAMES_EN: Record<string, string> = {
   office_door: 'Office', house_a_door: 'House A', house_b_door: 'House B',
   house_c_door: 'House C', market_door: 'Market', cafe_door: 'Café',
-  user_home_door: 'Player Home', museum_door: 'Museum',
+  user_home_door: "Mayor's Home", museum_door: 'Museum',
 }
 
 export function getBuildingName(key: string): string {
@@ -155,13 +155,13 @@ export const MODEL_KEY_TO_ROLE: Record<string, {
   stayRange: [number, number]
   capacity: number
 }> = {
-  building_A: { category: 'workspace',   tag: 'office',   scene: 'office',    name: '办公室',  nameEn: 'Office',      stayRange: [5000, 12000], capacity: 4 },
+  building_A: { category: 'workspace',   tag: 'office',   scene: 'office',    name: '工坊',  nameEn: 'Workshop',      stayRange: [5000, 12000], capacity: 4 },
   building_B: { category: 'residential',  tag: 'home',     scene: 'house_a',  name: '住宅',    nameEn: 'House',      stayRange: [6000, 15000], capacity: 2 },
   building_C: { category: 'residential',  tag: 'home',     scene: 'house_b',  name: '住宅',    nameEn: 'House',      stayRange: [6000, 15000], capacity: 2 },
   building_D: { category: 'residential',  tag: 'home',     scene: 'house_c',  name: '住宅',    nameEn: 'House',      stayRange: [6000, 15000], capacity: 2 },
   building_E: { category: 'commercial',   tag: 'market',   scene: 'market',   name: '市场',    nameEn: 'Market',     stayRange: [4000, 10000], capacity: 6 },
   building_F: { category: 'commercial',   tag: 'cafe',     scene: 'cafe',     name: '咖啡店',  nameEn: 'Café',       stayRange: [5000, 12000], capacity: 4 },
-  building_G: { category: 'residential',  tag: 'userHome', scene: 'user_home',name: '玩家家',  nameEn: 'Player Home',stayRange: [3000, 8000],  capacity: 1 },
+  building_G: { category: 'residential',  tag: 'home',     scene: 'user_home',name: '镇长的家', nameEn: "Mayor's Home", stayRange: [6000, 15000], capacity: 2 },
   building_H: { category: 'public',       tag: 'museum',   scene: 'museum',   name: '博物馆',  nameEn: 'Museum',     stayRange: [5000, 12000], capacity: 5 },
 }
 
@@ -255,13 +255,13 @@ export function updateWaypointsFromMapConfig(config: TownMapConfig): void {
   if (BUILDING_REGISTRY.length === 0) {
     // Restore original registry
     BUILDING_REGISTRY.push(
-      { key: 'office_door',    name: '办公室',  scene: 'office',    category: 'workspace',    tag: 'office',   stayRange: [5000, 12000],   capacity: 4 },
+      { key: 'office_door',    name: '工坊',  scene: 'office',    category: 'workspace',    tag: 'office',   stayRange: [5000, 12000],   capacity: 4 },
       { key: 'house_a_door',   name: '住宅A',   scene: 'house_a',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
       { key: 'house_b_door',   name: '住宅B',   scene: 'house_b',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
       { key: 'house_c_door',   name: '住宅C',   scene: 'house_c',   category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
       { key: 'market_door',    name: '市场',    scene: 'market',    category: 'commercial',   tag: 'market',   stayRange: [4000, 10000],   capacity: 6 },
       { key: 'cafe_door',      name: '咖啡店',  scene: 'cafe',      category: 'commercial',   tag: 'cafe',     stayRange: [5000, 12000],   capacity: 4 },
-      { key: 'user_home_door', name: '玩家家',  scene: 'user_home', category: 'residential',  tag: 'userHome', stayRange: [3000, 8000],    capacity: 1 },
+      { key: 'user_home_door', name: '镇长的家', scene: 'user_home', category: 'residential',  tag: 'home',     stayRange: [6000, 15000],   capacity: 2 },
       { key: 'museum_door',    name: '博物馆',  scene: 'museum',    category: 'public',       tag: 'museum',   stayRange: [5000, 12000],   capacity: 5 },
     )
   }
@@ -287,6 +287,7 @@ export type ActivityAction =
   | 'summoned' | 'assigned_task' | 'started_working'
   | 'completed_task' | 'celebrating' | 'returned_from_work'
   | 'need_urgent' | 'need_satisfied' | 'mood_changed' | 'went_indoor' | 'left_indoor'
+  | 'decided'
 
 export interface ActivityEntry {
   time: string
@@ -360,21 +361,21 @@ export interface ModeState {
 }
 
 export const WORK_SUB_STATE_LABELS: Record<WorkSubState, string> = {
-  summoning: '召唤中',
-  assigning: '分工中',
-  going_to_office: '前往办公室',
-  working: '工作中',
-  publishing: '发布中',
+  summoning: '召集中',
+  assigning: '准备中',
+  going_to_office: '前往工坊',
+  working: '做手艺中',
+  publishing: '展示中',
   celebrating: '庆祝中',
   returning: '返回小镇',
 }
 
 const WORK_SUB_STATE_LABELS_EN: Record<WorkSubState, string> = {
-  summoning: 'Summoning',
-  assigning: 'Briefing',
-  going_to_office: 'To Office',
-  working: 'Working',
-  publishing: 'Publishing',
+  summoning: 'Gathering',
+  assigning: 'Preparing',
+  going_to_office: 'To Workshop',
+  working: 'Crafting',
+  publishing: 'Showcasing',
   celebrating: 'Celebrating',
   returning: 'Returning',
 }

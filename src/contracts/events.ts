@@ -32,7 +32,6 @@ export interface AgentStats {
   toolCalls: number;
   agentSpawns: number;
   skillCalls: number;
-  workflowCalls: number;
   durationMs: number;
 }
 

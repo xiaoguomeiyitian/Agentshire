@@ -32,8 +32,8 @@ describe('publishedToTownView', () => {
     const published = makePublished([
       makeEntry({ id: 'user', role: 'user', name: '镇长', avatarId: 'char-male-c' }),
       makeEntry({ id: 'steward', role: 'steward', name: '管家', avatarId: 'char-female-b', persona: 'SOUL' }),
-      makeEntry({ id: 'c1', role: 'citizen', name: '岩', avatarId: 'char-male-b', specialty: '架构设计', homeId: 'house_a' }),
-      makeEntry({ id: 'c2', role: 'citizen', name: '橙子', avatarId: 'lib-5', specialty: '产品经理', homeId: 'house_b' }),
+      makeEntry({ id: 'c1', role: 'citizen', name: '岩', avatarId: 'char-male-b', specialty: '木工与搭建', homeId: 'house_a' }),
+      makeEntry({ id: 'c2', role: 'citizen', name: '橙子', avatarId: 'lib-5', specialty: '出点子', homeId: 'house_b' }),
     ])
     const result = publishedToTownView(published)
 
@@ -62,7 +62,7 @@ describe('publishedToTownView', () => {
         modelTransform: transform,
         animMapping: mapping,
         animFileUrls: ['/anims/a.glb', '/anims/b.glb'],
-        specialty: '产品经理',
+        specialty: '出点子',
         persona: 'CHENGZI',
         homeId: 'house_b',
       }),
@@ -74,7 +74,7 @@ describe('publishedToTownView', () => {
     expect(c.modelTransform).toEqual(transform)
     expect(c.animMapping).toEqual(mapping)
     expect(c.animFileUrls).toEqual(['/anims/a.glb', '/anims/b.glb'])
-    expect(c.specialty).toBe('产品经理')
+    expect(c.specialty).toBe('出点子')
     expect(c.persona).toBe('CHENGZI')
     expect(c.homeId).toBe('house_b')
   })

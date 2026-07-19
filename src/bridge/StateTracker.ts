@@ -6,7 +6,10 @@ export interface NPCState {
   stationId?: string
 }
 
-const WORKSTATION_IDS = ['B', 'C', 'F', 'G', 'D', 'E', 'H', 'A', 'I', 'J']
+// Issue 3: reduced from 10 to 6 workstations to match OfficeBuilder.
+// Order prioritizes desks near the door (z=17 row, closer to door at z=25)
+// so sub-agents fill the front row first.
+const WORKSTATION_IDS = ['D', 'E', 'F', 'A', 'B', 'C']
 
 /** Maintains bidirectional agentId ↔ npcId mappings and allocates workstation slots for sub-agent NPCs */
 export class StateTracker {

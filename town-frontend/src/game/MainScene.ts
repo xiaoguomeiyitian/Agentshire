@@ -7,6 +7,7 @@ import { AssetLoader } from './visual/AssetLoader'
 import { TownBuilder } from './scene/TownBuilder'
 import { OfficeBuilder } from './scene/OfficeBuilder'
 import { MuseumBuilder } from './scene/MuseumBuilder'
+import { HomeBuilder } from './scene/HomeBuilder'
 import { VehicleManager } from './scene/VehicleManager'
 import { CameraController } from './visual/CameraController'
 import { Effects } from './visual/Effects'
@@ -37,6 +38,10 @@ import type { TownConfigStore } from '../data/TownConfigStore'
 import { EventDispatcher } from './EventDispatcher'
 import { DialogManager } from './DialogManager'
 import { getAnimalModeManager } from './animal-mode'
+import { initRecast, buildTownNavMesh, buildSceneNavMesh, destroyNavMesh } from './nav/NavMeshService'
+import { CrowdService, MAYOR_AGENT_PARAMS } from './nav/CrowdService'
+import { NavMeshDebugHelper } from './nav/NavMeshDebugHelper'
+import type { NavMesh, NavMeshQuery } from 'recast-navigation'
 import { SceneBootstrap } from './SceneBootstrap'
 import type { PlatformBridge } from '../platform/Bridge'
 import { CitizenChatManager } from '../npc/CitizenChatManager'
@@ -46,7 +51,7 @@ import { createDefaultConfig } from '../editor/TownMapConfig'
 import { installDebugBindings, removeDebugBindings } from './DebugBindings'
 import { detectProfile } from '../engine/Performance'
 import type { MinigameSlot } from './minigame/MinigameSlot'
-import { BanweiGame } from './minigame/BanweiGame'
+import { TroubleGame } from './minigame/TroubleGame'
 
 export class MainScene implements GameScene {
   private engine: Engine
@@ -67,10 +72,12 @@ export class MainScene implements GameScene {
   private townScene!: THREE.Scene
   private officeScene!: THREE.Scene
   private museumScene!: THREE.Scene
+  private homeScene!: THREE.Scene
 
   private townBuilder!: TownBuilder
   private officeBuilder!: OfficeBuilder
   private museumBuilder!: MuseumBuilder
+  private homeBuilder!: HomeBuilder
   private vehicleManager!: VehicleManager
 
   private gameClock!: GameClock
@@ -83,7 +90,6 @@ export class MainScene implements GameScene {
   private modeIndicator!: ModeIndicator
   private minigame: MinigameSlot | null = null
   private _minigameUpdateCb: ((dt: number) => void) | null = null
-  private whiteboardHasPlan = false
 
   private townJournal!: TownJournal
   private encounterManager!: EncounterManager
@@ -98,7 +104,7 @@ export class MainScene implements GameScene {
   private dialogTarget = 'steward'
   private followBehavior = new FollowBehavior()
   private playerMoveEnabled = true
-  private pendingDoorInteraction: { scene: SceneType; doorPos: THREE.Vector3; virtualEnter?: { buildingName: string; buildingKey: string } } | null = null
+  private pendingDoorInteraction: { scene: SceneType; doorPos: THREE.Vector3; virtualEnter?: { buildingName: string; buildingKey: string }; buildingId?: string } | null = null
   /** Issue 2+4: virtual building entry state */
   private isVirtualEnter = false
   private virtualEnterPos = { x: 0, z: 0 }
@@ -110,8 +116,55 @@ export class MainScene implements GameScene {
   private dispatcher!: EventDispatcher
   private dialogManager!: DialogManager
   private currentSceneType: SceneType = 'town'
+  /** Previous scene type — used to reposition resident NPCs when leaving a house. */
+  private previousSceneType: SceneType = 'town'
+  /**
+   * Issue 7+8: the specific building id the mayor entered (e.g. the exact
+   * "橙子家" placement id, not just the modelKey). Used when returning to town
+   * so the mayor is placed back at the entrance of the building they exited,
+   * not the first building of that type.
+   */
+  private lastEnteredBuildingId: string | null = null
+  /**
+   * Scene-aware obstacle query: returns the active query based on currentSceneType.
+   * - town: building-aware query (installed from TownMapConfig)
+   * - office: furniture-aware query (from OfficeBuilder.getObstacles())
+   * - museum: no obstacles
+   * This prevents NPCs in the office scene from using town building rectangles
+   * (which caused spinning/circling when office coords overlapped town buildings).
+   */
+  private townObstacleQuery: ((x: number, z: number, radius?: number) => { minX: number; maxX: number; minZ: number; maxZ: number } | null) | null = null
+  /**
+   * NavMesh + Crowd 服务(每场景独立 Crowd)。
+   * recast-navigation WASM 接管全部 NPC 寻路与 RVO 群体避障,替代旧 A* 节点图
+   * + NPC.update 手写 slide/escape-nudge 算法。
+   */
+  private navMeshReady = false
+  private townNavMesh: NavMesh | null = null
+  private townNavMeshQuery: NavMeshQuery | null = null
+  private officeNavMesh: NavMesh | null = null
+  private homeNavMesh: NavMesh | null = null
+  private museumNavMesh: NavMesh | null = null
+  /** 每场景独立 Crowd;house_* / user_home 共用 homeCrowd */
+  private crowdServices = new Map<'town' | 'office' | 'home' | 'museum', CrowdService>()
+  private navMeshDebug = new NavMeshDebugHelper()
+  /** 当前激活的 Crowd(对应 currentSceneType) */
+  private activeCrowd: CrowdService | null = null
   private animalMode = getAnimalModeManager()
   private bootstrap!: SceneBootstrap
+  /**
+   * Cached runtime state received before NPCs were spawned (e.g. WS bound
+   * before loadScene finished). Applied lazily in onNpcSpawn once all NPCs
+   * exist, so NPC positions / indoor visibility survive refresh/restart.
+   */
+  private pendingRuntimeState: {
+    npcPositions: Record<string, { x: number; z: number }>
+    indoorCitizens: string[]
+    topicNpcIds: string[]
+  } | null = null
+  /** True after runtime state (NPC positions) has been restored from plugin.
+   *  Used by SceneBootstrap to skip the return-to-center animation on refresh. */
+  private runtimeStateRestored = false
   private citizenChat!: CitizenChatManager
   private activityJournals = new Map<string, ActivityJournal>()
   private implicitChatFn: ((req: {
@@ -162,16 +215,22 @@ export class MainScene implements GameScene {
 
     this.officeBuilder = new OfficeBuilder(this.officeScene)
     this.officeBuilder.build(this.assets)
-    this.officeBuilder.startWhiteboardPolling('')
-    this.officeBuilder.whiteboard.onStepProgress = (current, total) => {
-      this.whiteboardHasPlan = total > 0
-      if (this.modeIndicator && total > 0) {
-        this.modeIndicator.setProgress(current, total)
-      }
-    }
 
     this.museumBuilder = new MuseumBuilder(this.museumScene)
     this.museumBuilder.build(this.assets)
+
+    // Issue 4: home scene — a residential indoor variant (office structure
+    // without desks, with home furniture). Used when the mayor visits a
+    // citizen's home. Shared template for all house_* / user_home scenes.
+    this.homeScene = new THREE.Scene()
+    this.homeScene.background = new THREE.Color(0x202020)
+    this.homeBuilder = new HomeBuilder(this.homeScene)
+    this.homeBuilder.build(this.assets)
+
+    // 异步初始化 recast-navigation WASM + 为 office/home/museum 场景构建 NavMesh + Crowd。
+    // town NavMesh 在 loadMapConfigAsync 成功后构建(依赖 TownMapConfig)。
+    // 失败时降级:navMeshReady 保持 false,NPC.moveTo 回退到旧手写避障逻辑。
+    void this.initNavMeshSystems()
 
     this.vehicleManager = new VehicleManager(this.townScene)
     this.vehicleManager.build(this.assets)
@@ -231,6 +290,57 @@ export class MainScene implements GameScene {
         ambientVolume: (v: number) => this.ambientSound.setVolume(v),
         mute: () => { getAudioSystem().muted = true },
         unmute: () => { getAudioSystem().muted = false },
+      },
+      crowd: {
+        // 调试:查看当前场景 Crowd agent 状态
+        status: () => {
+          const results = []
+          for (const [key, svc] of this.crowdServices) {
+            const ids = svc.getAgentIds()
+            const agents = ids.map(id => {
+              const pos = svc.getAgentPosition(id)
+              const vel = svc.getAgentVelocity(id)
+              return {
+                id,
+                x: pos ? pos.x.toFixed(2) : null,
+                z: pos ? pos.z.toFixed(2) : null,
+                vx: vel ? vel.x.toFixed(2) : null,
+                vz: vel ? vel.z.toFixed(2) : null,
+                moving: svc.isAgentMoving(id),
+                hasAgent: svc.hasAgent(id),
+              }
+            })
+            results.push({ scene: key, ready: svc.ready, agentCount: ids.length, agents })
+          }
+          return results
+        },
+        // 调试:手动触发静止 separation
+        separate: () => {
+          const crowd = this.activeCrowd
+          if (!crowd) return 'no active crowd'
+          crowd.applyStaticSeparation()
+          return 'applied'
+        },
+        // 调试:暴露 mainScene 内部状态用于排查 NavMesh 构建问题
+        inspect: () => {
+          return {
+            navMeshReady: this.navMeshReady,
+            hasTownNavMesh: !!this.townNavMesh,
+            crowdServicesKeys: Array.from(this.crowdServices.keys()),
+            currentSceneType: this.currentSceneType,
+            npcCount: this.npcManager ? this.npcManager.getAll().length : 0,
+            townNpcCount: this.npcManager
+              ? this.npcManager.getAll().filter(n => n.mesh.parent === this.townScene && n.mesh.visible).length
+              : 0,
+          }
+        },
+        // 调试:手动重建 town Crowd
+        rebuildTown: () => {
+          const config = this.townBuilder.getMapConfig()
+          if (!config) return 'no map config'
+          this.buildTownCrowdFromConfig(config)
+          return Array.from(this.crowdServices.keys())
+        },
       },
     })
 
@@ -335,9 +445,10 @@ export class MainScene implements GameScene {
       setDialogTarget: (id, name) => {
         this.ui.setDialogTarget({
           id, name, color: 0x4488CC,
-          spawn: { x: 0, y: 0, z: 0 }, role: 'producer', label: name,
+          spawn: { x: 0, y: 0, z: 0 }, role: 'steward', label: name,
         })
       },
+      isRuntimeStateRestored: () => this.runtimeStateRestored,
     })
 
     this.citizenChat = new CitizenChatManager({
@@ -405,6 +516,10 @@ export class MainScene implements GameScene {
         // Issue 8: refresh NPC card panel immediately
         this.showCurrentTargetDetail()
       },
+      onDisconnect: (npcId: string) => {
+        // Dialog ended — compact the citizen's chat session to free context
+        this.triggerCitizenCompact(npcId)
+      },
     })
 
     const savedConfig = this.configStore.load()
@@ -414,7 +529,7 @@ export class MainScene implements GameScene {
       stewardName: stewardLabel,
       stewardConfig: {
         id: 'steward', name: stewardLabel, color: 0x4488CC,
-        spawn: { x: 0, y: 0, z: 0 }, role: 'producer', label: stewardLabel,
+        spawn: { x: 0, y: 0, z: 0 }, role: 'steward', label: stewardLabel,
         characterKey: stewardNpc?.characterKey ?? savedConfig?.steward.avatarId,
         avatarUrl: savedConfig?.steward.avatarUrl,
       },
@@ -503,21 +618,19 @@ export class MainScene implements GameScene {
         }
       },
       onNpcWorkDone: (npcId, _status, _stationId, _isTempWorker) => {
-        this.minigame?.removeWorkingNpc(npcId)
+        this.minigame?.removeTroubledNpc(npcId)
       },
       onDialogMessage: (npcId, text, isStreaming) => this.dialogManager.onDialogMessage(npcId, text, isStreaming),
       onDialogEnd: (npcId) => this.dialogManager.onDialogEnd(npcId),
       onWorkstationAssign: (npcId, _stationId) => {
-        this.minigame?.addWorkingNpc(npcId)
+        this.minigame?.addTroubledNpc(npcId)
       },
       onWorkstationScreen: (stationId, state) => this.officeBuilder.setScreenState(stationId, state),
       onSceneSwitch: (target) => this.switchScene(target as SceneType),
       onFx: (effect, params) => this.onFx(effect, params),
       onProgress: (current, total, label) => {
         if (this.modeIndicator) {
-          if (!this.whiteboardHasPlan) {
-            this.modeIndicator.setProgress(current, total)
-          }
+          this.modeIndicator.setProgress(current, total)
           this.ui.hideProgress()
         } else {
           this.ui.setProgress(current, total, label)
@@ -538,8 +651,6 @@ export class MainScene implements GameScene {
         }
       },
       onModeChange: (_event) => { /* ModeManager removed */ },
-      onSummonNpcs: (_stewardId, _npcIds, _taskDescription) => { /* WorkflowHandler removed */ },
-      onTaskBriefing: (_lines, _gameName) => { /* WorkflowHandler removed */ },
       onWorkStatusUpdate: (updates) => {
         for (const u of updates) this.onNpcPhase(u.npcId, u.phase)
       },
@@ -563,7 +674,6 @@ export class MainScene implements GameScene {
         }).catch(e => console.warn('[MainScene] SkillLearnCard import failed:', e))
       },
       onModeSwitch: (_mode, _taskDescription) => { /* ModeManager removed */ },
-      onRestoreWorkState: (_agents) => { /* WorkflowHandler removed */ },
       onSetSessionId: async (sessionId) => {
         this.configStore.setSessionId(sessionId)
         const config = await this.bootstrap.loadFinalConfig()
@@ -612,7 +722,7 @@ export class MainScene implements GameScene {
         if (config) { config.steward.name = newName; this.configStore.save(config) }
         this.ui.setDialogTarget({
           id: 'steward', name: newName, color: 0x4488CC,
-          spawn: { x: 0, y: 0, z: 0 }, role: 'producer', label: newName,
+          spawn: { x: 0, y: 0, z: 0 }, role: 'steward', label: newName,
         })
         this.ui.updateStewardName(newName)
       },
@@ -629,19 +739,6 @@ export class MainScene implements GameScene {
         }
       },
       onSceneEdit: (event) => this.handleSceneEdit(event),
-      onWorkflowIntent: (event) => {
-        // Issue 7: when the steward summons citizens for a task, suspend L2
-        // autonomous LLM decisions so citizens stop making their own choices
-        // (and calling the LLM) while the workflow is in progress. Resume
-        // when the workflow returns to idle (workflow_return).
-        if (!this.animalMode.isEnabled()) return
-        if (event.type === 'workflow_summon' || event.type === 'workflow_assign' ||
-            event.type === 'workflow_go_office' || event.type === 'workflow_publish') {
-          this.animalMode.pauseL2Decisions()
-        } else if (event.type === 'workflow_return') {
-          this.animalMode.resumeL2Decisions()
-        }
-      },
     })
   }
 
@@ -752,7 +849,7 @@ export class MainScene implements GameScene {
     })
     this.syncTopHudLayout()
 
-    this.minigame = new BanweiGame()
+    this.minigame = new TroubleGame()
     this.minigame.mount({
       camera: this.engine.camera,
       renderer: this.engine.renderer,
@@ -778,7 +875,7 @@ export class MainScene implements GameScene {
           avatarUrl: configAvatarUrl,
         }
       },
-      getWorkingNpcIds: () => [],
+      getTroubledNpcIds: () => [],
       getSceneType: () => this.currentSceneType,
       onUpdate: (cb) => { this._minigameUpdateCb = cb },
       offUpdate: () => { this._minigameUpdateCb = null },
@@ -797,21 +894,21 @@ export class MainScene implements GameScene {
         summaries: () => this.townJournal.getAllSummaries(),
         todayCount: () => this.townJournal.getCurrentDayEventCount(),
       },
-      workflow: {
-        testBanwei: (npcIds?: string[]) => {
+      trouble: {
+        testTrouble: (npcIds?: string[]) => {
           const ids = npcIds ?? this.npcManager.getAll().filter(n => n.id !== 'user' && n.id !== 'steward').map(n => n.id).slice(0, 3)
-          for (const id of ids) this.minigame?.addWorkingNpc(id)
-          console.log('[Debug] Banwei test started with NPCs:', ids)
+          for (const id of ids) this.minigame?.addTroubledNpc(id)
+          console.log('[Debug] Trouble test started with NPCs:', ids)
         },
-        testBanweiStop: () => {
+        testTroubleStop: () => {
           this.minigame?.stop()
-          console.log('[Debug] Banwei test stopped')
+          console.log('[Debug] Trouble test stopped')
         },
         help: () => {
           console.log(`
-__workflow 演出测试指令:
-  testBanwei(['citizen_1'])             — 启动班味小游戏测试
-  testBanweiStop()                      — 停止班味小游戏
+__小镇烦恼事件测试指令:
+  testTrouble(['citizen_1'])             — 启动烦恼事件测试
+  testTroubleStop()                      — 停止烦恼事件
   getCamera()                          — 读取相机 lookAt + panBounds
   help()                                — 显示本帮助
           `)
@@ -923,7 +1020,7 @@ __workflow 演出测试指令:
       this.ui.showNPCCard({
         npc: {
           id: 'steward', name: stewardLabel, color: 0x4488CC,
-          spawn: { x: 0, y: 0, z: 0 }, role: 'producer', label: stewardLabel,
+          spawn: { x: 0, y: 0, z: 0 }, role: 'steward', label: stewardLabel,
           characterKey: steward.characterKey ?? config?.steward.avatarId,
           avatarUrl: config?.steward.avatarUrl,
         },
@@ -1041,6 +1138,28 @@ __workflow 演出测试指令:
       }
     }
 
+    // Supplement workLogs with activity journal entries so the Logs tab is
+    // populated for independent citizens (who have no workflow activity).
+    let combinedLogs = logs && logs.length > 0 ? [...logs] : []
+    if (recentActivities && recentActivities.length > 0) {
+      const actionIconMap: Record<string, string> = {
+        arrived: 'map-pin', departed: 'map-pin', staying: 'circle', walking: 'footprints',
+        chatted: 'message-circle', went_home: 'home', woke_up: 'sun',
+        summoned: 'bell', assigned_task: 'clipboard', started_working: 'wrench',
+        completed_task: 'check-circle', celebrating: 'party-popper', returned_from_work: 'rotate-ccw',
+        need_urgent: 'alert-circle', need_satisfied: 'heart', mood_changed: 'smile',
+        went_indoor: 'door-closed', left_indoor: 'door-open', decided: 'brain',
+      }
+      for (const act of recentActivities) {
+        combinedLogs.push({
+          type: 'activity',
+          icon: actionIconMap[act.action] ?? 'activity',
+          message: `${act.action} · ${act.location}${act.detail ? ' · ' + act.detail : ''}`,
+          time: act.time,
+        })
+      }
+    }
+
     this.ui.showNPCCard({
       npc: {
         id: npc.id, name: npc.name ?? npc.id,
@@ -1052,7 +1171,7 @@ __workflow 演出测试指令:
       state: npc.state || 'idle',
       specialty: profile?.specialty ?? citizenConfig.specialty,
       persona: profile?.bio ?? this.personaStore.get(targetId)?.coreSummary,
-      workLogs: logs && logs.length > 0 ? logs : undefined,
+      workLogs: combinedLogs.length > 0 ? combinedLogs : undefined,
       agentOnline,
       recentActivities,
       mood,
@@ -1145,6 +1264,10 @@ __workflow 演出测试指令:
         },
         onAction: (npcId, action) => this.executeAutonomyAction(npcId, action),
       })
+      // Wire trouble events from AnimalMode to the trouble minigame
+      this.animalMode.onTrouble = (npcId, _severity) => {
+        this.minigame?.addTroubledNpc(npcId)
+      }
       // Set home buildings for citizens — spatially balanced allocation.
       // Sort residential buildings by x coordinate, then alternate between
       // west (low x) and east (high x) so citizens spread across the map
@@ -1174,20 +1297,83 @@ __workflow 演出测试指令:
         citizenIds.forEach((id, i) => {
           const home = allocated[i % allocated.length]
           this.animalMode.setHomeBuilding(id, home.key)
+          // Issue 6: rename the residential building label to "{residentName}家"
+          // so the mayor can identify which citizen lives where (e.g. "岩家",
+          // "橙子家") and visit them at night.
+          this.updateBuildingLabelForResident(id, home.key)
         })
       }
       console.log(`[MainScene] Animal Mode taking over for ${citizenIds.length} citizens`)
       // Issue 2: create an ActivityJournal for each citizen so autonomy actions are recorded
+      const relEngine = this.animalMode.getRelationshipEngine()
       for (const id of citizenIds) {
         if (!this.activityJournals.has(id)) {
           const npc = this.npcManager.get(id)
-          this.activityJournals.set(id, new ActivityJournal(id, npc?.label ?? npc?.name ?? id, this.gameClock))
+          const journal = new ActivityJournal(id, npc?.label ?? npc?.name ?? id, this.gameClock)
+          this.activityJournals.set(id, journal)
         }
+        // Register journal with RelationshipEngine so sentiment tracking works
+        relEngine.registerJournal(id, this.activityJournals.get(id)!)
       }
     } else {
       console.log('[MainScene] Animal Mode disabled')
     }
-    void this.animalMode.setEnabled(enabled, citizenIds, this.gameClock)
+    void this.animalMode.setEnabled(enabled, citizenIds, this.gameClock).then(() => {
+      // Issue 6: after Animal Mode is enabled, allocate home buildings now that
+      // the async map load (loadMapConfigAsync) has likely finished and
+      // BUILDING_REGISTRY is populated. If the map is still loading,
+      // loadMapConfigAsync will call allocateHomeBuildings itself when done.
+      if (enabled) this.allocateHomeBuildings()
+    })
+  }
+
+  /**
+   * Issue 6: rename a residential building's floating label to "{residentName}家"
+   * so the mayor can identify which citizen lives where. No-op if the building
+   * has no label sprite or the resident NPC is unknown.
+   */
+  private updateBuildingLabelForResident(npcId: string, buildingKey: string): void {
+    const residentNpc = this.npcManager.get(npcId)
+    const residentName = residentNpc?.label ?? npcId
+    const homeLabel = `${residentName}家`
+    console.log(`[MainScene] setHomeBuilding citizen=${npcId} home=${buildingKey} label=${homeLabel} hasSprite=${this.townBuilder.getLabelSprites().has(buildingKey)}`)
+    this.townBuilder.setBuildingLabel(buildingKey, homeLabel)
+  }
+
+  /**
+   * Issue 6: allocate residential buildings to citizens and rename building
+   * labels to "{residentName}家". Called after the async TownMapConfig load
+   * finishes (BUILDING_REGISTRY is populated by updateWaypointsFromMapConfig),
+   * because setAnimalModeEnabled may run before the async map load completes
+   * and finds an empty BUILDING_REGISTRY. Safe to call multiple times —
+   * re-allocates from scratch each time.
+   */
+  private allocateHomeBuildings(): void {
+    if (!this.npcManager) return
+    const citizenIds = this.npcManager.getWorkers().map((n) => n.id).filter((id) => id !== 'user')
+    if (citizenIds.length === 0) return
+    const residentialBuildings = BUILDING_REGISTRY.filter((b) => b.category === 'residential')
+    if (residentialBuildings.length === 0) return
+    // Sort by x coordinate (west → east), then interleave west/east for spread.
+    const sorted = [...residentialBuildings].sort((a, b) => {
+      const ax = WAYPOINTS[a.key]?.x ?? 0
+      const bx = WAYPOINTS[b.key]?.x ?? 0
+      return ax - bx
+    })
+    const allocated: typeof sorted = []
+    let lo = 0, hi = sorted.length - 1
+    let takeHigh = false
+    while (lo <= hi) {
+      if (takeHigh) { allocated.push(sorted[hi]); hi-- }
+      else { allocated.push(sorted[lo]); lo++ }
+      takeHigh = !takeHigh
+    }
+    citizenIds.forEach((id, i) => {
+      const home = allocated[i % allocated.length]
+      this.animalMode.setHomeBuilding(id, home.key)
+      this.updateBuildingLabelForResident(id, home.key)
+    })
+    console.log(`[MainScene] allocateHomeBuildings: ${citizenIds.length} citizens → ${allocated.length} homes`)
   }
 
   /**
@@ -1225,6 +1411,21 @@ __workflow 演出测试指令:
     return lines.join('\n')
   }
 
+  /**
+   * Actively trigger context compaction for a citizen's chat session by
+   * sending a compact_citizen GameAction (→ WS → plugin → /compact command).
+   * Called at lifecycle moments (citizen goes home to sleep, action ends,
+   * dialog ends) to keep context windows manageable without lowering the
+   * contextTokens threshold. Skips steward/user and offline citizens.
+   */
+  private triggerCitizenCompact(npcId: string): void {
+    if (npcId === 'user' || npcId === 'steward') return
+    const agentConfigured = this.bootstrap.agentConfigMap.get(npcId)
+    if (!agentConfigured?.agentEnabled) return
+    console.log(`[MainScene] triggerCitizenCompact: ${npcId}`)
+    this.dataSource.sendAction({ type: 'compact_citizen', npcId })
+  }
+
   /** Execute an AutonomyAction by making the NPC walk/talk/go-indoor. */
   private executeAutonomyAction(npcId: string, action: import('./animal-mode/AutonomyEngine').AutonomyAction): void {
     const npc = this.npcManager.get(npcId)
@@ -1250,6 +1451,17 @@ __workflow 演出测试指令:
     if (!npc.mesh.visible) npc.setVisible(true)
     console.log(`[MainScene] executeAutonomyAction: ${npcId} → ${action.type}`)
     this.animalMode.setExecuting(npcId, true)
+
+    // Record the L2 decision itself (action type + reason) so the Activity
+    // tab shows the citizen's autonomous thinking, not just the outcome.
+    const reason = (action as any).reason ?? ''
+    const actionTypeLabel = action.type
+    journal?.record({
+      location: areaName,
+      locationName: areaName,
+      action: 'decided',
+      detail: `${actionTypeLabel}${reason ? '：' + reason : ''}`,
+    })
 
     switch (action.type) {
       case 'satisfy_need': {
@@ -1303,6 +1515,9 @@ __workflow 演出测试指令:
               this.animalMode.getIndoorTracker().enter(npcId, homeKey)
               npc.mesh.visible = false
               console.log(`[MainScene] ${npcId} went home: ${homeKey}`)
+              // Citizen is going to sleep — compact their chat session now
+              // so the context window is fresh when they wake up.
+              this.triggerCitizenCompact(npcId)
             }
             this.animalMode.setExecuting(npcId, false)
           })
@@ -1451,9 +1666,29 @@ __workflow 演出测试指令:
   // re-gather around the mayor when the mayor moves.
   private topicMayorPos: THREE.Vector3 | null = null
   private topicFollowTimer = 0
+  /** Callback fired when applyRuntimeState restores an active topic. Lets
+   * main.ts restore the topicState closure + UI buttons even when runtime
+   * state is applied lazily (after NPC spawn) rather than synchronously. */
+  private topicRestoredCallback: (() => void) | null = null
+
+  /** Register a callback invoked when a topic is restored from runtime state. */
+  setTopicRestoredCallback(cb: (() => void) | null): void {
+    this.topicRestoredCallback = cb
+  }
 
   isTopicActive(): boolean {
     return this.topicNpcIds.length > 0
+  }
+
+  /**
+   * Returns the topic participant NPC IDs if a topic was restored from
+   * runtime state (page refresh). Used by main.ts to restore the topicState
+   * closure variable + UI indicators after restoreAnimalState completes.
+   * Clears the restored ids after reading so it only fires once.
+   */
+  consumeRestoredTopicNpcIds(): string[] {
+    if (this.topicNpcIds.length === 0) return []
+    return [...this.topicNpcIds]
   }
 
   isTopicGathering(): boolean {
@@ -1481,22 +1716,63 @@ __workflow 演出测试指令:
     if (!userNpc) { this.topicGathering = false; return }
     const center = userNpc.mesh.position.clone()
 
+    // Issue 2: if the mayor is in the office scene, the selected citizens are
+    // still in the town scene (switchScene only moves steward+user). We need
+    // to relocate them into the office scene so they can walk to the mayor.
+    if (this.currentSceneType === 'office') {
+      this.npcManager.moveNpcsToScene(npcIds, this.officeScene)
+      // Migrate Crowd agents from town to office so moveTo uses office NavMesh
+      // (without this, NPC crowdService stays on town crowd which has no agent
+      // for these NPCs in office, causing moveTo to fall back to straight-line
+      // movement that ignores furniture obstacles).
+      this.migrateCrowdAgents('town', 'office', npcIds)
+      // Place each citizen near the office door, then they walk to the gather
+      // arc around the mayor (computed below). Stagger entry positions to avoid
+      // overlap at the door.
+      const OFFICE_DOOR = this.officeBuilder.doorPos
+      const officeCrowd = this.getCrowdForScene('office')
+      for (let i = 0; i < npcIds.length; i++) {
+        const npc = this.npcManager.get(npcIds[i])
+        if (!npc) continue
+        const offset = (i - (npcIds.length - 1) / 2) * 1.5
+        const doorX = OFFICE_DOOR.x + offset
+        const doorZ = OFFICE_DOOR.z - 1
+        npc.mesh.position.set(doorX, 0, doorZ)
+        // teleport Crowd agent to door (migrateCrowdAgents added it at the
+        // old town position; without teleport the agent tries to path from
+        // town coords into the office NavMesh and gets stuck)
+        officeCrowd?.teleportAgent(npcIds[i], { x: doorX, y: 0, z: doorZ })
+        npc.playAnim('walk')
+      }
+    }
+
     const RADIUS = 3.0
     const ARC_SPAN = Math.PI
     const startAngle = -ARC_SPAN / 2
 
-    const targets: Array<{ npcId: string; pos: { x: number; z: number } }> = []
-    for (let i = 0; i < npcIds.length; i++) {
-      const angle = startAngle + (ARC_SPAN / Math.max(npcIds.length - 1, 1)) * i
-      targets.push({
-        npcId: npcIds[i],
-        pos: {
-          x: center.x + Math.sin(angle) * RADIUS,
-          z: center.z + Math.cos(angle) * RADIUS,
-        },
-      })
+    // Issue: during gathering, the mayor may keep walking. Citizens should
+    // follow the mayor's live position instead of pathing to the position
+    // captured at the moment the topic was initiated. We poll the mayor's
+    // position every 0.5s and re-issue moveTo targets so citizens trail the
+    // mayor. Once all citizens arrive (or the 15s timeout fires), gathering
+    // completes and the normal re-gather loop (update()) takes over.
+    const computeArcTargets = (centerPos: THREE.Vector3): Array<{ npcId: string; pos: { x: number; z: number } }> => {
+      const out: Array<{ npcId: string; pos: { x: number; z: number } }> = []
+      for (let i = 0; i < npcIds.length; i++) {
+        const angle = startAngle + (ARC_SPAN / Math.max(npcIds.length - 1, 1)) * i
+        out.push({
+          npcId: npcIds[i],
+          pos: {
+            x: centerPos.x + Math.sin(angle) * RADIUS,
+            z: centerPos.z + Math.cos(angle) * RADIUS,
+          },
+        })
+      }
+      return out
     }
 
+    // Initial targets around the mayor's current position
+    let targets = computeArcTargets(center)
     const movePromises: Promise<void>[] = []
     for (const t of targets) {
       const npc = this.npcManager.get(t.npcId)
@@ -1512,9 +1788,34 @@ __workflow 演出测试指令:
       )
     }
 
+    // Live-follow timer: re-target citizens toward the mayor's current
+    // position every 0.5s while gathering is in progress. This keeps
+    // citizens walking toward where the mayor actually is, not where it was.
+    let followAccum = 0
+    const followInterval = setInterval(() => {
+      if (!this.topicGathering) return
+      const mayor = this.npcManager.get('user')
+      if (!mayor || !mayor.mesh.visible) return
+      const liveCenter = mayor.mesh.position
+      // Only re-target if the mayor has moved > 1m from the last gather center
+      if (liveCenter.distanceTo(center) < 1.0) return
+      center.copy(liveCenter)
+      const liveTargets = computeArcTargets(center)
+      for (const t of liveTargets) {
+        const npc = this.npcManager.get(t.npcId)
+        if (!npc) continue
+        // Re-issue moveTo only if the citizen hasn't arrived near the target
+        // yet (still moving). Arrived citizens stay in 'emoting'.
+        if (npc.moving) {
+          npc.moveTo(t.pos, 2.5)
+        }
+      }
+    }, 500)
+
     const timeout = new Promise<void>(r => setTimeout(r, 15000))
     await Promise.race([Promise.all(movePromises), timeout])
 
+    clearInterval(followInterval)
     this.topicGathering = false
     // Issue 5: record mayor's position so citizens can re-gather when mayor moves
     this.topicMayorPos = userNpc.mesh.position.clone()
@@ -1538,6 +1839,40 @@ __workflow 演出测试指令:
       const npc = this.npcManager.get(npcId)
       if (!npc) continue
       npc.transitionTo('idle')
+    }
+
+    // Issue 2: if the topic was held in the office scene, move the citizens
+    // back to the town scene so they resume their normal town routines.
+    if (this.currentSceneType === 'office') {
+      this.npcManager.moveNpcsToScene(npcIds, this.townScene)
+      // Migrate Crowd agents back from office to town so NPCs resume town NavMesh
+      this.migrateCrowdAgents('office', 'town', npcIds)
+      // Reposition them near the office building's door in the town scene
+      const mapConfig = this.townBuilder.getMapConfig()
+      let returnPos = { x: WAYPOINTS.plaza_center?.x ?? 18, z: WAYPOINTS.plaza_center?.z ?? 13 }
+      if (mapConfig) {
+        const officeBuilding = mapConfig.buildings.find(b => b.modelKey === 'building_A')
+        if (officeBuilding) {
+          returnPos = {
+            x: officeBuilding.gridX + officeBuilding.widthCells / 2,
+            z: officeBuilding.gridZ + officeBuilding.depthCells + 1,
+          }
+        }
+      }
+      const townCrowd = this.getCrowdForScene('town')
+      for (let i = 0; i < npcIds.length; i++) {
+        const npc = this.npcManager.get(npcIds[i])
+        if (!npc) continue
+        const offset = (i - (npcIds.length - 1) / 2) * 1.2
+        const px = returnPos.x + offset
+        const pz = returnPos.z + 1
+        npc.mesh.position.set(px, 0, pz)
+        // teleport Crowd agent to the return position (migrateCrowdAgents added
+        // it at the old office position; without teleport it tries to path from
+        // office coords on the town NavMesh)
+        townCrowd?.teleportAgent(npcIds[i], { x: px, y: 0, z: pz })
+        npc.playAnim('idle')
+      }
     }
   }
 
@@ -1582,6 +1917,205 @@ __workflow 演出测试指令:
 
   private _persistTimer: ReturnType<typeof setTimeout> | null = null
   private _mapConfigLoading = false
+  private _loadedTownConfig: TownMapConfig | null = null
+
+  /**
+   * 初始化 recast-navigation WASM + 为 office/home/museum 场景构建 NavMesh + Crowd。
+   * town NavMesh 在 loadMapConfigAsync 成功后单独构建(依赖 TownMapConfig)。
+   * 失败时 navMeshReady 保持 false,NPC.moveTo 回退到旧手写避障逻辑。
+   */
+  private async initNavMeshSystems(): Promise<void> {
+    try {
+      await initRecast()
+      this.navMeshReady = true
+      console.log('[NavMesh] recast-navigation WASM initialized')
+    } catch (e) {
+      console.warn('[NavMesh] WASM init failed, falling back to legacy NPC movement:', e)
+      this.navMeshReady = false
+      return
+    }
+
+    // office/home/museum 场景 NavMesh(几何硬编码,可立即构建)
+    // maxAgents=20 与 town 一致,确保所有 NPC(steward+user+8 citizens=10)都能进入室内
+    this.buildSceneCrowd('office', this.officeScene, 20)
+    this.buildSceneCrowd('home', this.homeScene, 20)
+    this.buildSceneCrowd('museum', this.museumScene, 20)
+
+    // town Crowd 在 loadMapConfigAsync 完成后构建(见 buildTownCrowdFromConfig)
+  }
+
+  /**
+   * 为指定场景构建 NavMesh + Crowd 并注册到 crowdServices。
+   * house_* / user_home 共用 'home' Crowd(通过 sceneKey='home' 注册)。
+   */
+  private buildSceneCrowd(sceneKey: 'office' | 'home' | 'museum', scene: THREE.Scene, maxAgents: number): void {
+    if (!this.navMeshReady) return
+    // 获取该场景的障碍矩形(家具),用于在 NavMesh 上挖洞
+    let obstacles: Array<{ minX: number; maxX: number; minZ: number; maxZ: number }> = []
+    if (sceneKey === 'office') obstacles = this.officeBuilder.getObstacles()
+    else if (sceneKey === 'home') obstacles = this.homeBuilder.getObstacles()
+    // museum 无 obstacles
+    const result = buildSceneNavMesh(scene, obstacles)
+    if (!result.success || !result.navMesh || !result.navMeshQuery) {
+      console.warn(`[NavMesh] buildSceneNavMesh(${sceneKey}) failed:`, result.error)
+      return
+    }
+    // 保存 NavMesh 引用(用于销毁)
+    if (sceneKey === 'office') this.officeNavMesh = result.navMesh
+    else if (sceneKey === 'home') this.homeNavMesh = result.navMesh
+    else if (sceneKey === 'museum') this.museumNavMesh = result.navMesh
+
+    const crowd = new CrowdService()
+    crowd.attach(result.navMesh, maxAgents)
+    this.crowdServices.set(sceneKey, crowd)
+    // 调试可视化(?navDebug=1)
+    const sceneObj = sceneKey === 'office' ? this.officeScene
+      : sceneKey === 'home' ? this.homeScene
+      : sceneKey === 'museum' ? this.museumScene
+      : this.townScene
+    this.navMeshDebug.attachToScene(sceneObj, crowd, result.navMesh)
+    console.log(`[NavMesh] ${sceneKey} Crowd ready (maxAgents=${maxAgents})`)
+  }
+
+  /**
+   * 从 TownMapConfig 构建 town NavMesh + Crowd。
+   * 在 loadMapConfigAsync 成功后调用。若已有旧 town Crowd,先销毁再重建。
+   * 重建后把现有 town 场景 NPC 重新 addAgent。
+   */
+  private buildTownCrowdFromConfig(config: TownMapConfig): void {
+    // WASM 可能尚未初始化完成(initNavMeshSystems 是 void,与 loadMapConfigAsync 并发)。
+    // 若未就绪,等待 initRecast 完成后重试(递归一次即可)。
+    if (!this.navMeshReady) {
+      void initRecast().then(() => this.buildTownCrowdFromConfig(config))
+      return
+    }
+    const result = buildTownNavMesh(config)
+    if (!result.success || !result.navMesh || !result.navMeshQuery) {
+      console.warn('[NavMesh] buildTownNavMesh failed:', result.error)
+      return
+    }
+
+    // 销毁旧 town NavMesh + Crowd
+    const oldCrowd = this.crowdServices.get('town')
+    if (oldCrowd) {
+      // 记录现有 NPC 位置(用于重建后重新 addAgent)
+      const npcPositions = new Map<string, { x: number; y: number; z: number }>()
+      for (const id of oldCrowd.getAgentIds()) {
+        const pos = oldCrowd.getAgentPosition(id)
+        if (pos) npcPositions.set(id, pos)
+      }
+      oldCrowd.detach()
+      this.crowdServices.delete('town')
+    }
+    if (this.townNavMesh && this.townNavMeshQuery) {
+      destroyNavMesh(this.townNavMesh, this.townNavMeshQuery)
+    }
+
+    this.townNavMesh = result.navMesh
+    this.townNavMeshQuery = result.navMeshQuery
+
+    const crowd = new CrowdService()
+    crowd.attach(result.navMesh, 20)
+    this.crowdServices.set('town', crowd)
+
+    // 重新 addAgent:把当前 town 场景所有可见 NPC 加入 Crowd
+    if (this.npcManager) {
+      for (const npc of this.npcManager.getAll()) {
+        if (!npc.mesh.visible) continue
+        if (npc.mesh.parent !== this.townScene) continue
+        const pos = npc.mesh.position
+        // Mayor (user) gets stronger separation so it can push through crowds
+        const params = npc.id === 'user' ? MAYOR_AGENT_PARAMS : undefined
+        crowd.addAgent(npc.id, { x: pos.x, y: pos.y, z: pos.z }, params)
+        npc.setCrowdService(crowd)
+      }
+    }
+
+    // 若当前是 town 场景,设为 activeCrowd
+    if (this.currentSceneType === 'town') {
+      this.activeCrowd = crowd
+    }
+    // 调试可视化(?navDebug=1)
+    this.navMeshDebug.attachToScene(this.townScene, crowd, result.navMesh)
+    console.log('[NavMesh] town Crowd ready (maxAgents=20)')
+  }
+
+  /**
+   * 地图编辑后重建 town NavMesh + Crowd。
+   * 保留当前 NPC 在 Crowd 中的 agent(用其当前 mesh 位置重新 addAgent)。
+   */
+  private async rebuildTownNavMeshAndCrowd(): Promise<void> {
+    if (!this.navMeshReady) return
+    const config = this._loadedTownConfig
+    if (!config) return
+    // 重建前先记录现有 town Crowd 中的 agent id
+    const oldCrowd = this.crowdServices.get('town')
+    const existingIds: string[] = oldCrowd ? oldCrowd.getAgentIds() : []
+    // 销毁旧 Crowd(不销毁 NavMesh,buildTownCrowdFromConfig 会重建)
+    if (oldCrowd) {
+      oldCrowd.detach()
+      this.crowdServices.delete('town')
+    }
+    if (this.townNavMesh && this.townNavMeshQuery) {
+      destroyNavMesh(this.townNavMesh, this.townNavMeshQuery)
+      this.townNavMesh = null
+      this.townNavMeshQuery = null
+    }
+    // 重建
+    this.buildTownCrowdFromConfig(config)
+    // buildTownCrowdFromConfig 已重新 addAgent 所有可见 town NPC,无需额外处理
+    void existingIds
+  }
+
+  /**
+   * 获取当前场景对应的 CrowdService。
+   * house_* / user_home 映射到 'home' Crowd。
+   */
+  private getCrowdForScene(sceneType: SceneType): CrowdService | null {
+    if (sceneType === 'town') return this.crowdServices.get('town') ?? null
+    if (sceneType === 'office') return this.crowdServices.get('office') ?? null
+    if (sceneType === 'museum') return this.crowdServices.get('museum') ?? null
+    // house_a/b/c, user_home, market, cafe → home Crowd
+    return this.crowdServices.get('home') ?? null
+  }
+
+  /**
+   * 场景切换时迁移 NPC 的 Crowd agent。
+   * 从旧场景 Crowd removeAgent,新场景 Crowd addAgent(位置由 switchScene 后续 moveTo 设置)。
+   * 若新场景 Crowd 不存在(构建失败),跳过(降级到旧手写避障)。
+   */
+  private migrateCrowdAgents(fromScene: SceneType, toScene: SceneType, npcIds?: string[]): void {
+    const fromCrowd = this.getCrowdForScene(fromScene)
+    const toCrowd = this.getCrowdForScene(toScene)
+    if (!fromCrowd && !toCrowd) return
+    // 收集需要迁移的 NPC:指定 npcIds,或旧 Crowd 中所有 agent
+    const ids: string[] = []
+    if (npcIds) {
+      ids.push(...npcIds)
+    } else if (fromCrowd) {
+      for (const id of fromCrowd.getAgentIds()) {
+        ids.push(id)
+      }
+    }
+    // 从旧 Crowd 移除(只移除要迁移的;其余留在旧 Crowd,场景切换后旧 Crowd 不再 update)
+    if (fromCrowd) {
+      for (const id of ids) {
+        fromCrowd.removeAgent(id)
+      }
+    }
+    // 加入新 Crowd(位置先用当前 mesh 位置,switchScene 后续 teleport/moveTo 会更新)
+    if (toCrowd) {
+      for (const id of ids) {
+        const npc = this.npcManager?.get(id)
+        if (!npc) continue
+        const pos = npc.mesh.position
+        // Mayor (user) gets stronger separation so it can push through crowds
+        const params = id === 'user' ? MAYOR_AGENT_PARAMS : undefined
+        toCrowd.addAgent(id, { x: pos.x, y: pos.y, z: pos.z }, params)
+        npc.setCrowdService(toCrowd)
+      }
+    }
+  }
 
   private async loadMapConfigAsync(): Promise<void> {
     if (this._mapConfigLoading) return
@@ -1592,6 +2126,7 @@ __workflow 演出测试指令:
       const data = await res.json()
       const config = data.config as TownMapConfig | null
       if (!config) return
+      this._loadedTownConfig = config
       // Switch to config-driven mode: clear hardcoded scene and rebuild from config
       this.townBuilder.clear()
       this.townBuilder.buildFromConfig(config, this.assets)
@@ -1601,12 +2136,17 @@ __workflow 演出测试指令:
       updateWaypointsFromMapConfig(config)
       // Issue 6: install building-aware obstacle query so NPCs avoid walking
       // through buildings. Building rectangles are in world coords (gridX..gridX+widthCells).
-      NPC.setObstacleQuery((x, z, radius = 0.5) => {
+      // Issue (card-stuck): add an outer margin so NPCs start sliding earlier
+      // and don't get pinned against building walls/corners. The model footprint
+      // can slightly exceed the grid cell (scale), so a 0.3-cell margin keeps
+      // NPCs clear of the visual edge and reduces corner jitter.
+      const OBSTACLE_MARGIN = 0.3
+      this.townObstacleQuery = (x, z, radius = 0.5) => {
         for (const b of config.buildings) {
-          const minX = b.gridX - radius
-          const maxX = b.gridX + b.widthCells + radius
-          const minZ = b.gridZ - radius
-          const maxZ = b.gridZ + b.depthCells + radius
+          const minX = b.gridX - OBSTACLE_MARGIN - radius
+          const maxX = b.gridX + b.widthCells + OBSTACLE_MARGIN + radius
+          const minZ = b.gridZ - OBSTACLE_MARGIN - radius
+          const maxZ = b.gridZ + b.depthCells + OBSTACLE_MARGIN + radius
           if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) {
             // Issue 1: door zone exemption — allow NPCs to enter a 1.5-cell
             // wide strip in front of the building's door (south side, center).
@@ -1618,17 +2158,28 @@ __workflow 演出测试指令:
             const distToDoor = Math.sqrt((x - doorX) ** 2 + (z - doorZ) ** 2)
             if (distToDoor < 1.8) return null
             return {
-              minX: b.gridX, maxX: b.gridX + b.widthCells,
-              minZ: b.gridZ, maxZ: b.gridZ + b.depthCells,
+              minX: b.gridX - OBSTACLE_MARGIN,
+              maxX: b.gridX + b.widthCells + OBSTACLE_MARGIN,
+              minZ: b.gridZ - OBSTACLE_MARGIN,
+              maxZ: b.gridZ + b.depthCells + OBSTACLE_MARGIN,
             }
           }
         }
         return null
-      })
+      }
+      NPC.setObstacleQuery((x, z, radius = 0.5) => this.activeObstacleQuery(x, z, radius))
       // Update camera pan bounds to match the (possibly resized) map grid.
       this.cameraCtrl.setMapBounds(config.grid.cols, config.grid.rows)
       console.log('[MainScene] Loaded TownMapConfig:', config.grid.cols, '×', config.grid.rows,
         `(${config.buildings.length} buildings, ${config.props.length} props, ${config.roads.length} roads)`)
+      // Issue 6: now that BUILDING_REGISTRY is populated by updateWaypointsFromMapConfig,
+      // allocate home buildings to citizens (setAnimalModeEnabled may have run before
+      // the async map load finished, leaving homeBuildings empty). Re-run allocation
+      // and rename building labels to "{residentName}家".
+      this.allocateHomeBuildings()
+
+      // 构建 town NavMesh + Crowd(依赖 TownMapConfig)
+      this.buildTownCrowdFromConfig(config)
     } catch (e) {
       console.warn('[MainScene] Failed to load TownMapConfig:', e)
     } finally {
@@ -1754,6 +2305,11 @@ __workflow 演出测试指令:
         break
       }
     }
+
+    // 地图编辑后重建 town NavMesh + Crowd(仅当当前在 town 场景)
+    if (this.currentSceneType === 'town') {
+      void this.rebuildTownNavMeshAndCrowd()
+    }
   }
 
   // ── GameEvent handlers ──
@@ -1777,11 +2333,10 @@ __workflow 演出测试指令:
     const homeKeys = ['house_a_door', 'house_b_door', 'house_c_door']
     const citizenIndex = parseInt(event.npcId.replace(/\D/g, ''), 10) || 0
     // Try to pick a home from the dynamic BUILDING_REGISTRY (residential buildings).
-    // Fix: exclude userHome (building_G) so citizens don't spawn in the player's house.
     // Distribute evenly across west/east by sorting buildings by gridX and interleaving,
     // so citizens don't all cluster on one side of the map.
     const residentialBuildings = BUILDING_REGISTRY.filter(b =>
-      b.category === 'residential' && b.tag !== 'userHome',
+      b.category === 'residential',
     )
     let homeKey: string
     let homeWp: { x: number; z: number } | undefined
@@ -1829,7 +2384,7 @@ __workflow 演出测试指令:
       id: event.npcId, name: event.name,
       color: colorMap[event.npcId] ?? 0x888888,
       spawn,
-      role: event.category === 'steward' ? 'producer' : event.npcId === 'user' ? 'user' : 'worker',
+      role: event.category === 'steward' ? 'steward' : event.npcId === 'user' ? 'user' : 'worker',
       label: event.name, characterKey: finalCharacterKey,
       modelUrl: event.modelUrl,
       modelTransform: event.modelTransform,
@@ -1838,6 +2393,23 @@ __workflow 演出测试指令:
     }
 
     this.npcManager.createNPCs([config])
+
+    // 将新 NPC 加入当前场景的 Crowd(若 Crowd 就绪)并注入 crowdService 引用
+    const crowd = this.getCrowdForScene(this.currentSceneType)
+    if (crowd?.ready) {
+      // Mayor (user) gets stronger separation so it can push through crowds
+      const params = event.npcId === 'user' ? MAYOR_AGENT_PARAMS : undefined
+      crowd.addAgent(event.npcId, { x: spawn.x, y: spawn.y, z: spawn.z }, params)
+      const newNpc = this.npcManager.get(event.npcId)
+      newNpc?.setCrowdService(crowd)
+    }
+
+    // Register move-complete callback so NPC arrivals trigger a throttled
+    // town runtime state save (minimizes position loss on refresh/restart).
+    const spawnedNpc = this.npcManager.get(event.npcId)
+    if (spawnedNpc) {
+      spawnedNpc.onMoveComplete = (n) => this.onNpcMoveComplete(n.id)
+    }
 
     if (startHidden) {
       const npc = this.npcManager.get(event.npcId)
@@ -1862,13 +2434,20 @@ __workflow 演出测试指令:
     // so we register late-arriving citizens here to ensure they get L2 decisions.
     // Exclude the mayor (user) — the mayor is player-controlled and should not
     // wander or make autonomous LLM decisions.
-    if (event.category === 'citizen' && event.npcId !== 'user' && this.animalMode.isEnabled()) {
-      this.animalMode.registerCitizen(event.npcId)
+    if (event.category === 'citizen' && event.npcId !== 'user') {
+      if (this.animalMode.isEnabled()) this.animalMode.registerCitizen(event.npcId)
       // Issue 2: ensure an ActivityJournal exists for this citizen so autonomy actions are recorded
       if (!this.activityJournals.has(event.npcId)) {
         const npc = this.npcManager.get(event.npcId)
         this.activityJournals.set(event.npcId, new ActivityJournal(event.npcId, npc?.label ?? npc?.name ?? event.npcId, this.gameClock))
       }
+      // Register the journal with RelationshipEngine so sentiment tracking works
+      this.animalMode.getRelationshipEngine().registerJournal(event.npcId, this.activityJournals.get(event.npcId)!)
+      // Issue 6: record this citizen's allocated home building (computed above
+      // as homeKey) in animalMode so night home-visit and building naming work.
+      // Also rename the building's floating label to "{residentName}家".
+      this.animalMode.setHomeBuilding(event.npcId, homeKey)
+      this.updateBuildingLabelForResident(event.npcId, homeKey)
     }
 
     if (event.arrivalFanfare) {
@@ -1880,6 +2459,30 @@ __workflow 演出测试指令:
         })
       }
     }
+
+    // Lazy restore: if runtime state was cached before NPCs spawned, check
+    // whether all expected NPCs now exist and apply positions/indoor/topic.
+    this.tryApplyPendingRuntimeState()
+  }
+
+  /**
+   * If pendingRuntimeState is set and all expected NPCs have been spawned,
+   * apply the cached positions/indoor/topic state and clear the cache.
+   */
+  private tryApplyPendingRuntimeState(): void {
+    if (!this.pendingRuntimeState) return
+    const expectedIds = Object.keys(this.pendingRuntimeState.npcPositions)
+    const allSpawned = expectedIds.every((id) => this.npcManager.get(id))
+    if (!allSpawned) return
+    const { npcPositions, indoorCitizens, topicNpcIds } = this.pendingRuntimeState
+    this.pendingRuntimeState = null
+    console.log(`[MainScene] tryApplyPendingRuntimeState: all ${expectedIds.length} NPCs spawned, applying cached state`)
+    this.applyRuntimeState(npcPositions, indoorCitizens, topicNpcIds)
+  }
+
+  /** Returns true if runtime state (NPC positions) was restored from plugin. */
+  isRuntimeStateRestored(): boolean {
+    return this.runtimeStateRestored
   }
 
   private onNpcDespawn(npcId: string): void {
@@ -1920,7 +2523,13 @@ __workflow 演出测试指令:
           }
         })
         if (progress < 1) requestAnimationFrame(tick)
-        else this.npcManager.remove(npcId)
+        else {
+          // 从 Crowd 移除 agent 并清除 crowdService 引用
+          const crowd = this.getCrowdForScene(this.currentSceneType)
+          crowd?.removeAgent(npcId)
+          despawnNpc.setCrowdService(null)
+          this.npcManager.remove(npcId)
+        }
       }
       requestAnimationFrame(tick)
     }
@@ -2279,9 +2888,12 @@ __workflow 演出测试指令:
       const curSceneType = this.currentSceneType
 
       if (curSceneType === 'town') {
-        // Issue 1+3: check door markers — find the NEAREST door within 3 cells.
-        // Previously used 5-cell radius which was too large and caused clicks
-        // on one building to enter a different building's door.
+        // Issue 1+3: check door markers — find the NEAREST door within 1.5 cells.
+        // Previously used 5-cell (then 3-cell) radius which was too large and
+        // caused clicks on nearby ground to be misinterpreted as "enter
+        // building", making the mayor walk to the door instead of the clicked
+        // spot. 1.5 is tight enough that only a direct click on the door
+        // triggers entry.
         let nearestDoorId: string | null = null
         let nearestDoorDist = Infinity
         let nearestDoorPos: THREE.Vector3 | null = null
@@ -2289,7 +2901,7 @@ __workflow 演出测试指令:
           const doorPos = new THREE.Vector3()
           marker.getWorldPosition(doorPos)
           const d = worldPos.distanceTo(doorPos)
-          if (d < 3 && d < nearestDoorDist) {
+          if (d < 1.5 && d < nearestDoorDist) {
             nearestDoorDist = d
             nearestDoorId = buildingId
             nearestDoorPos = doorPos
@@ -2342,6 +2954,15 @@ __workflow 演出测试指令:
         const officeDoor = this.officeBuilder.doorPos
         if (worldPos.distanceTo(officeDoor) < 5) {
           this.walkToDoor('exit_office', officeDoor)
+          return
+        }
+      }
+
+      // Issue 4: in house scenes, clicking near the door returns to town.
+      if (curSceneType === 'house_a' || curSceneType === 'house_b' || curSceneType === 'house_c' || curSceneType === 'user_home') {
+        const homeDoor = this.homeBuilder.doorPos
+        if (worldPos.distanceTo(homeDoor) < 5) {
+          this.walkToDoor('exit_office', homeDoor)
           return
         }
       }
@@ -2425,12 +3046,34 @@ __workflow 演出测试指令:
       m.from === npcLabel || m.from === npcName || m.from === npc.id
     )
 
+    // Supplement workLogs with activity journal entries so the Logs tab is
+    // populated for independent citizens (who have no workflow activity).
+    let combinedLogs = logs && logs.length > 0 ? [...logs] : []
+    if (recentActivities && recentActivities.length > 0) {
+      const actionIconMap: Record<string, string> = {
+        arrived: 'map-pin', departed: 'map-pin', staying: 'circle', walking: 'footprints',
+        chatted: 'message-circle', went_home: 'home', woke_up: 'sun',
+        summoned: 'bell', assigned_task: 'clipboard', started_working: 'wrench',
+        completed_task: 'check-circle', celebrating: 'party-popper', returned_from_work: 'rotate-ccw',
+        need_urgent: 'alert-circle', need_satisfied: 'heart', mood_changed: 'smile',
+        went_indoor: 'door-closed', left_indoor: 'door-open', decided: 'brain',
+      }
+      for (const act of recentActivities) {
+        combinedLogs.push({
+          type: 'activity',
+          icon: actionIconMap[act.action] ?? 'activity',
+          message: `${act.action} · ${act.location}${act.detail ? ' · ' + act.detail : ''}`,
+          time: act.time,
+        })
+      }
+    }
+
     this.ui.showNPCCard({
       npc: config,
       state: npc.state || 'idle',
       specialty: profile?.specialty ?? '',
       persona: profile?.bio ?? this.personaStore.get(npc.id)?.coreSummary,
-      workLogs: logs && logs.length > 0 ? logs : undefined,
+      workLogs: combinedLogs.length > 0 ? combinedLogs : undefined,
       agentOnline,
       recentActivities,
       mood,
@@ -2465,8 +3108,12 @@ __workflow 演出测试指令:
           if (role) {
             if (building.modelKey === 'building_A') targetScene = 'office'
             else if (building.modelKey === 'building_H') targetScene = 'museum'
+            else if (building.modelKey === 'building_B') targetScene = 'house_a'
+            else if (building.modelKey === 'building_C') targetScene = 'house_b'
+            else if (building.modelKey === 'building_D') targetScene = 'house_c'
+            else if (building.modelKey === 'building_G') targetScene = 'user_home'
             else {
-              // Issue 2+4: residential/commercial — virtual enter
+              // Issue 2+4: other residential/commercial — virtual enter
               // Use getBuildingName to get the numbered display name (e.g. "住宅3", "咖啡店1")
               virtualEnter = {
                 buildingName: getBuildingName(buildingId),
@@ -2494,7 +3141,7 @@ __workflow 演出测试指令:
       if (virtualEnter) {
         void this.enterVirtualBuilding(virtualEnter.buildingName, virtualEnter.buildingKey, doorPos)
       } else if (targetScene) {
-        void this.switchScene(targetScene)
+        void this.switchScene(targetScene, buildingId)
       }
       return
     }
@@ -2503,6 +3150,7 @@ __workflow 演出测试指令:
       scene: targetScene ?? 'town',
       doorPos,
       virtualEnter: virtualEnter ?? undefined,
+      buildingId: buildingId ?? undefined,
     }
     mayor.moveTo({ x: doorPos.x, z: doorPos.z }, 2.5)
     this.cameraCtrl.follow(mayor.mesh)
@@ -2619,20 +3267,198 @@ __workflow 演出测试指令:
       if (this.animalMode.isEnabled()) {
         this.animalMode.reportClockState()
       }
+      // Report town runtime state to plugin (NPC positions, scene type, topic,
+      // indoor citizens). This is the server-side source of truth that survives
+      // openclaw restart, page refresh, and device switching.
+      this.reportTownRuntimeState(npcPositions)
     } catch {
       // localStorage full or unavailable
     }
   }
 
-  /** Restore Animal Mode state received from plugin (snapshots + clock). */
-  restoreAnimalState(snapshots: Array<{ npcId: string; snapshot: any }>, clock: { dayCount: number; gameSeconds: number } | null): void {
+  /**
+   * Report town runtime state to the plugin via WS so it persists on the
+   * server side (stateDir/agents/town-runtime-state.json). Called from
+   * saveSnapshot() (10s timer) and on NPC move completion (throttled).
+   */
+  private lastRuntimeSaveAt = 0
+  private reportTownRuntimeState(npcPositions?: Record<string, { x: number; z: number }>): void {
+    // Throttle: at most once per 2s to avoid flooding on rapid NPC moves
+    const now = Date.now()
+    if (now - this.lastRuntimeSaveAt < 2000) return
+    this.lastRuntimeSaveAt = now
+
+    try {
+      const positions = npcPositions ?? this.collectNpcPositions()
+      const mayor = this.npcManager.get('user')
+      const mayorPos = mayor
+        ? { x: mayor.getPosition().x, z: mayor.getPosition().z }
+        : { x: 0, z: 0 }
+      const indoor = this.animalMode.getIndoorTracker().getAllIndoor().map((e) => e.npcId)
+      this.dataSource.sendAction({
+        type: 'town_runtime_save',
+        state: {
+          sceneType: this.currentSceneType,
+          mayorPos,
+          npcPositions: positions,
+          topicNpcIds: this.topicNpcIds,
+          indoorCitizens: indoor,
+          savedAt: now,
+        },
+      })
+    } catch {
+      // best-effort; ignore send errors
+    }
+  }
+
+  private collectNpcPositions(): Record<string, { x: number; z: number }> {
+    const out: Record<string, { x: number; z: number }> = {}
+    for (const npc of this.npcManager.getAll()) {
+      const pos = npc.getPosition()
+      out[npc.id] = { x: pos.x, z: pos.z }
+    }
+    return out
+  }
+
+  /**
+   * Called by NPC.ts via onMoveComplete callback when an NPC finishes moving
+   * (status === 'arrived'). Triggers a throttled runtime state save so NPC
+   * positions are captured immediately after movement, not just on the 10s
+   * timer. This minimizes position loss between the last save and a refresh.
+   */
+  onNpcMoveComplete(_npcId: string): void {
+    this.reportTownRuntimeState()
+  }
+
+  /**
+   * Move an NPC to a target waypoint with one automatic retry on 'interrupted'.
+   *
+   * Issue (card-stuck): when an NPC gets stuck against a building corner, the
+   * slide algorithm eventually gives up and resolves 'interrupted'. Previously
+   * callers just logged and cleared the executing flag, leaving the NPC frozen
+   * at the stuck position until the next autonomy tick (which could be a long
+   * time, or never if the same target is re-picked). This helper waits a short
+   * delay (so the escape nudge in NPC.ts + a frame cycle can settle), then
+   * retries the move once. If the retry also fails, it resolves 'interrupted'
+   * so the caller can give up gracefully.
+   *
+   * The retry only fires if the NPC is still far from the target (>= 2 units);
+   * if it's close, we treat it as arrived to avoid pointless re-attempts.
+   */
+  /** Restore Animal Mode state received from plugin (snapshots + clock + runtime). */
+  restoreAnimalState(
+    snapshots: Array<{ npcId: string; snapshot: any }>,
+    clock: { dayCount: number; gameSeconds: number } | null,
+    runtime: {
+      sceneType: string
+      mayorPos: { x: number; z: number }
+      npcPositions: Record<string, { x: number; z: number }>
+      topicNpcIds: string[]
+      indoorCitizens: string[]
+      savedAt: number
+    } | null,
+  ): void {
     // Restore GameClock
     if (clock && typeof clock.dayCount === 'number' && typeof clock.gameSeconds === 'number') {
       this.gameClock.restoreFromPlugin(clock.dayCount, clock.gameSeconds)
     }
     // Reset AnimalMode needs-tick baseline AFTER clock restore to avoid huge delta
     this.animalMode.restoreAnimalState(snapshots, clock)
-    console.log(`[MainScene] restoreAnimalState: ${snapshots.length} snapshots, clock=${clock ? 'yes' : 'no'}`)
+    console.log(`[MainScene] restoreAnimalState: ${snapshots.length} snapshots, clock=${clock ? 'yes' : 'no'}, runtime=${runtime ? 'yes' : 'no'}`)
+
+    // Restore town runtime state (NPC positions, indoor, topic).
+    // Per design decision: scene type is NOT restored to office/house — the
+    // town always boots into the 'town' scene. NPC positions are restored
+    // in-place, and indoor citizens are marked hidden. Topic state is marked
+    // as interrupted (user must re-initiate).
+    if (runtime && runtime.npcPositions && typeof runtime.npcPositions === 'object') {
+      try {
+        // Check if NPCs have been spawned yet. If not, cache the runtime state
+        // and apply it lazily in onNpcSpawn once all NPCs exist. This handles
+        // the race where WS binds (town_session_bound → animal_state_load)
+        // before loadScene → startFlow → spawnFromConfig completes.
+        const allNpcIds = Object.keys(runtime.npcPositions)
+        const anyNpcMissing = allNpcIds.some((id) => !this.npcManager.get(id))
+        if (anyNpcMissing) {
+          this.pendingRuntimeState = {
+            npcPositions: runtime.npcPositions,
+            indoorCitizens: runtime.indoorCitizens ?? [],
+            topicNpcIds: runtime.topicNpcIds ?? [],
+          }
+          console.log(`[MainScene] restoreAnimalState: NPCs not yet spawned, cached runtime state for lazy restore (${allNpcIds.length} NPCs expected)`)
+        } else {
+          this.applyRuntimeState(runtime.npcPositions, runtime.indoorCitizens ?? [], runtime.topicNpcIds ?? [])
+        }
+      } catch (err) {
+        console.warn(`[MainScene] restoreAnimalState: runtime restore failed`, err)
+      }
+    }
+  }
+
+  /** Restore citizen economy state (coins, reputation, savings) from plugin. */
+  restoreEconomyState(economy: { citizens: Record<string, any>; savedAt: number } | null): void {
+    this.animalMode.restoreEconomyState(economy)
+  }
+
+  /**
+   * Apply runtime state (NPC positions, indoor visibility, topic) to spawned NPCs.
+   * Extracted from restoreAnimalState so it can be called lazily from onNpcSpawn.
+   */
+  private applyRuntimeState(
+    npcPositions: Record<string, { x: number; z: number }>,
+    indoorCitizens: string[],
+    topicNpcIds: string[],
+  ): void {
+    // 1) Restore NPC positions
+    let restoredCount = 0
+    for (const [npcId, pos] of Object.entries(npcPositions)) {
+      const npc = this.npcManager.get(npcId)
+      if (npc && typeof pos?.x === 'number' && typeof pos?.z === 'number') {
+        npc.mesh.position.set(pos.x, 0, pos.z)
+        // Sync crowd agent position if the NPC has one
+        const crowd = this.activeCrowd
+        if (crowd?.hasAgent(npcId)) {
+          crowd.teleportAgent(npcId, { x: pos.x, y: 0, z: pos.z })
+        }
+        restoredCount++
+      }
+    }
+    // 2) Restore indoor citizens (hide mesh + register in IndoorTracker)
+    //    Use the citizen's actual home building key (from AnimalModeManager)
+    //    so IndoorTracker.getIndoorLocation() returns a valid building key
+    //    instead of a placeholder string. This ensures the indoor-recovery
+    //    logic in AnimalModeManager.update() correctly identifies the
+    //    citizen as being at their own home.
+    const tracker = this.animalMode.getIndoorTracker()
+    for (const npcId of indoorCitizens) {
+      const npc = this.npcManager.get(npcId)
+      if (npc) {
+        npc.mesh.visible = false
+        const homeKey = this.animalMode.getHomeBuilding(npcId) ?? 'house_a_door'
+        tracker.enter(npcId, homeKey)
+      }
+    }
+    // 3) Topic state: restore the active topic so the UI (end/detail buttons)
+    //    and autonomy pause survive a page refresh. Previously the topic was
+    //    only logged as "interrupted", which left citizens standing around the
+    //    mayor but with no topic controls and autonomous decisions resumed.
+    if (topicNpcIds.length > 0) {
+      this.topicNpcIds = [...topicNpcIds]
+      this.topicMayorPos = this.npcManager.get('user')?.mesh.position.clone() ?? null
+      this.topicGathering = false
+      // Pause autonomous L2 decisions for topic participants (balances the
+      // refcount with dismissTopic's resumeTopicAutonomy).
+      if (this.animalMode.isEnabled()) {
+        this.pauseTopicAutonomy()
+        for (const id of topicNpcIds) this.animalMode.setExecuting(id, true)
+      }
+      console.log(`[MainScene] applyRuntimeState: restored topic with ${topicNpcIds.length} NPCs`)
+      // Notify main.ts so it can restore the topicState closure + UI buttons.
+      // This fires for both the synchronous path and the lazy onNpcSpawn path.
+      this.topicRestoredCallback?.()
+    }
+    console.log(`[MainScene] applyRuntimeState: restored ${restoredCount} NPC positions, ${indoorCitizens.length} indoor`)
+    this.runtimeStateRestored = true
   }
 
   // ── Update loop ──
@@ -2647,6 +3473,7 @@ __workflow 演出测试指令:
         if (dist < 2) {
           const target = this.pendingDoorInteraction.scene
           const ve = this.pendingDoorInteraction.virtualEnter
+          const doorBuildingId = this.pendingDoorInteraction.buildingId
           const doorPos = this.pendingDoorInteraction.doorPos.clone()
           this.pendingDoorInteraction = null
           this.followBehavior.stop()
@@ -2654,7 +3481,7 @@ __workflow 演出测试指令:
           if (ve) {
             void this.enterVirtualBuilding(ve.buildingName, ve.buildingKey, doorPos)
           } else {
-            void this.switchScene(target)
+            void this.switchScene(target, doorBuildingId)
           }
           return
         }
@@ -2662,7 +3489,9 @@ __workflow 演出测试指令:
     }
 
     this.gameClock?.update(deltaTime)
-    this.animalMode.update(deltaTime)
+    // Freeze needs/economy decay for citizens gathered in an active topic.
+    const frozenSet = this.topicNpcIds.length > 0 ? new Set(this.topicNpcIds) : undefined
+    this.animalMode.update(deltaTime, frozenSet)
     const curScene: SceneType = this.currentSceneType
 
     if (curScene === 'town') {
@@ -2671,6 +3500,9 @@ __workflow 演出测试指令:
       this.weatherSystem?.update(deltaTime, this.gameClock)
       this.vehicleManager?.update(this.gameClock, deltaTime)
     } else if (curScene === 'office') {
+      this.cameraCtrl.updateOfficePan(deltaTime)
+    } else if (curScene === 'house_a' || curScene === 'house_b' || curScene === 'house_c' || curScene === 'user_home') {
+      // Issue 1: allow camera panning in home scenes (same as office)
       this.cameraCtrl.updateOfficePan(deltaTime)
     } else if (curScene === 'museum') {
       this.cameraCtrl.update(deltaTime)
@@ -2689,9 +3521,18 @@ __workflow 演出测试指令:
           const mayorPos = mayor.mesh.position
           const moved = mayorPos.distanceTo(this.topicMayorPos)
           if (moved > 1.5) {
-            // Mayor moved significantly — re-gather citizens
+            // Mayor moved significantly — re-gather citizens around the mayor.
+            // Use the mayor's move target (where it's heading) as the gather
+            // center when moving, so citizens path toward the mayor's
+            // destination instead of its current position. This reduces
+            // head-on congestion. The mayor has a stronger Crowd agent
+            // (larger separationWeight) so it can push through citizens when
+            // it reverses into them.
+            const gatherCenter = mayor.moving && mayor.moveTarget
+              ? mayor.moveTarget.clone()
+              : mayorPos.clone()
             this.topicMayorPos = mayorPos.clone()
-            const center = mayorPos.clone()
+            const center = gatherCenter
             const RADIUS = 3.0
             const ARC_SPAN = Math.PI
             const startAngle = -ARC_SPAN / 2
@@ -2733,7 +3574,19 @@ __workflow 演出测试指令:
 
     const activeScene = curScene === 'office' ? this.officeScene
       : curScene === 'museum' ? this.museumScene
+      : curScene === 'house_a' || curScene === 'house_b' || curScene === 'house_c' || curScene === 'user_home' ? this.homeScene
       : this.townScene
+    // 推进当前场景的 Crowd 模拟 + 到达检测(在 npc.update 之前,确保 NPC.update 读到最新位置)
+    const crowd = this.getCrowdForScene(curScene)
+    if (crowd?.ready) {
+      this.activeCrowd = crowd
+      crowd.update(deltaTime)
+      // 静止 agent separation:Recast SEPARATION 只在移动时起作用,
+      // 此处补充静止 NPC 之间的间距,防止到达后紧贴/重合
+      crowd.applyStaticSeparation()
+    }
+    // 调试可视化更新(?navDebug=1)
+    this.navMeshDebug.update()
     this.npcManager?.update(deltaTime, this.engine.camera, this.engine.renderer, activeScene)
     if (curScene === 'town' && this.postTownReturnDebugFrames > 0) {
       this.postTownReturnDebugFrames -= 1
@@ -2803,9 +3656,83 @@ __workflow 演出测试指令:
     return this.implicitChatFn({ ...req, ...(agentId ? { agentId } : {}) })
   }
 
+  /**
+   * Scene-aware obstacle query dispatcher. Returns the obstacle rectangle at
+   * (x, z) based on the current scene, or null if the position is free.
+   * - town: uses townObstacleQuery (building rectangles from TownMapConfig)
+   * - office: uses office furniture rectangles (desks + visitor area)
+   * - house_*: uses home furniture rectangles (bed/sofa/bookshelf)
+   * - museum: no obstacles (returns null)
+   * This is installed once via NPC.setObstacleQuery and re-dispatches on every
+   * call so it always reflects the current scene without re-installation.
+   */
+  private activeObstacleQuery(x: number, z: number, radius = 0.5): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
+    if (this.currentSceneType === 'office') {
+      const obstacles = this.officeBuilder.getObstacles()
+      for (const o of obstacles) {
+        if (x >= o.minX - radius && x <= o.maxX + radius && z >= o.minZ - radius && z <= o.maxZ + radius) {
+          return o
+        }
+      }
+      return null
+    }
+    if (this.currentSceneType === 'house_a' || this.currentSceneType === 'house_b' || this.currentSceneType === 'house_c' || this.currentSceneType === 'user_home') {
+      const obstacles = this.homeBuilder.getObstacles()
+      for (const o of obstacles) {
+        if (x >= o.minX - radius && x <= o.maxX + radius && z >= o.minZ - radius && z <= o.maxZ + radius) {
+          return o
+        }
+      }
+      return null
+    }
+    // town / museum: use town query (museum has no buildings, so town query returns null there too)
+    return this.townObstacleQuery ? this.townObstacleQuery(x, z, radius) : null
+  }
+
+  /**
+   * Issue 4: map a house scene type to the resident NPC id that lives there.
+   * Uses animalMode.getResidentOfBuilding() to find which citizen's home was
+   * allocated to this building key (dynamic allocation, not hardcoded).
+   * Returns undefined for user_home (the mayor's own home, no resident NPC)
+   * or if no citizen is allocated to this building.
+   */
+  private homeResidentNpcId(scene: SceneType): string | undefined {
+    if (scene === 'user_home') return undefined
+    // Map scene type to the building modelKey, then find the building the mayor
+    // actually entered (via lastEnteredBuildingId), falling back to the first
+    // building of that type, and look up which citizen's home it is.
+    const sceneToModelKey: Partial<Record<SceneType, string>> = {
+      house_a: 'building_B',
+      house_b: 'building_C',
+      house_c: 'building_D',
+    }
+    const modelKey = sceneToModelKey[scene]
+    if (!modelKey) return undefined
+    const mapConfig = this.townBuilder.getMapConfig()
+    if (!mapConfig) return undefined
+    // Prefer the specific building the mayor entered (Issue: multiple buildings
+    // of the same modelKey exist on the map; using the first one would bring
+    // the wrong resident into the home scene).
+    const building = this.lastEnteredBuildingId
+      ? mapConfig.buildings.find(b => b.id === this.lastEnteredBuildingId)
+      : undefined
+    const fallbackBuilding = building ?? mapConfig.buildings.find(b => b.modelKey === modelKey)
+    if (!fallbackBuilding) return undefined
+    const residentId = this.animalMode.getResidentOfBuilding(fallbackBuilding.id)
+    return residentId ?? undefined
+  }
+
   /** Switch the active scene with fade transition, NPC repositioning, and camera change. */
-  async switchScene(scene: SceneType): Promise<void> {
+  async switchScene(scene: SceneType, buildingId?: string): Promise<void> {
     if (this.currentSceneType === scene) return
+
+    // Issue 7+8: record the specific building the mayor entered so returning
+    // to town places them at that building's entrance (not the first of its type).
+    // Only record real building ids — "exit_*" pseudo-ids are used when leaving
+    // a scene and must NOT overwrite the recorded entrance building.
+    if (buildingId && !buildingId.startsWith('exit_')) {
+      this.lastEnteredBuildingId = buildingId
+    }
 
     // Fade to black
     await this.ui.fadeToBlack(300)
@@ -2813,8 +3740,11 @@ __workflow 演出测试指令:
     // Clear chat bubbles
     this.bubbles?.clear()
 
+    this.previousSceneType = this.currentSceneType
     this.currentSceneType = scene
 
+    // NPC Crowd 迁移在各分支内进行(只迁移进入该场景的 NPC),避免把所有
+    // NPC 都加入室内 Crowd 导致 RVO 拥挤和位置异常。
     let targetScene: THREE.Scene
     if (scene === 'office') {
       targetScene = this.officeScene
@@ -2824,21 +3754,25 @@ __workflow 演出测试指令:
       // Move steward and user into the office scene
       const visitNpcIds = ['steward', 'user']
       this.npcManager.moveNpcsToScene(visitNpcIds, this.officeScene)
+      // 只迁移进入 office 的 NPC
+      this.migrateCrowdAgents(this.previousSceneType, scene, visitNpcIds)
 
       // Position NPCs at the office door, then walk them inside
       const OFFICE_DOOR = this.officeBuilder.doorPos
+      const officeCrowd = this.getCrowdForScene('office')
       const movePromises: Promise<unknown>[] = []
       for (const id of visitNpcIds) {
         const npc = this.npcManager.get(id)
         if (npc) {
-          npc.mesh.position.set(
-            OFFICE_DOOR.x + (id === 'user' ? 1.5 : -1.5),
-            0,
-            OFFICE_DOOR.z,
-          )
+          const doorX = OFFICE_DOOR.x + (id === 'user' ? 1.5 : -1.5)
+          npc.mesh.position.set(doorX, 0, OFFICE_DOOR.z)
+          // teleport Crowd agent to door (migrateCrowdAgents added it at the
+          // old town position; without teleport it tries to path from town
+          // coords into the office NavMesh and gets stuck in a corner)
+          officeCrowd?.teleportAgent(id, { x: doorX, y: 0, z: OFFICE_DOOR.z })
           npc.playAnim('walk')
           movePromises.push(
-            npc.moveTo({ x: OFFICE_DOOR.x + (id === 'user' ? 1.5 : -1.5), z: 12 }, 2.5)
+            npc.moveTo({ x: doorX, z: 12 }, 2.5)
             .then(() => npc.playAnim('idle')),
           )
         }
@@ -2847,13 +3781,83 @@ __workflow 演出测试指令:
         this.inputEnabled = true
       })
 
-      this.ui.showBackButton(false)
+      // Issue 3: show back button in office so the mayor can return to town.
+      this.ui.showBackButton(true)
       this.cameraCtrl.enterOfficeMode()
+    } else if (scene === 'house_a' || scene === 'house_b' || scene === 'house_c' || scene === 'user_home') {
+      // Issue 4: residential indoor scene — reuse the shared home scene.
+      // The home scene is a furniture-only variant (no desks) so the mayor
+      // can visit a citizen's home and see them inside.
+      targetScene = this.homeScene
+      this.vfx?.setScene(this.homeScene)
+      this.weatherSystem?.setEnabled(false)
+
+      // Move steward, user, and the resident of this house into the home scene.
+      const residentNpcId = this.homeResidentNpcId(scene)
+      const visitNpcIds = ['steward', 'user']
+      if (residentNpcId) visitNpcIds.push(residentNpcId)
+      this.npcManager.moveNpcsToScene(visitNpcIds, this.homeScene)
+      // 只迁移进入 home 的 NPC
+      this.migrateCrowdAgents(this.previousSceneType, scene, visitNpcIds)
+
+      const HOME_DOOR = this.homeBuilder.doorPos
+      // Issue 2: walk to z=10 (center of room) so NPCs appear in the upper
+      // portion of the screen, visible above the input bar. Previously they
+      // walked to z=12 which landed at the screen bottom, hidden behind the
+      // chat input bar.
+      //
+      // Issue 2 (round 4): the direct path from the door (15, 25) to (15, 10)
+      // passes straight through the sofa (x≈15, z≈18) and coffee table
+      // (x≈15, z≈15.5), causing NPCs to get stuck. Route NPCs around the
+      // furniture: steward to the left (x≈10), user to the right (x≈20),
+      // resident to the right-center. All targets at z=12 (just past the
+      // coffee table, in open floor) so they end up visible and unblocked.
+      const HOME_WALK_Z = 12
+      const homeCrowd = this.getCrowdForScene(scene)
+      const movePromises: Promise<unknown>[] = []
+      for (const id of visitNpcIds) {
+        const npc = this.npcManager.get(id)
+        if (!npc) continue
+        // Stagger entry positions to avoid overlap, and route around furniture.
+        // Door is at x=15; sofa+coffee table block x∈[12.2,17.8] between z=14.6 and z=18.7.
+        // Left lane (x≈10) and right lane (x≈20) are clear.
+        const targetX = id === 'user' ? 20
+          : id === 'steward' ? 10
+          : 18 // resident: right-center, past the coffee table
+        const doorOffset = id === 'user' ? 1.5 : id === 'steward' ? -1.5 : 0
+        const doorX = HOME_DOOR.x + doorOffset
+        npc.mesh.position.set(doorX, 0, HOME_DOOR.z)
+        // teleport Crowd agent to door (migrateCrowdAgents added it at the
+        // old town position; without teleport it gets stuck in a corner)
+        homeCrowd?.teleportAgent(id, { x: doorX, y: 0, z: HOME_DOOR.z })
+        npc.mesh.visible = true
+        npc.playAnim('walk')
+        movePromises.push(
+          npc.moveTo({ x: targetX, z: HOME_WALK_Z }, 2.5)
+          .then(() => npc.playAnim('idle')),
+        )
+      }
+      Promise.allSettled(movePromises).then(() => {
+        // Animation done; input was already enabled below for responsiveness.
+      })
+
+      // Issue 4: enable input immediately so the mayor can walk around the
+      // home scene without waiting for the entry walk animation to finish.
+      // (Previously this was inside the allSettled callback, which could hang
+      // if the moveTo got stuck on furniture obstacles.)
+      this.inputEnabled = true
+
+      this.ui.showBackButton(true)
+      // Issue 2: use home camera mode (looks at z=10) so NPCs appear in the
+      // upper-center of the screen, visible above the chat input bar.
+      this.cameraCtrl.enterHomeMode()
     } else if (scene === 'museum') {
       targetScene = this.museumScene
       this.vfx?.setScene(this.museumScene)
       this.weatherSystem?.setEnabled(false)
-      this.npcManager.setScene(this.museumScene)
+      const visitNpcIds = ['steward', 'user']
+      this.npcManager.moveNpcsToScene(visitNpcIds, this.museumScene)
+      this.migrateCrowdAgents(this.previousSceneType, scene, visitNpcIds)
       this.ui.showBackButton(true)
       this.cameraCtrl.setAutoPilot(false)
       this.cameraCtrl.follow(null)
@@ -2865,17 +3869,40 @@ __workflow 演出测试指令:
       this.vfx?.setScene(this.townScene)
       this.weatherSystem?.setEnabled(true)
 
-      // Find the door position to return to
+      // Find the door position to return to.
+      // Issue 7+8: return to the entrance of the specific building the mayor
+      // just exited (e.g. "橙子家", not the first building_B). Prefer the
+      // recorded lastEnteredBuildingId; fall back to the first building of the
+      // previous scene's modelKey if not recorded.
       const mapConfig = this.townBuilder.getMapConfig()
       let returnPos = { x: WAYPOINTS.plaza_center?.x ?? 18, z: WAYPOINTS.plaza_center?.z ?? 13 }
 
-      // Try to find the office building's door position
+      const sceneToModelKey: Partial<Record<SceneType, string>> = {
+        office: 'building_A',
+        house_a: 'building_B',
+        house_b: 'building_C',
+        house_c: 'building_D',
+        market: 'building_E',
+        cafe: 'building_F',
+        user_home: 'building_G',
+        museum: 'building_H',
+      }
+      const prevSceneType = this.previousSceneType
+      const fallbackModelKey = (prevSceneType && sceneToModelKey[prevSceneType]) || 'building_A'
+
       if (mapConfig) {
-        const officeBuilding = mapConfig.buildings.find(b => b.modelKey === 'building_A')
-        if (officeBuilding) {
+        // Prefer the exact building the mayor entered (Issue 7+8 fix).
+        let targetBuilding = this.lastEnteredBuildingId
+          ? mapConfig.buildings.find(b => b.id === this.lastEnteredBuildingId)
+          : undefined
+        // Fall back to the first building of the previous scene's modelKey.
+        if (!targetBuilding) {
+          targetBuilding = mapConfig.buildings.find(b => b.modelKey === fallbackModelKey)
+        }
+        if (targetBuilding) {
           returnPos = {
-            x: officeBuilding.gridX + officeBuilding.widthCells / 2,
-            z: officeBuilding.gridZ + officeBuilding.depthCells + 1,
+            x: targetBuilding.gridX + targetBuilding.widthCells / 2,
+            z: targetBuilding.gridZ + targetBuilding.depthCells + 1,
           }
         }
       }
@@ -2883,18 +3910,55 @@ __workflow 演出测试指令:
       this.npcManager.setScene(this.townScene)
       this.ui.showBackButton(false)
 
+      // 返回 town:把所有 NPC 迁移回 town Crowd
+      this.migrateCrowdAgents(this.previousSceneType, scene)
+
+      const townCrowd = this.getCrowdForScene('town')
       const userNpc = this.npcManager.get('user')
       const stewardNpc = this.npcManager.get('steward')
       if (userNpc) {
         userNpc.stopMoving()
         userNpc.mesh.position.set(returnPos.x + 1, 0, returnPos.z + 1)
+        // teleport Crowd agent 到 mesh 位置(否则 agent 还在室内坐标投影点,
+        // 首次行走时 NPC.update 从 Crowd 同步位置会闪现)
+        townCrowd?.teleportAgent('user', { x: returnPos.x + 1, y: 0, z: returnPos.z + 1 })
         userNpc.playAnim('idle')
       }
       if (stewardNpc) {
         stewardNpc.stopMoving()
         stewardNpc.mesh.position.set(returnPos.x - 1, 0, returnPos.z + 1)
+        townCrowd?.teleportAgent('steward', { x: returnPos.x - 1, y: 0, z: returnPos.z + 1 })
         stewardNpc.playAnim('idle')
       }
+      // Issue 4: if returning from a house scene, reposition the resident NPC
+      // at their home door so they don't stand at the office door coords.
+      // Use the specific building the mayor entered (lastEnteredBuildingId) to
+      // find the resident and their door — multiple buildings of the same
+      // modelKey exist, so the scene-type waypoint (house_a_door etc.) would
+      // point to the wrong building.
+      const prevScene = this.previousSceneType
+      if (prevScene === 'house_a' || prevScene === 'house_b' || prevScene === 'house_c' || prevScene === 'user_home') {
+        const residentNpcId = this.homeResidentNpcId(prevScene)
+        if (residentNpcId) {
+          const resident = this.npcManager.get(residentNpcId)
+          if (resident) {
+            // Prefer the door waypoint of the specific building entered.
+            const enteredBuildingId = this.lastEnteredBuildingId
+            const homeWp = enteredBuildingId
+              ? WAYPOINTS[enteredBuildingId as keyof typeof WAYPOINTS]
+              : WAYPOINTS[`${prevScene}_door` as keyof typeof WAYPOINTS]
+            if (homeWp) {
+              resident.stopMoving()
+              resident.mesh.position.set(homeWp.x + 1, 0, homeWp.z + 1)
+              townCrowd?.teleportAgent(residentNpcId, { x: homeWp.x + 1, y: 0, z: homeWp.z + 1 })
+              resident.playAnim('idle')
+            }
+          }
+        }
+      }
+      // Clear the recorded building id after using it (must be after the
+      // resident repositioning above, which relies on lastEnteredBuildingId).
+      this.lastEnteredBuildingId = null
       this.cameraCtrl.leaveOfficeMode()
       this.cameraCtrl.setAutoPilot(false)
       this.cameraCtrl.moveTo({ x: returnPos.x, z: returnPos.z + 4 })

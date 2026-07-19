@@ -41,6 +41,7 @@ function createMockDeps(overrides?: Partial<any>) {
     startSnapshotSaving: vi.fn(),
     setInputEnabled: vi.fn(),
     setDialogTarget: vi.fn(),
+    isRuntimeStateRestored: vi.fn().mockReturnValue(false),
     ...overrides,
   }
 }
@@ -60,7 +61,7 @@ describe('SceneBootstrap.loadFinalConfig', () => {
     const published = makePublished([
       makeEntry({ id: 'steward', role: 'steward', name: '管家', avatarId: 'char-female-b' }),
       makeEntry({ id: 'user', role: 'user', name: '镇长', avatarId: 'char-male-c' }),
-      makeEntry({ id: 'c1', role: 'citizen', name: '岩', avatarId: 'char-male-b', specialty: '架构设计' }),
+      makeEntry({ id: 'c1', role: 'citizen', name: '岩', avatarId: 'char-male-b', specialty: '木工与搭建' }),
     ])
 
     globalThis.fetch = vi.fn().mockResolvedValue({
@@ -76,7 +77,7 @@ describe('SceneBootstrap.loadFinalConfig', () => {
     expect(config.user.name).toBe('镇长')
     expect(config.citizens).toHaveLength(1)
     expect(config.citizens[0].name).toBe('岩')
-    expect(config.citizens[0].specialty).toBe('架构设计')
+    expect(config.citizens[0].specialty).toBe('木工与搭建')
     expect(deps.configStore.save).toHaveBeenCalledWith(config)
   })
 

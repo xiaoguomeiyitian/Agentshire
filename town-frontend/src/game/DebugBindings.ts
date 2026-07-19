@@ -9,7 +9,8 @@ declare global {
     __townJournal?: Record<string, unknown>
     __weather?: Record<string, unknown>
     __audio?: Record<string, unknown>
-    __workflow?: Record<string, unknown>
+    __trouble?: Record<string, unknown>
+    __crowd?: Record<string, unknown>
   }
 }
 
@@ -22,7 +23,8 @@ export function installDebugBindings(bindings: {
   townJournal?: Record<string, unknown>
   weather?: Record<string, unknown>
   audio?: Record<string, unknown>
-  workflow?: Record<string, unknown>
+  trouble?: Record<string, unknown>
+  crowd?: Record<string, unknown>
 }): void {
   if (bindings.gameClock) window.__gameClock = bindings.gameClock
   if (bindings.journals) window.__journals = bindings.journals
@@ -32,7 +34,8 @@ export function installDebugBindings(bindings: {
   if (bindings.townJournal) window.__townJournal = bindings.townJournal
   if (bindings.weather) window.__weather = bindings.weather
   if (bindings.audio) window.__audio = bindings.audio
-  if (bindings.workflow) window.__workflow = bindings.workflow
+  if (bindings.trouble) window.__trouble = bindings.trouble
+  if (bindings.crowd) window.__crowd = bindings.crowd
 }
 
 export function removeDebugBindings(): void {
@@ -44,5 +47,6 @@ export function removeDebugBindings(): void {
   delete window.__townJournal
   delete window.__weather
   delete window.__audio
-  delete window.__workflow
+  delete window.__trouble
+  delete window.__crowd
 }

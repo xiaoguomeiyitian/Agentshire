@@ -1,6 +1,6 @@
 # Game 层架构指南
 
-> 3D 小镇前端的场景管理、工作流编排、小游戏、NPC 行为、视觉效果。
+> 3D 小镇前端的场景管理、生活模拟、小游戏、NPC 行为、视觉效果。
 
 ## 目录结构
 
@@ -8,7 +8,7 @@
 town-frontend/src/game/
 ├── MainScene.ts           # 场景总控（1600+行）：init + update循环 + 子系统编排
 ├── EventDispatcher.ts     # 65种GameEvent纯路由（switch → handler回调，零逻辑）
-├── DialogManager.ts       # 对话流式显示 + 工作日志面板(activity/thinking/todo) + recentlyFlushed去重
+├── DialogManager.ts       # 对话流式显示 + 活动日志面板(activity/thinking/todo) + recentlyFlushed去重
 ├── SceneBootstrap.ts      # 启动流程（mock/live分支 + PublishedCitizenConfig加载）
 ├── GameClock.ts           # 24h循环（6时段，夜间3x加速，localStorage持久化）
 ├── WeatherSystem.ts       # 12种天气 + 10种日主题 + seeded random
@@ -30,28 +30,28 @@ town-frontend/src/game/
 │   └── index.ts              # Barrel export
 │
 ├── minigame/              # ★ 小游戏系统
-│   ├── MinigameSlot.ts        # 小游戏插槽接口（mount/start/stop/addWorkingNpc）
-│   ├── BanweiGame.ts          # "班味消除"：orb生成/combo/boss/NPC压力/语音池
-│   ├── BanweiRenderer.ts      # DOM渲染层：orb/boss/smoke/HUD/屏幕震动/粒子
-│   └── BanweiNpcEffects.ts    # NPC压力视觉（去饱和+紫光+变形+减速）
+│   ├── MinigameSlot.ts        # 小游戏插槽接口（mount/start/stop/addTroubledNpc）
+│   ├── TroubleGame.ts          # "小镇烦恼事件"：worry气泡生成/combo/NPC心情/语音池
+│   ├── TroubleRenderer.ts      # DOM渲染层：worry气泡/HUD/屏幕震动/粒子
+│   └── TroubleNpcEffects.ts    # NPC烦恼视觉（去饱和+紫光+变形+减速）
 │
 ├── scene/                 # 3D 场景构建
 │   ├── TownBuilder.ts         # 小镇（8建筑/14组路灯/20棵树/喷泉/花坛/长椅）
-│   ├── OfficeBuilder.ts       # 办公室（10工位A-J + 访客区 + 白板）
+│   ├── OfficeBuilder.ts       # 工坊（10工作台A-J + 访客区 + 白板）
 │   ├── MuseumBuilder.ts       # 博物馆（6展台 + unlockStand效果）
-│   ├── ScreenRenderer.ts      # 工位屏幕（Canvas2D→Texture，6种状态含代码动画）
+│   ├── ScreenRenderer.ts      # 工作台屏幕（Canvas2D→Texture，6种状态含代码动画）
 │   └── VehicleManager.ts      # 车辆系统（对象池6辆，按时段调频，夜间开灯）
 │
 ├── visual/                # VFX + 渲染
 │   ├── VFXSystem.ts           # VFX Facade → 委托4个子模块
-│   ├── SpawnEffects.ts        # 召唤冲击波 / 完成烟花 / 错误闪电 / 人格变换(4.2s)
-│   ├── WorkEffects.ts         # 思考光环 / 工作粒子 / 文件图标 / 搜索雷达 / 连接光束
-│   ├── CelebrationEffects.ts  # 部署烟花(5连发) / 彩纸(200个) / 光柱 / 技能仪式(8s)
+│   ├── SpawnEffects.ts        # 人格变换冲击波 / 错误闪电 / 召唤涟漪(4.2s)
+│   ├── WorkEffects.ts         # 思考光环 / 手艺粒子 / 文件图标 / 搜索雷达 / 连接光束
+│   ├── CelebrationEffects.ts  # 庆祝烟花(5连发) / 彩纸(200个) / 光柱 / 技能仪式(8s)
 │   ├── DebugEffects.ts        # 路径调试可视化
 │   ├── Effects.ts             # 基础粒子（ripple/stars/sparks/pillar/exclamation）
 │   ├── ParticlePool.ts        # GPU粒子池（512个，AdditiveBlending）
 │   ├── EffectRegistry.ts      # 特效注册表 + 更新循环 + 相机震动
-│   ├── CameraController.ts    # 跟随/拖拽/缩放/巡逻/办公室模式/动画过渡
+│   ├── CameraController.ts    # 跟随/拖拽/缩放/巡逻/工坊模式/动画过渡
 │   ├── TimeOfDayLighting.ts   # 昼夜光照（10关键帧，smoothstep插值，天气覆盖）
 │   ├── WeatherEffects.ts      # GLSL粒子天气（雨25000/雪12000/沙10000/水花/积雪/地雾/极光）
 │   ├── PostProcessing.ts      # 后处理（RenderPass + UnrealBloomPass）
@@ -76,7 +76,7 @@ MainScene.handleGameEvent()
 EventDispatcher.dispatch(event)
  ├─ npc_spawn/despawn/phase/emoji/glow/anim  → MainScene NPC操作
  ├─ dialog_message/dialog_end                 → DialogManager
- ├─ npc_activity/activity_stream/activity_todo → DialogManager（工作日志）
+ ├─ npc_activity/activity_stream/activity_todo → DialogManager（活动日志）
  ├─ fx                                        → MainScene.onFx → VFXSystem
  ├─ deliverable_card                          → MediaPreview
  ├─ skill_learned                             → SkillLearnCard + 技能仪式VFX
@@ -119,13 +119,12 @@ update(deltaTime):
 
 ## 小游戏系统
 
-`MinigameSlot` 接口解耦小游戏与主场景。`BanweiGame` 是首个实现：
+`MinigameSlot` 接口解耦小游戏与主场景。`TroubleGame` 是首个实现：
 
-- **Orb 系统**：NPC 工作时 5-30s 随机生成班味球（light/medium/heavy），每 NPC 最多 6 个
-- **Combo 系统**：连击 ≥2/4/7/10 触发不同级别文案，每档 30 条网络梗
-- **Boss 系统**：每 6 个 orb 生成 Boss，3 阶段循环，有 HP 条和 dash 攻击
-- **NPC 压力**：orb 数量 → stress 值 → 去饱和+紫光+变形+减速
-- **生命周期**：work 模式进入 working 时 `start()`，离开时 `stop()`
+- **Worry 系统**：居民遇到烦恼时 5-30s 随机生成烦恼气泡（light/medium/heavy），每 NPC 最多 6 个
+- **Combo 系统**：连击 ≥2/4/7/10 触发不同级别文案，每档 30 条生活化文案
+- **NPC 心情**：worry 数量 → mood 值 → 去饱和+紫光+变形+减速
+- **生命周期**：由 `AnimalModeManager` 的 help_request/conflict 事件触发 `addTroubledNpc`
 
 
 ## NPC 状态机
@@ -159,12 +158,12 @@ update(deltaTime):
 |---------|--------|
 | 新增 GameEvent 处理 | `EventDispatcher.ts` 加 case + handler |
 | 修改对话气泡 | `DialogManager.ts` |
-| 修改场景切换 | `workflow/SceneSwitcher.ts` |
-| 修改NPC日常 | `DailyScheduler.ts` + `npc/DailyBehavior.ts` |
+| 修改场景切换 | `MainScene` 门廊交互逻辑 |
+| 修改NPC日常 | `animal-mode/AnimalModeManager.ts` + `npc/DailyBehavior.ts` |
 | 修改启动流程 | `SceneBootstrap.ts` |
-| 修改NPC离场动画 | `WorkflowHandler.handleNpcWorkDone()` |
-| 修改工作流主线编排 | `Choreographer.ts` → 对应 Orchestrator |
-| 修改小游戏 | `minigame/BanweiGame.ts`（逻辑）+ `BanweiRenderer.ts`（渲染） |
+| 修改NPC离场动画 | `MainScene.onNpcWorkDone()` |
+| 修改小镇生活编排 | `MainScene` update 循环 + `animal-mode/` |
+| 修改小游戏 | `minigame/TroubleGame.ts`（逻辑）+ `TroubleRenderer.ts`（渲染） |
 | 新增小游戏 | 实现 `MinigameSlot` 接口 → `MainScene.initModeSystem()` 注册 |
 | 修改NPC状态/动画 | `npc/NPC.ts` — `transitionTo()` 驱动 |
 | 新增NPC状态 | `NpcState` 类型 + `STATE_TRANSITIONS` + `onEnterState` |

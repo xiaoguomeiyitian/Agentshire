@@ -13,14 +13,12 @@ interface SlotDef {
 const SLOT_ICONS: Record<BindingSlot, string> = {
   office: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"/><path d="M5 21V5a2 2 0 012-2h10a2 2 0 012 2v16"/><path d="M9 7h1"/><path d="M14 7h1"/><path d="M9 11h1"/><path d="M14 11h1"/><path d="M9 15h1"/><path d="M14 15h1"/></svg>',
   museum: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 21h18"/><path d="M3 10h18"/><path d="M12 3l9 7H3l9-7z"/><path d="M6 10v8"/><path d="M10 10v8"/><path d="M14 10v8"/><path d="M18 10v8"/></svg>',
-  userHome: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
   houses: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l4-3.5L11 9v9H3V9z"/><path d="M13 6l4-3.5L21 6v12h-8V6z"/><path d="M6 18v-3h2v3"/><path d="M16 18v-4h2v4"/></svg>',
 }
 
 const SLOTS: SlotDef[] = [
-  { slot: 'office',   icon: SLOT_ICONS.office,   label: getLocale() === 'en' ? 'Office' : '办公室',    required: true,  auto: false },
+  { slot: 'office',   icon: SLOT_ICONS.office,   label: getLocale() === 'en' ? 'Workshop' : '工坊',    required: true,  auto: false },
   { slot: 'museum',   icon: SLOT_ICONS.museum,   label: getLocale() === 'en' ? 'Museum' : '博物馆',    required: false, auto: false },
-  { slot: 'userHome', icon: SLOT_ICONS.userHome,  label: getLocale() === 'en' ? 'User Home' : '用户住宅',  required: false, auto: false },
   { slot: 'houses',   icon: SLOT_ICONS.houses,    label: getLocale() === 'en' ? 'NPC Houses' : 'NPC 住宅', required: false, auto: true  },
 ]
 

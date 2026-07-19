@@ -16,9 +16,10 @@ import {
   readdirSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { stateDir, initStateDir } from "./paths.js";
 import { getTownRuntime } from "./runtime.js";
-import { buildTownInboundContext } from "./channel.js";
+import { initTown } from "./town-sync.js";
 
 
 function getStewardWorkspaceDir(): string {
@@ -697,7 +698,7 @@ function resolveModelUrlServer(
 }
 
 const DEFAULT_STEWARD_NAME = "OpenClaw";
-const DEFAULT_STEWARD_BIO = "干练御姐，做事利落，职业经理型，善于引导对话，通过调度居民完成任务";
+const DEFAULT_STEWARD_BIO = "干练御姐，做事利落，善于引导对话，是小镇的向导与管家";
 
 function composeStewardSoul(
   name: string,
@@ -1843,14 +1844,6 @@ async function handleClawApi(
         // Session
         if (body.session) {
           const ss: any = {};
-          if (body.session.maxHistoryTurns !== undefined) {
-            const n = Number(body.session.maxHistoryTurns);
-            if (Number.isFinite(n) && n >= 0) ss.maxHistoryTurns = n;
-          }
-          if (body.session.compactionThresholdTokens !== undefined) {
-            const n = Number(body.session.compactionThresholdTokens);
-            if (Number.isFinite(n) && n > 0) ss.compactionThresholdTokens = n;
-          }
           if (body.session.scope !== undefined) ss.scope = String(body.session.scope);
           if (body.session.idleMinutes !== undefined) {
             const n = Number(body.session.idleMinutes);
@@ -2320,6 +2313,54 @@ async function handleClawApi(
         jsonRes(res, { success: true, cleared });
         return true;
       }
+      case "town/init": {
+        // Full town re-initialization: removes all citizen agents + workspaces,
+        // clears ALL runtime data (sessions, memories, snapshots, clock, runtime,
+        // economy, group-chat history, agent sqlite, steward workspace), then
+        // re-creates steward + citizen workspaces from the project's latest
+        // personality files (town-souls/*.md, town-workspace/*) and re-registers
+        // citizen agents in openclaw.json. After this, the town is in the same
+        // state as a fresh install. The frontend should call town/restart then
+        // reload the page.
+        const result = initTown();
+        if (!result.success) {
+          jsonRes(res, { success: false, error: result.error ?? "init failed" }, 500);
+          return true;
+        }
+        console.log(
+          `[town/init] removed=${result.removal.workspacesRemoved}ws/${result.removal.agentsRemoved}agents ` +
+          `cleared=${result.clearing.sessionsCleared}sess/${result.clearing.agentSqliteCleared}sqlite ` +
+          `steward=${result.stewardRecreated} citizens=${result.citizens.citizensCreated}/${result.citizens.agentsRegistered}`,
+        );
+        jsonRes(res, {
+          ...result,
+          success: true,
+        });
+        return true;
+      }
+      case "town/restart": {
+        // Issue 7: restart the OpenClaw gateway so the town resumes from a
+        // clean state after a reset. Spawns `openclaw gateway restart` in the
+        // background. The HTTP response returns immediately; the actual
+        // restart happens asynchronously (the gateway process will exit and
+        // be relaunched by the service manager).
+        try {
+          const child = spawn("openclaw", ["gateway", "restart", "--force"], {
+            stdio: "ignore",
+            detached: true,
+            cwd: process.cwd(),
+          });
+          child.on("error", (err) => {
+            console.warn(`[town/restart] spawn failed:`, (err as Error).message);
+          });
+          child.unref();
+          console.log(`[town/restart] spawned openclaw gateway restart`);
+          jsonRes(res, { success: true, message: "restart initiated" });
+        } catch (err: any) {
+          jsonRes(res, { success: false, error: err?.message ?? "restart failed" }, 500);
+        }
+        return true;
+      }
       default:
         jsonRes(res, { error: "Unknown API" }, 404);
         return true;
@@ -2526,19 +2567,6 @@ export async function handleEditorRequest(
   if (urlPath.startsWith("/claw/_api/")) {
     const route = urlPath.slice("/claw/_api/".length).split("?")[0];
     return handleClawApi(req, res, route);
-  }
-
-  // /board/plans → read-only plan snapshot for office whiteboard
-  if (urlPath === "/board/plans" && method === "GET") {
-    const { snapshotPlansForDisplay } = await import("./plan-manager.js");
-    const plans = snapshotPlansForDisplay();
-    res.writeHead(200, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "no-cache",
-    });
-    res.end(JSON.stringify({ success: true, plans }));
-    return true;
   }
 
   return false;

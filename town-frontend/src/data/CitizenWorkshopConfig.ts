@@ -150,41 +150,11 @@ export interface PublishedCitizenConfig {
 }
 
 export const INDUSTRY_SPECIALTY_MAP: Record<string, string[]> = {
-  '互联网': ['前端开发', '后端开发', '全栈开发', '移动开发', '架构设计', '运维'],
-  '产品设计': ['产品经理', 'UI设计', 'UX设计', '交互设计'],
-  '自媒体': ['内容运营', '短视频创作', '直播运营', '文案写作', '社群运营'],
-  '金融': ['投资分析', '风控合规', '量化交易', '财务管理'],
-  '电商': ['电商运营', '供应链', '选品分析', '用户增长'],
-  '教育': ['课程设计', '教学研究', '知识管理'],
-  '市场营销': ['品牌策略', '广告投放', '市场调研', 'SEO/SEM'],
-  '数据': ['数据分析', '数据工程', '商业智能'],
-  '游戏': ['游戏策划', '游戏开发', '游戏美术'],
-  '项目管理': ['项目管理', '质量保障'],
+  '建造': ['木工与搭建', '修缮与维护', '园林营造'],
+  '创意': ['出点子', '绘画与布置', '手工修补'],
+  '修理': ['修理与种植', '器具修缮', '种植与园艺'],
+  '记录': ['写日记与拍照', '记账与观察', '故事记录'],
   '通用': ['通用助手'],
-}
-
-const INDUSTRY_SPECIALTY_MAP_EN: Record<string, string[]> = {
-  'Tech': ['Frontend', 'Backend', 'Fullstack', 'Mobile', 'Architect', 'DevOps'],
-  'Design': ['Product Manager', 'UI Design', 'UX Design', 'Interaction'],
-  'Media': ['Content Ops', 'Video Creator', 'Live Ops', 'Copywriting', 'Community'],
-  'Finance': ['Investment', 'Risk & Compliance', 'Quant Trading', 'Finance Mgmt'],
-  'E-commerce': ['E-com Ops', 'Supply Chain', 'Product Selection', 'Growth'],
-  'Education': ['Curriculum', 'Research', 'Knowledge Mgmt'],
-  'Marketing': ['Brand Strategy', 'Ad Ops', 'Market Research', 'SEO/SEM'],
-  'Data': ['Data Analysis', 'Data Engineering', 'BI'],
-  'Gaming': ['Game Design', 'Game Dev', 'Game Art'],
-  'Project': ['Project Mgmt', 'QA'],
-  'General': ['General Assistant'],
-}
-
-export function getIndustrySpecialtyMap(): Record<string, string[]> {
-  return getLocale() === 'en' ? INDUSTRY_SPECIALTY_MAP_EN : INDUSTRY_SPECIALTY_MAP
-}
-
-export const INDUSTRY_LIST = Object.keys(INDUSTRY_SPECIALTY_MAP)
-
-export function getSpecialtiesForIndustry(industry: string): string[] {
-  return INDUSTRY_SPECIALTY_MAP[industry] ?? ['通用助手']
 }
 
 export function createDefaultWorkshopConfig(): CitizenWorkshopConfig {
@@ -200,17 +170,17 @@ export function createDefaultWorkshopConfig(): CitizenWorkshopConfig {
       name: 'shire',
       avatarId: 'char-female-b',
       modelSource: 'builtin',
-      bio: isEn ? 'Sharp and decisive manager, delegates tasks, never codes, orchestrates citizens' : '干练御姐，做事利落，职业经理型，善于引导对话，不亲自写代码，通过调度居民完成任务',
+      bio: isEn ? 'Sharp and decisive, the town guide who introduces citizens and reshapes scenes' : '干练御姐，做事利落，善于引导对话，是小镇的向导与管家',
       persona: 'SOUL',
     },
     citizens: [
-      { id: 'citizen_1', name: isEn ? 'Yan' : '岩', avatarId: 'char-male-b', modelSource: 'builtin', bio: isEn ? 'Quiet, logical, architecture purist with a global view' : '沉稳寡言，逻辑至上，架构洁癖，全局视野，技术信仰者', industry: '互联网', specialty: isEn ? 'Architect' : '架构设计', persona: 'YAN', homeId: 'house_a' },
-      { id: 'citizen_2', name: isEn ? 'Chengzi' : '橙子', avatarId: 'char-female-c', modelSource: 'builtin', bio: isEn ? 'Fast thinker, ideas overflow, obsessed with UX empathy' : '脑子转速极快，想法多到溢出来，开朗到有点吵，对用户体验有偏执的共情力', industry: '产品设计', specialty: isEn ? 'Product' : '产品经理', persona: 'CHENGZI', homeId: 'house_b' },
-      { id: 'citizen_3', name: isEn ? 'Haitang' : '海棠', avatarId: 'char-female-e', modelSource: 'builtin', bio: isEn ? 'Elegant, few words, extraordinary color perception' : '安静优雅，审美洁癖，话少但每句都跟视觉有关，色彩感知力异常', industry: '产品设计', specialty: isEn ? 'UI Design' : 'UI设计', persona: 'HAITANG', homeId: 'house_c' },
-      { id: 'citizen_4', name: isEn ? 'Diandian' : '点点', avatarId: 'char-female-f', modelSource: 'builtin', bio: isEn ? 'Warm and sunny, solid dev, team morale booster' : '温暖阳光，邻家妹妹型程序员，技术扎实但从不炫耀，团队气氛担当', industry: '互联网', specialty: isEn ? 'Frontend' : '前端开发', persona: 'DIANDIAN', homeId: 'house_a' },
-      { id: 'citizen_5', name: isEn ? 'Xiaolie' : '小烈', avatarId: 'char-male-e', modelSource: 'builtin', bio: isEn ? 'Action-first, blazing fast, thrives on hard problems' : '热血冲劲，行动派，先干再说，效率惊人，遇到技术难题像打BOSS一样兴奋', industry: '互联网', specialty: isEn ? 'Backend' : '后端开发', persona: 'XIAOLIE', homeId: 'house_b' },
-      { id: 'citizen_6', name: isEn ? 'Qiqi' : '柒柒', avatarId: 'char-female-d', modelSource: 'builtin', bio: isEn ? 'Creative fountain, knows what goes viral but values substance' : '灵感涌泉，表达欲旺盛，自媒体老手，知道什么能火但更在意内容有没有价值', industry: '自媒体', specialty: isEn ? 'Content' : '内容运营', persona: 'QIQI', homeId: 'house_c' },
-      { id: 'citizen_7', name: isEn ? 'Chen' : '辰', avatarId: 'char-male-d', modelSource: 'builtin', bio: isEn ? 'Cold logic, speaks only in conclusions, data is religion' : '冷静理性，数据洁癖，沉默但一开口就是结论，用数据说话是信仰不是习惯', industry: '数据', specialty: isEn ? 'Data' : '数据分析', persona: 'CHEN', homeId: 'house_a' },
+      { id: 'citizen_1', name: isEn ? 'Yan' : '岩', avatarId: 'char-male-b', modelSource: 'builtin', bio: isEn ? 'Quiet, logical, structure purist, woodwork believer, physically uncomfortable with crooked beams' : '沉稳寡言，逻辑至上，对结构有偏执的洁癖，全局视野，木工信仰者，看到歪的梁会物理不适', industry: '建造', specialty: isEn ? 'Woodwork' : '木工与搭建', persona: 'YAN', homeId: 'house_a' },
+      { id: 'citizen_2', name: isEn ? 'Chengzi' : '橙子', avatarId: 'char-female-c', modelSource: 'builtin', bio: isEn ? 'Fast thinker, ideas overflow, obsessed with neighbors living comfortably' : '脑子转速极快，想法多到溢出来，开朗到有点吵，对邻居过得舒不舒服有偏执的共情力', industry: '创意', specialty: isEn ? 'Ideas' : '出点子', persona: 'CHENGZI', homeId: 'house_b' },
+      { id: 'citizen_3', name: isEn ? 'Haitang' : '海棠', avatarId: 'char-female-e', modelSource: 'builtin', bio: isEn ? 'Elegant, few words, extraordinary color perception' : '安静优雅，审美洁癖，话少但每句都跟视觉有关，色彩感知力异常', industry: '创意', specialty: isEn ? 'Painting' : '绘画与布置', persona: 'HAITANG', homeId: 'house_c' },
+      { id: 'citizen_4', name: isEn ? 'Diandian' : '点点', avatarId: 'char-female-f', modelSource: 'builtin', bio: isEn ? 'Warm and sunny, crafty and careful, loves mending and handmade, never shows off' : '温暖阳光，邻家妹妹型，手巧心细，爱修补东西做手工，从不炫耀', industry: '创意', specialty: isEn ? 'Mending' : '手工修补', persona: 'DIANDIAN', homeId: 'house_a' },
+      { id: 'citizen_5', name: isEn ? 'Xiaolie' : '小烈', avatarId: 'char-male-e', modelSource: 'builtin', bio: isEn ? 'Action-first, blazing energy, thrives on hard problems like a boss fight' : '热血冲劲，行动派，先干再说，精力惊人，遇到难题像打BOSS一样兴奋', industry: '修理', specialty: isEn ? 'Repair & Plant' : '修理与种植', persona: 'XIAOLIE', homeId: 'house_b' },
+      { id: 'citizen_6', name: isEn ? 'Qiqi' : '柒柒', avatarId: 'char-female-d', modelSource: 'builtin', bio: isEn ? 'Creative fountain, town storyteller, knows what moves people but values substance more' : '灵感涌泉，表达欲旺盛，小镇故事记录者，知道什么故事动人但更在意故事有没有价值', industry: '记录', specialty: isEn ? 'Diary & Photo' : '写日记与拍照', persona: 'QIQI', homeId: 'house_c' },
+      { id: 'citizen_7', name: isEn ? 'Chen' : '辰', avatarId: 'char-male-d', modelSource: 'builtin', bio: isEn ? 'Cold logic, speaks only in conclusions, data is religion not habit' : '冷静理性，数据洁癖，沉默但一开口就是结论，用数据说话是信仰不是习惯', industry: '记录', specialty: isEn ? 'Bookkeeping' : '记账与观察', persona: 'CHEN', homeId: 'house_a' },
     ],
   }
 }
@@ -234,16 +204,6 @@ const SLOT_MATCH_KEYWORDS: Record<AnimSlot, string[]> = {
 export const SLOT_LABELS: Record<string, string> = {
   idle: '待机', walk: '行走', typing: '工作', wave: '打招呼',
   cheer: '庆祝', reading: '阅读', frustrated: '沮丧', dancing: '跳舞',
-}
-
-const SLOT_LABELS_EN: Record<string, string> = {
-  idle: 'Idle', walk: 'Walk', typing: 'Work', wave: 'Wave',
-  cheer: 'Celebrate', reading: 'Read', frustrated: 'Frustrated', dancing: 'Dance',
-}
-
-export function getSlotLabel(key: string): string {
-  const map = getLocale() === 'en' ? SLOT_LABELS_EN : SLOT_LABELS
-  return map[key] ?? key
 }
 
 export function autoMatchAnimSlots(clipNames: string[], existing?: AnimMapping): AnimMapping {

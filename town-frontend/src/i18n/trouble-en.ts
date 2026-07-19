@@ -1,0 +1,72 @@
+// Worry event voice lines — small-town life troubles (no workplace memes).
+// Themes: weather worries, lost items, garden troubles, pet mishaps, neighbor spats.
+
+export const VOICE_POOL_EN: Record<number | string, string[]> = {
+  2: [
+    'Hmm, I feel a bit lighter', 'Someone cheered me up?', 'Thanks for the small kindness',
+    'A little weight off my shoulders', 'My mood lifted slightly', 'I think I can manage now',
+    'That was kind of you', 'I feel a touch better', 'A small comfort goes a long way',
+    'My worry eased just a little', 'The cloud over me thinned a bit', 'I can breathe easier now',
+    'A gentle word helped', 'I needed that reassurance', 'The knot in my chest loosened',
+    'Someone noticed I was down', 'A small ray of sunshine', 'I feel less alone with this',
+    'The burden shared is lighter', 'A moment of peace, thank you', 'My heart settled a little',
+    'I think things will be okay', 'A small kindness, big difference', 'The worry faded slightly',
+    'I can face the day again', 'A gentle hand on my shoulder', 'My spirits rose a notch',
+    'The storm in my mind calmed', 'A quiet moment of relief', 'I feel heard, thank you',
+  ],
+  4: [
+    'I feel much better now!', 'That really helped, thank you', 'My worry has faded away',
+    'I can think clearly again', 'What a relief!', 'You really turned my day around',
+    'I feel like myself again', 'The cloud has lifted', 'I can smile again',
+    'Thank you, that means a lot', 'My heart feels lighter', 'I can enjoy the day now',
+    'The trouble seems smaller now', 'I feel hopeful again', 'A burden lifted, thank you',
+    'I can face this now', 'Your kindness made a difference', 'I feel at peace',
+    'The worry has passed', 'I can breathe freely again', 'My mind is clear now',
+    'Thank you for caring', 'I feel supported and grateful', 'The shadow is gone',
+    'I can move forward now', 'A weight off my mind', 'I feel renewed',
+    'The day looks bright again', 'My spirit is restored', 'I can handle things now',
+  ],
+  7: [
+    'I feel wonderful, thank you!', 'You completely turned my day around!', 'I\'m so grateful for your help',
+    'My worry is a distant memory now', 'I feel joyful again!', 'You have such a kind heart',
+    'The town is lucky to have you', 'I feel truly cared for', 'My heart is full of gratitude',
+    'I can\'t thank you enough', 'The cloud has completely lifted', 'I feel light and happy',
+    'You made all the difference', 'I feel blessed by your kindness', 'My spirit is soaring',
+    'I can enjoy life fully again', 'Thank you from the bottom of my heart', 'The worry is gone for good',
+    'I feel surrounded by warmth', 'You restored my faith in good neighbors', 'I\'m deeply touched',
+    'My day went from grey to golden', 'I feel cherished by this town', 'You have a gift for comfort',
+    'I\'ll pay this kindness forward', 'The town feels like home because of you', 'I feel truly at peace',
+    'My heart sings with gratitude', 'You turned my worry into joy', 'I feel whole again',
+  ],
+  10: [
+    'You\'re an angel! Truly!', 'I\'ll never forget your kindness!', 'You saved my day, my heart, everything!',
+    'I\'m overwhelmed with gratitude!', 'This town is blessed by people like you!', 'You\'re a treasure to this community!',
+    'I feel like the luckiest person alive!', 'My heart is overflowing with thanks!', 'You turned my darkest hour bright!',
+    'I\'ll tell everyone about your kindness!', 'You\'re the heart of this town!', 'I feel like I\'ve been given a new start!',
+    'You\'re a true friend in every sense!', 'My gratitude is beyond words!', 'You made me believe in goodness again!',
+    'I feel like I\'ve been hugged by the whole town!', 'You\'re a miracle in human form!', 'My worry is a distant echo now!',
+    'I feel like I can conquer anything!', 'You\'re the kindest soul I\'ve ever met!', 'This town is my home because of you!',
+    'I feel like I\'ve been given wings!', 'You turned my tears into laughter!', 'I\'m forever in your debt!',
+    'You\'re the sunshine on my cloudy days!', 'My heart will remember this always!', 'You\'re the definition of a good neighbor!',
+    'I feel like the world is full of light!', 'You\'re a gift to everyone around you!', 'My gratitude will last a lifetime!',
+  ],
+  boss: [
+    'The worry cloud has dispersed!', 'Sunshine fills the town again!', 'Everyone can smile now!',
+    'The gloom is gone, peace returns!', 'The dark cloud lifted at last!', 'Together we chased the worry away!',
+    'The town feels light and free again!', 'The shadow over us is gone!', 'Peace restored, worries dissolved!',
+    'What a relief for everyone!', 'United, we overcame the gloom!', 'The worry cloud, defeated!',
+    'We can all rest easy now!', 'Begone, dark cloud, begone!', 'The town breathes freely again!',
+    'Not worried, but winning!', 'We turned worry into warmth!', 'The cloud\'s grip is broken!',
+    'Freedom! Fresh air for everyone!', 'This will be remembered in the town!', 'The gloom stood no chance!',
+    'Actually looking forward to tomorrow!', 'Town peace, protected by all of us!', 'The cloud, gone for good!',
+    'Thanks everyone! Thanks for caring!', 'Worry? Don\'t know her anymore!', 'The town shines bright today!',
+    'Best town in the world, truly!', 'Thanks for the teamwork, everyone!', 'Nobody stays worried in this town!',
+  ],
+}
+
+export const WARN_POOL_EN: Record<number, string> = {
+  3: 'Worry is rising... ⚠️',
+  6: 'The gloom is spreading! ⚠️',
+  9: 'The worry cloud is growing! ⚠️',
+  12: 'CRITICAL worry level!! ⚠️',
+}

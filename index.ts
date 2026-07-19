@@ -9,7 +9,6 @@ import { extractTownSessionId } from "./src/plugin/town-session.js";
 import { createTownTools } from "./src/plugin/tools.js";
 import { estimateInputTokens, estimateOutputTokens, withEstimatedFallback } from "./src/plugin/token-estimate.js";
 import { onSubagentSpawned, onSubagentEnded, getLabelForSession, stopAll as stopAllWatchers } from "./src/plugin/subagent-tracker.js";
-import { onAgentStarted, onAgentCompleted, clearPlan, isCurrentBatchDone, hasActivePlan, cleanupStaleSessionPlans } from "./src/plugin/plan-manager.js";
 import { pushNewChatMessages, pushSubagentCompletion } from "./src/plugin/ws-server.js";
 import { handleEditorRequest, ensureEditorDirs, MIME_TYPES } from "./src/plugin/editor-serve.js";
 import { getAgentModelRef } from "./src/plugin/citizen-agent-manager.js";
@@ -33,34 +32,8 @@ export function getToolCallAgent(toolUseId: string): string | null {
   return toolCallAgentMap.get(toolUseId) ?? null;
 }
 
-const NUDGE_DELAY_MS = 10_000;
-let pendingNudgeTimer: ReturnType<typeof setTimeout> | null = null;
 let httpServer: import("node:http").Server | null = null;
 
-function cancelNudge(): void {
-  if (pendingNudgeTimer) {
-    clearTimeout(pendingNudgeTimer);
-    pendingNudgeTimer = null;
-  }
-}
-
-function scheduleNudge(townSessionId: string): void {
-  cancelNudge();
-  pendingNudgeTimer = setTimeout(async () => {
-    pendingNudgeTimer = null;
-    console.log('[agentshire] nudge: steward did not resume after batch completion, sending nudge message');
-    try {
-      const { sendNudgeMessage } = await import("./src/plugin/channel.js");
-      const { sanitizeTownSessionId } = await import("./src/plugin/town-session.js");
-      await sendNudgeMessage(
-        sanitizeTownSessionId(townSessionId),
-        '[系统通知] 当前批次的居民已全部完成任务。请调用 next_step() 查看下一步指令。',
-      );
-    } catch (err) {
-      console.error('[agentshire] nudge: failed to send nudge message:', err);
-    }
-  }, NUDGE_DELAY_MS);
-}
 
 export { agentTownPlugin } from "./src/plugin/channel.js";
 export { setTownRuntime } from "./src/plugin/runtime.js";
@@ -253,10 +226,7 @@ function registerHooks(api: OpenClawPluginApi): void {
         return;
       }
       if (hookName === 'before_model_resolve' || hookName === 'before_tool_call' || hookName === 'llm_input') {
-        if (pendingNudgeTimer) {
-          console.log('[agentshire] nudge cancelled: steward resumed on its own');
-          cancelNudge();
-        }
+        // nudge mechanism removed (workflow deleted)
       }
       if (hookName === 'before_model_resolve') {
         const sid = resolveSessionId(ctx, event as any);
@@ -299,21 +269,14 @@ function registerHooks(api: OpenClawPluginApi): void {
     dispatchSteward("subagent_spawned", event as any, ctx);
     onSubagentSpawned(event as Record<string, unknown>, sid, (fallbackLabel, fallbackSid) => {
       console.log(`[agentshire] fallback: marking "${fallbackLabel}" as completed`);
-      onAgentCompleted(fallbackLabel, true);
 
       if (fallbackSid) {
         setTimeout(() => pushSubagentCompletion(
           String((event as any).childSessionKey ?? ""), fallbackSid), 800);
       }
-
-      if (hasActivePlan() && isCurrentBatchDone()) {
-        if (fallbackSid) {
-          console.log('[agentshire] fallback: batch complete, scheduling nudge');
-          scheduleNudge(fallbackSid);
-        }
-      }
     });
-    if (label) onAgentStarted(label);
+    const label0 = String(event.label ?? event.displayName ?? "");
+    if (label0) pendingSpawnTasks.delete(label0);
   });
 
   api.on("subagent_ended", (event: any, ctx: any) => {
@@ -324,7 +287,6 @@ function registerHooks(api: OpenClawPluginApi): void {
     const success = String(event.outcome ?? "ok") !== "error";
     if (label) {
       console.log(`[agentshire] subagent_ended: label="${label}" success=${success}`);
-      onAgentCompleted(label, success);
     }
 
     const childKey = String(event.targetSessionKey ?? "");
@@ -334,14 +296,6 @@ function registerHooks(api: OpenClawPluginApi): void {
         setTimeout(() => pushSubagentCompletion(childKey, sid), 800);
       }
     }
-
-    if (hasActivePlan() && isCurrentBatchDone()) {
-      const sid = resolveSessionId(ctx, event as any);
-      if (sid) {
-        console.log('[agentshire] batch complete detected, scheduling nudge in', NUDGE_DELAY_MS, 'ms');
-        scheduleNudge(sid);
-      }
-    }
   });
 
   api.on("session_start", (event: any, ctx: any) => {
@@ -349,7 +303,6 @@ function registerHooks(api: OpenClawPluginApi): void {
     const sid = resolveSessionId(ctx, event as any);
     if (sid) clearEventBuffer(sid);
     if (sid) {
-      cleanupStaleSessionPlans(sid);
       setTimeout(() => pushNewChatMessages(sid), 200);
     }
     // Broadcast system.init directly (was previously dispatched via the
@@ -367,8 +320,6 @@ function registerHooks(api: OpenClawPluginApi): void {
   api.on("session_end", (event: any, ctx: any) => {
     if (!isStewardDirect(ctx)) return;
     dispatchSteward("session_end", event as any, ctx);
-    clearPlan();
-    cancelNudge();
   });
 
   api.on("message_sending", (event: any, ctx: any) => {
@@ -477,7 +428,7 @@ function registerFull(api: OpenClawPluginApi): void {
 
         const server = createServer(async (req, res) => {
           let urlPath = new URL(req.url ?? "/", `http://localhost:${townPort}`).pathname;
-          if (urlPath === "/" || urlPath === "") urlPath = "/index.html";
+          if (urlPath === "/" || urlPath === "") urlPath = "/town.html";
 
           const { requireAuth } = await import("./src/plugin/auth.js");
           if (await requireAuth(req, res, urlPath, config)) return;
@@ -543,7 +494,7 @@ function registerFull(api: OpenClawPluginApi): void {
             res.end(readFileSync(htmlFile));
             return;
           }
-          const indexPath = join(distDir, "index.html");
+          const indexPath = join(distDir, "town.html");
           if (existsSync(indexPath)) {
             res.writeHead(200, { "Content-Type": "text/html" });
             res.end(readFileSync(indexPath));

@@ -38,6 +38,10 @@ export default defineConfig(({ mode }) => ({
     include: ['src/**/*.test.ts', '../src/bridge/**/*.test.ts'],
   },
   base: './',
+  // recast-navigation 提供 WASM,需排除预打包以正确加载 .wasm 文件
+  optimizeDeps: {
+    exclude: ['recast-navigation', '@recast-navigation/three', '@recast-navigation/core', '@recast-navigation/wasm'],
+  },
   server: {
     host: true,
     port: 55210,
@@ -68,8 +72,9 @@ export default defineConfig(({ mode }) => ({
     chunkSizeWarningLimit: 1000,
     rolldownOptions: {
       input: {
-        main: resolve(__dirname, 'index.html'),
         town: resolve(__dirname, 'town.html'),
+        chat: resolve(__dirname, 'chat.html'),
+        claw: resolve(__dirname, 'claw.html'),
         editor: resolve(__dirname, 'editor.html'),
         preview: resolve(__dirname, 'preview.html'),
         citizenEditor: resolve(__dirname, 'citizen-editor.html'),

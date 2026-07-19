@@ -26,6 +26,35 @@ export class OfficeBuilder {
 
   constructor(scene: THREE.Scene) { this.scene = scene }
 
+  /**
+   * Return obstacle rectangles for office furniture (desks + visitor couch/table).
+   * Each rectangle is in world coords with a small margin so NPCs slide around
+   * furniture instead of walking through it. Used by MainScene to install a
+   * scene-specific obstacle query when the office scene is active.
+   */
+  getObstacles(): Array<{ minX: number; maxX: number; minZ: number; maxZ: number }> {
+    const obstacles: Array<{ minX: number; maxX: number; minZ: number; maxZ: number }> = []
+    // Issue 2: desk model is 2×1 scaled 1.2 → ~2.4×1.2 footprint. The chair
+    // sits at z+1. We cover the desk + chair area with a small margin so
+    // NPCs don't clip the desk edge. Previous margin 0.4 was too large and
+    // caused NPCs to detour too far from desks.
+    const deskW = 2.4, deskD = 2.2, margin = 0.2
+    for (const ws of this.workstations) {
+      const cx = ws.position.x
+      // Desk center is at (x, z); chair at (x, z+1). Cover both.
+      const cz = ws.position.z + 0.3
+      obstacles.push({
+        minX: cx - deskW / 2 - margin,
+        maxX: cx + deskW / 2 + margin,
+        minZ: cz - deskD / 2 - margin,
+        maxZ: cz + deskD / 2 + margin,
+      })
+    }
+    // Visitor area couch + low table (around x=3, z=21..23)
+    obstacles.push({ minX: 1.9, maxX: 4.1, minZ: 20.4, maxZ: 23.6 })
+    return obstacles
+  }
+
   build(assets: AssetLoader): void {
     this.buildFloor()
     this.buildWalls()
@@ -156,10 +185,14 @@ export class OfficeBuilder {
   static readonly CHAIR_SEAT_HEIGHT = 0.5
 
   private buildWorkstations(assets: AssetLoader): void {
-    const ids = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+    // Issue 3: reduced from 10 desks (2 rows × 5, 5-unit spacing) to 6 desks
+    // (2 rows × 3, 8-unit spacing) so citizens have more room to navigate
+    // without getting stuck between desks. 6 slots are enough for the default
+    // 7-8 citizens (not all are working at once).
+    const ids = ['A', 'B', 'C', 'D', 'E', 'F']
     const positions: [number, number][] = [
-      [4, 8], [9, 8], [14, 8], [19, 8], [24, 8],
-      [4, 16], [9, 16], [14, 16], [19, 16], [24, 16],
+      [6, 8], [15, 8], [24, 8],
+      [6, 17], [15, 17], [24, 17],
     ]
 
     for (let i = 0; i < ids.length; i++) {
@@ -310,14 +343,6 @@ export class OfficeBuilder {
       ws.screenRenderer.update(dt)
     }
     this.whiteboard.update(dt)
-  }
-
-  startWhiteboardPolling(baseUrl: string): void {
-    this.whiteboard.startPolling(baseUrl)
-  }
-
-  stopWhiteboardPolling(): void {
-    this.whiteboard.stopPolling()
   }
 
   clear(): void {

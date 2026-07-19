@@ -9,9 +9,8 @@ src/plugin/
 ├── channel.ts                 # ChannelPlugin 实现（startAccount启动WS/注册回调）
 ├── hook-translator.ts         # 纯函数：OpenClaw Hook名 → AgentEvent
 ├── ws-server.ts               # WebSocket服务器 + 会话绑定 + 消息路由
-├── tools.ts                   # AI工具注册（14个工具）
+├── tools.ts                   # AI工具注册（8个工具）
 ├── auto-config.ts             # 零配置：自动创建town-steward Agent + Binding
-├── plan-manager.ts            # 多Agent计划状态机（步骤/批次/enriched task）
 ├── citizen-agent-manager.ts   # 独立居民Agent CRUD（写openclaw.json）
 ├── citizen-chat-router.ts     # 用户↔居民Agent消息路由
 ├── citizen-workshop-manager.ts # 居民工坊配置持久化（citizen-config.json）
@@ -47,8 +46,7 @@ Hook事件流：
 子Agent生命周期：
  subagent_spawned → pendingSpawnTasks缓存task → onSubagentSpawned()
    → SessionLogWatcher监听JSONL → broadcastAgentEvent(子事件)
- subagent_ended → onSubagentEnded() → plan-manager.onAgentCompleted()
-   → 批次完成？→ scheduleNudge(10s后提醒next_step)
+ subagent_ended → onSubagentEnded() → 转发完成事件
 ```
 
 ## Hook 翻译表（hook-translator.ts）
@@ -76,30 +74,9 @@ Hook事件流：
 | `town_set_time` | 控制时钟 | `world_control.time` |
 | `town_set_weather` | 控制天气 | `world_control.weather` |
 | `town_status` | 查看状态 | —（返回文本） |
-| `register_project` | 注册项目 | — |
-| `create_project` | 创建项目目录 | — |
-| `create_plan` | 创建多Agent计划 | — |
-| `next_step` | 获取下一步指令 | — |
-| `project_complete` | 宣布完成 | `tool_result`(触发publishing) |
 | `town_get_my_status` | 获取自身状态/位置 | —（plugin↔frontend NPC查询通道） |
 | `town_query_nearby_citizens` | 查询半径内居民 | —（plugin↔frontend NPC查询通道） |
 | `town_walk_to` | 行走至坐标 | —（plugin↔frontend NPC查询通道） |
-
-## plan-manager：多 Agent 计划编排
-
-```
-create_plan(steps) → 验证(多Agent步骤必须有files且不重叠)
-  → 存储计划(追加隐含_complete步骤)
-
-next_step() → 生成当前进度报告 + 下一批spawn指令
-  → buildEnrichedTask(角色人设+项目目录+文件边界+通用规则)
-
-onAgentStarted(label) → 标记agent为active
-onAgentCompleted(label, success) → 标记完成 → isCurrentBatchDone()?
-  → 是 → index.ts scheduleNudge(10s后提醒管家)
-
-支持 parallel 标记：步骤可与前一步并行执行
-```
 
 ## editor-serve：编辑器 HTTP API
 
@@ -134,7 +111,7 @@ onAgentCompleted(label, success) → 标记完成 → isCurrentBatchDone()?
 
 ## citizen-agent-manager：独立居民 Agent
 
-居民不只是子Agent（工作时），也可以是独立Agent（有自己的工作区和会话）。
+居民是独立Agent（有自己的工作区和会话），有自己的手艺和日常节奏。
 
 | 操作 | 行为 |
 |------|------|
@@ -173,7 +150,7 @@ onAgentCompleted(label, success) → 标记完成 → isCurrentBatchDone()?
 
 ## Nudge 机制（index.ts）
 
-当一批子Agent全部完成（`isCurrentBatchDone()`）但管家 10 秒内未响应时，自动发送系统通知"请调用 next_step()"。管家恢复活动（`before_agent_start` / `before_tool_call` / `llm_input`）时自动取消。
+（工作流已删除，Nudge 机制已停用。子Agent完成事件直接转发，不再提醒管家调用 next_step。）
 
 ## 常见改动
 
@@ -181,7 +158,6 @@ onAgentCompleted(label, success) → 标记完成 → isCurrentBatchDone()?
 |---------|--------|
 | 新增Hook→AgentEvent映射 | `hook-translator.ts` |
 | 新增AI工具 | `tools.ts` |
-| 修改计划编排/enriched task | `plan-manager.ts` |
 | 修改编辑器API | `editor-serve.ts` |
 | 修改居民Agent创建/销毁 | `citizen-agent-manager.ts` |
 | 修改居民聊天路由 | `citizen-chat-router.ts` |

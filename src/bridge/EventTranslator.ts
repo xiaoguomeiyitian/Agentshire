@@ -128,7 +128,7 @@ export class EventTranslator {
       const stationId = this.tracker.allocateStation()
 
       const events: GameEvent[] = [
-        { type: 'npc_spawn', npcId, name: displayName, role: 'programming', category: 'citizen', task: event.task },
+        { type: 'npc_spawn', npcId, name: displayName, role: 'citizen', category: 'citizen', task: event.task },
       ]
       if (stationId) {
         this.tracker.setStationForNpc(npcId, stationId)

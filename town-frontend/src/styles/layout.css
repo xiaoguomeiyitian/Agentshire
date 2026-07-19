@@ -107,7 +107,9 @@ body.embedded-mode #tab-settings { display: none; }
     left: 8px; right: 8px; bottom: 120px;
     padding: 12px; border-radius: 16px;
   }
-  #npc-card.has-logs { top: 12%; bottom: 120px; }
+  /* Issue: match topic-detail-panel height (top: 12px) so the resident
+     detail card and the topic detail panel occupy the same vertical span. */
+  #npc-card.has-logs { top: 12px; bottom: 120px; }
   #town-bottom-panel {
     left: 8px; right: 8px; bottom: 8px;
     border-radius: 16px;

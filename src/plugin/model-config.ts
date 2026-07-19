@@ -117,10 +117,6 @@ export function readOpenClawConfig(): any {
   return loadOpenClawConfig();
 }
 
-export function writeOpenClawConfig(cfg: any): void {
-  saveOpenClawConfig(cfg);
-}
-
 /**
  * Read a config section via `openclaw config get <path> --json`.
  * Returns undefined if the path doesn't exist. Secrets are auto-redacted by the CLI.
@@ -476,8 +472,4 @@ export function exportModels(): ModelFile {
     cleaned[id] = p;
   }
   return { providers: cleaned };
-}
-
-export function isMachineSpecificApiKey(value: string): boolean {
-  return MACHINE_SECRET_RE.test(value ?? "");
 }

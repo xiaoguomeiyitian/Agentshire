@@ -88,7 +88,6 @@ const GRASS_COLOR    = 0x7ec850
 const SIDEWALK_COLOR = 0xc4b8a8
 const PLAZA_COLOR    = 0xe8dcc8
 const ROAD_COLOR     = 0x505050
-const DIRT_COLOR     = 0xb89968
 const SKY_COLOR      = 0x87ceeb
 
 export interface TownLightingRefs {
@@ -130,6 +129,10 @@ export class TownBuilder {
   }
 
   build(assets: AssetLoader): void {
+    // Clear label texture cache so font size / color changes take effect
+    for (const tex of TownBuilder.labelCanvasCache.values()) tex.dispose()
+    TownBuilder.labelCanvasCache.clear()
+
     this.townGroup.name = 'town'
     this.scene.add(this.townGroup)
 
@@ -156,6 +159,29 @@ export class TownBuilder {
   /** Issue 3: get building label sprites for click detection. */
   getLabelSprites(): Map<string, THREE.Sprite> {
     return this.labelSprites
+  }
+
+  /**
+   * Issue 6: update a building's label text (e.g. rename "住宅1" to "岩家"
+   * once a citizen is allocated to live there). Rebuilds the sprite texture
+   * and preserves its position. No-op if the building has no label sprite.
+   */
+  setBuildingLabel(buildingId: string, text: string): void {
+    const existing = this.labelSprites.get(buildingId)
+    if (!existing) return
+    // Remove old sprite
+    this.townGroup.remove(existing)
+    // Reuse makeTextSprite to create a new sprite with the new text
+    const sprite = this.makeTextSprite(text)
+    sprite.position.copy(existing.position)
+    sprite.name = existing.name
+    sprite.userData = existing.userData
+    this.townGroup.add(sprite)
+    this.labelSprites.set(buildingId, sprite)
+    // Dispose old material/texture to avoid leak
+    const oldMat = existing.material as THREE.SpriteMaterial
+    if (oldMat.map) oldMat.map.dispose()
+    oldMat.dispose()
   }
 
   /** Issue 3: get building model groups for click detection. */
@@ -304,10 +330,10 @@ export class TownBuilder {
     if (!tex) {
       const canvas = document.createElement('canvas')
       const ctx = canvas.getContext('2d')!
-      const fontSize = 48
+      const fontSize = 36
       ctx.font = `bold ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
       const metrics = ctx.measureText(text)
-      const padX = 24, padY = 14
+      const padX = 20, padY = 12
       const w = Math.ceil(metrics.width) + padX * 2
       const h = fontSize + padY * 2
       canvas.width = w
@@ -331,8 +357,8 @@ export class TownBuilder {
       ctx.quadraticCurveTo(0, 0, r, 0)
       ctx.closePath()
       ctx.fill()
-      // Text
-      ctx.fillStyle = '#f0f0f5'
+      // Text — dimmer to reduce glare
+      ctx.fillStyle = '#b8bcc4'
       ctx.fillText(text, w / 2, h / 2)
       tex = new THREE.CanvasTexture(canvas)
       tex.minFilter = THREE.LinearFilter
@@ -345,7 +371,7 @@ export class TownBuilder {
     const sprite = new THREE.Sprite(mat)
     // Scale so the label is readable but not huge; aspect ratio from texture
     const aspect = tex.image.width / tex.image.height
-    const baseH = 1.1
+    const baseH = 0.85
     sprite.scale.set(baseH * aspect, baseH, 1)
     return sprite
   }
@@ -654,7 +680,6 @@ export class TownBuilder {
     const sidewalkMat = new THREE.MeshLambertMaterial({ color: SIDEWALK_COLOR })
     const plazaMat = new THREE.MeshLambertMaterial({ color: PLAZA_COLOR })
     const roadMat = new THREE.MeshLambertMaterial({ color: ROAD_COLOR })
-    const dirtMat = new THREE.MeshLambertMaterial({ color: DIRT_COLOR })
     const whiteMat = new THREE.MeshLambertMaterial({ color: 0xffffff })
 
     const grass = new THREE.Mesh(new THREE.PlaneGeometry(40, 24), grassMat)
@@ -706,12 +731,6 @@ export class TownBuilder {
       stripe.position.set(18 + i * 0.6 - 1.5, 0.065, 22.5)
       this.townGroup.add(stripe)
     }
-
-    const dirt = new THREE.Mesh(new THREE.PlaneGeometry(10, 5), dirtMat)
-    dirt.rotation.x = -Math.PI / 2
-    dirt.position.set(12, 0.01, 19)
-    dirt.receiveShadow = true
-    // this.townGroup.add(dirt)
   }
 
   /* ───────── Buildings ───────── */

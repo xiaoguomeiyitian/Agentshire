@@ -8,10 +8,10 @@ export interface PersonaCache {
 }
 
 const DEFAULT_PERSONAS: Record<string, { summary: string; style: string; specialty: string }> = {
-  planner:   { summary: '热情洋溢的策划师，创意无穷，喜欢用比喻来表达想法', style: '语气活泼，爱用感叹号，偶尔蹦出新奇的点子', specialty: '策划' },
-  explorer:  { summary: '细腻敏感的美术设计师，追求完美的视觉呈现', style: '语调柔和，偶尔用颜色和形状来比喻事物', specialty: '设计' },
-  coder:     { summary: '理性务实的程序员，逻辑清晰，有点闷骚的幽默感', style: '简洁直接，偶尔冒出技术梗', specialty: '开发' },
-  architect: { summary: '沉稳的架构师，全局思维强，喜欢从底层思考问题', style: '说话有条理，常用"首先…其次…"的结构', specialty: '架构' },
+  planner:   { summary: '热情洋溢的点子王，创意无穷，喜欢用比喻来表达想法', style: '语气活泼，爱用感叹号，偶尔蹦出新奇的点子', specialty: '出点子' },
+  explorer:  { summary: '细腻敏感的木工，追求完美的结构呈现', style: '语调沉稳，偶尔用榫卯和梁柱来比喻事物', specialty: '木工与搭建' },
+  coder:     { summary: '行动派的修理匠，手脚麻利，有点闷骚的幽默感', style: '简洁直接，偶尔冒出工具梗', specialty: '修理与种植' },
+  architect: { summary: '安静优雅的画师，审美洁癖，喜欢从色彩思考问题', style: '说话轻柔，常用颜色和构图来比喻事物', specialty: '绘画与布置' },
 }
 
 const FALLBACK_PERSONA = {
@@ -103,7 +103,7 @@ export class PersonaStore {
 
     for (const line of text.split('\n')) {
       const trimmed = line.trim()
-      const specMatch = trimmed.match(/^>\s*岗位\s*[:：]\s*(.+)/)
+      const specMatch = trimmed.match(/^>\s*手艺\s*[:：]\s*(.+)/)
       if (specMatch) {
         specialty = specMatch[1].trim().split(/[（(]/)[0].trim()
         break

@@ -8,7 +8,7 @@ export interface MinigameContext {
   container: HTMLElement
   getNpc: (id: string) => NPC | undefined
   getNpcVoiceConfig: (id: string) => NPCConfig | null
-  getWorkingNpcIds: () => string[]
+  getTroubledNpcIds: () => string[]
   getSceneType: () => string
   onUpdate: (cb: (dt: number) => void) => void
   offUpdate: (cb: (dt: number) => void) => void
@@ -20,6 +20,6 @@ export interface MinigameSlot {
   unmount(): void
   start(): void
   stop(): void
-  addWorkingNpc(npcId: string): void
-  removeWorkingNpc(npcId: string): void
+  addTroubledNpc(npcId: string): void
+  removeTroubledNpc(npcId: string): void
 }

@@ -189,8 +189,8 @@ export class EncounterManager {
       const dz = bPos.z - aPos.z
       const d = Math.sqrt(dx * dx + dz * dz)
       const approachTarget = {
-        x: bPos.x - (dx / d) * 1.5,
-        z: bPos.z - (dz / d) * 1.5,
+        x: bPos.x - (dx / d) * 2.0,
+        z: bPos.z - (dz / d) * 2.0,
       }
       await Promise.race([
         a.moveTo(approachTarget, 3),

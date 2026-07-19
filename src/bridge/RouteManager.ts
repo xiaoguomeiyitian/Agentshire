@@ -1,6 +1,7 @@
-// @desc A* pathfinding, NPC movement requests with ack/timeout, and destination claim management
+// @desc NPC movement requests with ack/timeout, and destination claim management.
+// A* pathfinding removed — frontend now uses recast-navigation Crowd for pathfinding + avoidance.
 import type { GameEvent } from '../../town-frontend/src/data/GameProtocol.js'
-import { CITIZEN_DESTINATION_POINTS, ROUTE_GRAPHS, type RouteNode, type RouteSceneId } from './data/route-config.js'
+import { CITIZEN_DESTINATION_POINTS } from './data/route-config.js'
 
 export const CITIZEN_SPAWN_ORIGIN = { x: 20, z: 24 }
 export const PLAZA_CENTER = { x: 18, z: 13 }
@@ -8,7 +9,7 @@ export const LEAVE_PLAZA_MIN_DISTANCE = 6.2
 export const GREET_RING_RADIUS = 2.2
 export const STEWARD_FACE_POS = { x: 17, z: 15.8 }
 
-/** Manages NPC navigation: A* route planning on the town/office graph, move-and-wait with timeout, and destination slot allocation to prevent overcrowding */
+/** Manages NPC navigation: move-and-wait with timeout, and destination slot allocation to prevent overcrowding */
 export class RouteManager {
   moveRequestSeq = 0
   pendingMoveRequests = new Map<
@@ -162,109 +163,8 @@ export class RouteManager {
     return { id: fallback.id, x: fallback.x, z: fallback.z, score: -999 }
   }
 
-  getRouteGraph(scene: RouteSceneId): Record<string, RouteNode> {
-    return ROUTE_GRAPHS[scene] ?? ROUTE_GRAPHS.town
-  }
-
-  inferRouteScene(from: { x: number; z: number }, to: { x: number; z: number }): RouteSceneId {
-    if (from.z <= 8.5 && to.z <= 8.5) return 'office'
-    return 'town'
-  }
-
-  isRouteDebugEnabled(): boolean {
-    try {
-      const g = globalThis as unknown as { location?: { search?: string }; localStorage?: { getItem?: (key: string) => string | null } }
-      const search = typeof g.location?.search === 'string'
-        ? new URLSearchParams(g.location.search)
-        : null
-      if (search?.get('routeDebug') === '1') return true
-      const local = g.localStorage?.getItem?.('agentshire_route_debug')
-      return local === '1' || local === 'true'
-    } catch {
-      return false
-    }
-  }
-
-  getNearestRouteNodeId(pos: { x: number; z: number }, scene: RouteSceneId): string {
-    const graph = this.getRouteGraph(scene)
-    const fallbackId = Object.keys(graph)[0] ?? 'plaza_c'
-    let bestId = fallbackId
-    let bestDist = Number.POSITIVE_INFINITY
-    for (const [id, node] of Object.entries(graph)) {
-      const d = this.distance2D(pos, node)
-      if (d < bestDist) {
-        bestDist = d
-        bestId = id
-      }
-    }
-    return bestId
-  }
-
-  planRouteNodePath(startId: string, endId: string, scene: RouteSceneId): string[] {
-    const graph = this.getRouteGraph(scene)
-    if (startId === endId) return [startId]
-    const open = new Set<string>([startId])
-    const cameFrom = new Map<string, string>()
-    const gScore = new Map<string, number>()
-    const fScore = new Map<string, number>()
-
-    const heuristic = (a: string, b: string): number =>
-      this.distance2D(graph[a], graph[b])
-
-    gScore.set(startId, 0)
-    fScore.set(startId, heuristic(startId, endId))
-
-    while (open.size > 0) {
-      let current: string | null = null
-      let bestF = Number.POSITIVE_INFINITY
-      for (const id of open) {
-        const f = fScore.get(id) ?? Number.POSITIVE_INFINITY
-        if (f < bestF) {
-          bestF = f
-          current = id
-        }
-      }
-      if (!current) break
-      if (current === endId) {
-        const path: string[] = [current]
-        while (cameFrom.has(current)) {
-          current = cameFrom.get(current)!
-          path.push(current)
-        }
-        path.reverse()
-        return path
-      }
-      open.delete(current)
-      const node = graph[current]
-      for (const neighbor of node.neighbors) {
-        const tentative = (gScore.get(current) ?? Number.POSITIVE_INFINITY)
-          + this.distance2D(node, graph[neighbor])
-        if (tentative < (gScore.get(neighbor) ?? Number.POSITIVE_INFINITY)) {
-          cameFrom.set(neighbor, current)
-          gScore.set(neighbor, tentative)
-          fScore.set(neighbor, tentative + heuristic(neighbor, endId))
-          open.add(neighbor)
-        }
-      }
-    }
-
-    return [startId, endId]
-  }
-
-  /** Plan a multi-waypoint route through the graph from source to destination */
-  planSceneRoute(scene: RouteSceneId, from: { x: number; z: number }, to: { x: number; z: number }): Array<{ x: number; z: number }> {
-    const graph = this.getRouteGraph(scene)
-    const start = this.getNearestRouteNodeId(from, scene)
-    const end = this.getNearestRouteNodeId(to, scene)
-    const nodePath = this.planRouteNodePath(start, end, scene)
-    const points: Array<{ x: number; z: number }> = []
-
-    for (const [idx, id] of nodePath.entries()) {
-      if (idx === 0 && this.distance2D(from, graph[id]) < 1.2) continue
-      if (idx === nodePath.length - 1 && this.distance2D(to, graph[id]) < 1.2) continue
-      points.push({ x: graph[id].x, z: graph[id].z })
-    }
-    points.push({ x: to.x, z: to.z })
-    return points
-  }
+  // 注:A* 寻路(planRouteNodePath / planSceneRoute / getRouteGraph / getNearestRouteNodeId /
+  // inferRouteScene / isRouteDebugEnabled)已移除——前端 NPC 现由 recast-navigation
+  // Crowd 负责寻路+避障,bridge 层不再需要图寻路。目的地评分(chooseCitizenDestination)、
+  // 槽位管理(claimDestinationForNpc)、移动 ack(moveNpcAndWait)保留。
 }

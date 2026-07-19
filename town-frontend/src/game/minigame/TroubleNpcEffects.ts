@@ -4,7 +4,7 @@ import type { NPC } from '../../npc/NPC'
 const EMISSIVE_COLOR = new THREE.Color(0x5d3d8a)
 const _hsl = { h: 0, s: 0, l: 0 }
 
-export class BanweiNpcEffects {
+export class TroubleNpcEffects {
   private origColors = new Map<string, Map<THREE.Material, THREE.Color>>()
   private origTimeScales = new Map<string, number>()
 
@@ -22,11 +22,11 @@ export class BanweiNpcEffects {
     this.origTimeScales.set(npc.id, npc.animationMixer?.timeScale ?? 1)
   }
 
-  applyStress(npc: NPC, stress: number): void {
+  applyWorry(npc: NPC, worry: number): void {
     const origMap = this.origColors.get(npc.id)
     if (!origMap) return
 
-    const t = stress / 100
+    const t = worry / 100
     const desat = t * 0.85
     const emissiveIntensity = t * 0.65
 
@@ -50,7 +50,7 @@ export class BanweiNpcEffects {
     const mixer = npc.animationMixer
     if (mixer) {
       const origTs = this.origTimeScales.get(npc.id) ?? 1
-      mixer.timeScale = origTs * (1 - stress * 0.005)
+      mixer.timeScale = origTs * (1 - worry * 0.005)
     }
   }
 

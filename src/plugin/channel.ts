@@ -74,18 +74,6 @@ export function buildTownInboundContext(params: {
 
 let _channelCtx: { rt: ReturnType<typeof getTownRuntime>; cfg: Record<string, unknown>; accountId: string } | null = null;
 
-export async function sendNudgeMessage(townSessionId: string, body: string): Promise<void> {
-  if (!_channelCtx) {
-    console.warn('[agentshire] sendNudgeMessage: channel not started yet');
-    return;
-  }
-  try {
-    await dispatchTownMessage({ ..._channelCtx, townSessionId, body });
-  } catch (err) {
-    console.error('[agentshire] sendNudgeMessage error:', err);
-  }
-}
-
 export interface ResolvedTownAccount {
   accountId: string;
   wsPort: number;
@@ -419,6 +407,27 @@ export const agentTownPlugin: ChannelPlugin<ResolvedTownAccount> = {
               message: `操作失败：${(err as Error).message}`,
               recoverable: true,
             } as any, townSessionId);
+          }
+        },
+        onCompactCitizen: async ({ npcId, townSessionId }) => {
+          // Actively trigger context compaction for a citizen's chat session
+          // by sending the /compact slash command. Called by the frontend at
+          // appropriate lifecycle moments (citizen goes to sleep, action
+          // ends, dialog ends) to keep context windows manageable without
+          // lowering the contextTokens threshold.
+          console.log(`[agentshire] onCompactCitizen (${townSessionId}): npc=${npcId}`);
+          try {
+            const { routeCitizenMessage } = await import("./citizen-chat-router.js");
+            await routeCitizenMessage({
+              npcId,
+              label: npcId,
+              message: "/compact",
+              townSessionId: sanitizeTownSessionId(townSessionId),
+              accountId: account.accountId,
+              cfg: ctx.cfg,
+            });
+          } catch (err) {
+            console.error("[agentshire] onCompactCitizen dispatch error:", err);
           }
         },
         onCitizenChat: async ({ npcId, message, townSessionId }) => {

@@ -122,6 +122,109 @@ const syncTownSessionUrl = (townSessionId: string) => {
       townWs.send(JSON.stringify(data))
     }
   }
+  // ── Chat history restore state (issue: refresh loses chat history) ──
+  let townSessionBound = false
+  /** Guards against duplicate animal_state_load requests (sent once per WS session). */
+  let animalStateRequested = false
+  /** Cached animal_state response when sceneRef is null on arrival. Applied after loadScene. */
+  let pendingAnimalState: { snapshots: any[]; clock: any; runtime: any; economy: any } | null = null
+  /** Flag: animal_state restore completed but topicState not yet restored
+   * (topicState is declared after the deferred restore point, so we defer
+   * the topic UI restoration to after refreshQuickActions is wired up). */
+  let pendingTopicRestore = false
+  /** Module-level ref to applyRestoredTopic (defined after quick actions are
+   * wired up). Lets the WS animal_state handler trigger topic restore even
+   * when animal_state arrives after loadScene completes. */
+  let applyRestoredTopicRef: (() => void) | null = null as (() => void) | null
+  /** Group chat state (declared early to avoid TDZ if group_chat_info arrives before line 693). */
+  let groupChatState: GroupChatState | null = null
+  const pendingHistoryNpcIds = new Map<string, string>() // agentId → npcId
+  let requestAllCitizenHistoryRetries = 0
+
+  // Request chat history for every agent-enabled citizen (called after WS binds
+  // and after the scene is ready — whichever happens last).
+  const requestAllCitizenHistory = (scene: MainScene | null) => {
+    if (!scene || !townSessionBound) return
+    // Scene init() may not have completed yet (gameClock and bootstrap are set during init).
+    // Defer the request until the scene is fully ready.
+    if (!(scene as any).gameClock || !(scene as any).bootstrap) {
+      if (requestAllCitizenHistoryRetries < 10) {
+        requestAllCitizenHistoryRetries++
+        setTimeout(() => requestAllCitizenHistory(scene), 1000)
+      }
+      return
+    }
+    const citizens = scene.getAgentEnabledCitizens()
+    if (citizens.length === 0) {
+      // Scene bootstrap (loadFinalConfig) may still be in progress — retry shortly.
+      // The agentConfigMap is populated asynchronously after fetch returns.
+      if (requestAllCitizenHistoryRetries < 10) {
+        requestAllCitizenHistoryRetries++
+        setTimeout(() => requestAllCitizenHistory(scene), 1000)
+      }
+      return
+    }
+    requestAllCitizenHistoryRetries = 0
+    for (const c of citizens) {
+      const agentId = scene.getAgentIdForNpc(c.id)
+      if (!agentId || agentId === 'steward') continue
+      pendingHistoryNpcIds.set(agentId, c.id)
+      wsSend({ type: 'chat_history_request', agentId, format: 'messages', limit: 50 })
+    }
+  }
+
+  // Restore citizen chat history (user + assistant) into ChatPanel with correct
+  // targetNpcId so the NPC card detail "聊天记录" tab shows the full conversation.
+  const restoreCitizenHistoryFromServer = (
+    scene: MainScene | null,
+    agentId: string,
+    messages: WsHistoryMessage[],
+  ) => {
+    if (!scene) return
+    const npcId = pendingHistoryNpcIds.get(agentId)
+    if (!npcId) return
+    pendingHistoryNpcIds.delete(agentId)
+    if (!Array.isArray(messages) || messages.length === 0) return
+
+    const npc = scene.getNpcManager().get(npcId)
+    const npcLabel = npc?.label ?? npc?.name ?? npcId
+    const mayorLabel = t('mayor')
+    const chatPanel = scene.getUIManager().getChatPanel()
+    const existingMsgs = chatPanel.getChatMessages()
+    // Deduplicate: skip if a message with the same text+role already exists
+    // for this citizen (avoid double-adding when live stream already captured it).
+    const existingKeys = new Set(existingMsgs.map(m => `${m.from}:${m.text}`))
+
+    // Sort by timestamp ascending so the conversation order is preserved
+    const sorted = [...messages].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+    let added = 0
+    for (const msg of sorted) {
+      const text = summarizeHistoryMessage(msg)
+      if (!text) continue
+      if (msg.role === 'user') {
+        const key = `${mayorLabel}:${text}`
+        if (existingKeys.has(key)) continue
+        existingKeys.add(key)
+        chatPanel.addChatMessage({
+          from: mayorLabel, text, timestamp: msg.timestamp ?? Date.now(),
+          targetNpcId: npcId,
+        })
+        added++
+      } else if (msg.role === 'assistant') {
+        const key = `${npcLabel}:${text}`
+        if (existingKeys.has(key)) continue
+        existingKeys.add(key)
+        chatPanel.addChatMessage({
+          from: npcLabel, text, timestamp: msg.timestamp ?? Date.now(),
+        })
+        added++
+      }
+    }
+    if (added > 0) {
+      console.log(`[main] Restored ${added} chat history messages for citizen ${npcId} (agentId=${agentId})`)
+    }
+  }
+
   const implicitChatPending = new Map<string, { resolve: (v: { text: string; usage?: { input: number; output: number } }) => void; timer: ReturnType<typeof setTimeout> }>()
   const seenCitizenMessageKeys = new Set<string>()
 
@@ -218,6 +321,15 @@ const syncTownSessionUrl = (townSessionId: string) => {
         scene.handleGameEvent({ type: 'dialog_message', npcId: payload.npcId, text, isStreaming: false })
       }
     }
+
+    // ── Chat history restore (issue: refresh loses chat history) ──
+    // On page refresh, the in-memory ChatPanel is cleared. The backend stores
+    // full JSONL history per citizen agent. We proactively request history for
+    // every agent-enabled citizen after WS binds + scene is ready, then restore
+    // both user and assistant messages into ChatPanel (with correct targetNpcId).
+    // (requestAllCitizenHistory / restoreCitizenHistoryFromServer are defined
+    //  at top-level so they can be called both from WS handlers inside this
+    //  block and after loadScene.)
 
     function attachWsHandlers(socket: WebSocket) {
     socket.onopen = () => {
@@ -329,11 +441,31 @@ const syncTownSessionUrl = (townSessionId: string) => {
           director.restoreWorkState(data.snapshot)
         } else if (data.type === 'town_session_bound' && data.townSessionId) {
           console.log(`[main] Bound to town session ${data.townSessionId}`)
+          townSessionBound = true
           syncTownSessionLabel(data.townSessionId)
           if (typeof data.model === 'string' && data.model) {
             const el = document.querySelector('.tas-model')
             if (el) el.textContent = data.model
           }
+          // Request persisted runtime state (NPC positions, clock, snapshots)
+          // immediately after session bind, so state is restored even when
+          // Animal Mode is disabled. Previously this was only sent from
+          // AnimalModeManager.enable(), meaning a disabled Animal Mode
+          // (e.g. user toggled it off) would skip the entire restore flow.
+          // NOTE: send this BEFORE requestAllCitizenHistory() — if that
+          // function throws inside the try/catch, the animal_state_load
+          // would never be sent.
+          if (!animalStateRequested) {
+            animalStateRequested = true
+            console.log('[main] town_session_bound → sending animal_state_load')
+            wsSend({ type: 'animal_state_load' })
+          }
+          // Issue: restore chat history after refresh — request history for all
+          // agent-enabled citizens once the scene is ready.
+          requestAllCitizenHistory(sceneRef)
+        } else if (data.type === 'chat_history' && Array.isArray(data.messages) && typeof data.agentId === 'string') {
+          // Restore citizen chat history (format: 'messages') into ChatPanel
+          restoreCitizenHistoryFromServer(sceneRef, data.agentId, data.messages as WsHistoryMessage[])
         } else if (data.type === 'implicit_chat_response' && typeof data.id === 'string') {
           const pending = implicitChatPending.get(data.id)
           if (pending) {
@@ -342,19 +474,35 @@ const syncTownSessionUrl = (townSessionId: string) => {
             pending.resolve({ text: data.text ?? '', usage: data.usage })
           }
         } else if (data.type === 'animal_state') {
-          // Plugin returns persisted Animal Mode state (snapshots + clock)
-          console.log(`[main] animal_state received: snapshots=${data.snapshots?.length ?? 0} clock=${data.clock ? 'yes' : 'no'}`)
+          // Plugin returns persisted Animal Mode state (snapshots + clock + runtime)
+          console.log(`[main] animal_state received: snapshots=${data.snapshots?.length ?? 0} clock=${data.clock ? 'yes' : 'no'} runtime=${data.runtime ? 'yes' : 'no'} economy=${data.economy ? 'yes' : 'no'}`)
           if (sceneRef) {
-            ;(sceneRef as any).restoreAnimalState(data.snapshots ?? [], data.clock ?? null)
+            // Check if scene is fully initialized (gameClock + bootstrap are set in init()).
+            // If not, cache for deferred restore after loadScene completes.
+            if ((sceneRef as any).gameClock && (sceneRef as any).bootstrap) {
+              ;(sceneRef as any).restoreAnimalState(data.snapshots ?? [], data.clock ?? null, data.runtime ?? null)
+              ;(sceneRef as any).restoreEconomyState?.(data.economy ?? null)
+              if (applyRestoredTopicRef) applyRestoredTopicRef()
+              else pendingTopicRestore = true
+            } else {
+              pendingAnimalState = { snapshots: data.snapshots ?? [], clock: data.clock ?? null, runtime: data.runtime ?? null, economy: data.economy ?? null }
+              console.log('[main] animal_state: scene not yet initialized (gameClock missing), cached for deferred restore')
+            }
+          } else {
+            // Scene not yet ready — cache for deferred restore after loadScene
+            pendingAnimalState = { snapshots: data.snapshots ?? [], clock: data.clock ?? null, runtime: data.runtime ?? null, economy: data.economy ?? null }
+            console.log('[main] animal_state: sceneRef is null, cached for deferred restore')
           }
         }
-      } catch { /* ignore malformed */ }
+      } catch (err) { console.error('[main] WS message error:', err) }
     }
 
     socket.onclose = () => {
       wsReady = false
       ws = null
       townWs = null
+      // Reset animal_state_load guard so reconnect re-requests state
+      animalStateRequested = false
       console.log('[main] DirectorBridge WS closed')
       // Notify scene that gateway is offline
       if (sceneRef) sceneRef.onConnectionChange(false)
@@ -447,9 +595,18 @@ const syncTownSessionUrl = (townSessionId: string) => {
         } else if (action.type === 'animal_state_load') {
           // Request persisted state from plugin (on reconnect)
           wsSend({ type: 'animal_state_load' })
+        } else if (action.type === 'town_runtime_save') {
+          // Town runtime state (NPC positions, scene, topic, indoor) → plugin persistence
+          wsSend({ type: 'town_runtime_save', state: action.state })
+        } else if (action.type === 'economy_state_save') {
+          // Citizen economy state (coins, reputation, savings) → plugin persistence
+          wsSend({ type: 'economy_state_save', state: action.state })
         } else if (action.type === 'animal_memory_clear_all') {
           // Clear all memories on plugin side
           wsSend({ type: 'animal_memory_clear_all' })
+        } else if (action.type === 'compact_citizen') {
+          // Actively trigger /compact for a citizen's chat session
+          wsSend({ type: 'compact_citizen', npcId: action.npcId })
         } else {
           const wsMsg = director.processWorldAction(action)
           if (wsMsg) wsSend(wsMsg)
@@ -479,6 +636,24 @@ const syncTownSessionUrl = (townSessionId: string) => {
   }
 
   await engine.loadScene(scene)
+
+  // If animal_state arrived before sceneRef was set, apply it now.
+  if (pendingAnimalState) {
+    console.log('[main] Applying deferred animal_state after loadScene')
+    const ps = pendingAnimalState as { snapshots: any[]; clock: any; runtime: any; economy: any }
+    ;(scene as any).restoreAnimalState(ps.snapshots, ps.clock, ps.runtime)
+    ;(scene as any).restoreEconomyState?.(ps.economy)
+    if (applyRestoredTopicRef) applyRestoredTopicRef()
+    else pendingTopicRestore = true
+    pendingAnimalState = null
+  }
+
+  // Issue: restore chat history after refresh — if WS already bound before scene
+  // was ready, requestAllCitizenHistory was deferred. Now that the scene is ready
+  // (agentConfigMap populated), retry the request.
+  if (bridgeModule) {
+    requestAllCitizenHistory(scene)
+  }
 
   // Inject implicitChat function so AgentBrain / AutonomyEngine / TownJournal can call LLM via WS.
   // Must be after loadScene because dailyScheduler is initialized in scene.init().
@@ -534,7 +709,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
     groupName: string
     participants: Array<{ npcId: string; name: string; specialty?: string; color?: number; avatarUrl?: string }>
   }
-  let groupChatState: GroupChatState | null = null
+  // groupChatState is declared early (line ~130) to avoid TDZ if group_chat_info
+  // arrives before this point in the code.
 
   const inputBar = new InputBar({
     send: (msg) => {
@@ -575,21 +751,44 @@ const syncTownSessionUrl = (townSessionId: string) => {
   // ── "End topic" button ──
   const endTopicBtn = document.getElementById('town-end-topic-btn')
 
-  let showEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = '' }
+  let showEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = 'none' /* Issue 1: moved into quick action bar */ }
   let hideEndTopicBtn = () => { if (endTopicBtn) endTopicBtn.style.display = 'none' }
 
   endTopicBtn?.addEventListener('click', () => {
     scene.getUIManager().showEndTopicConfirm()
   })
 
-  // Issue 2: observe bottom panel resize (textarea grows) and reposition NPC card.
+  // Issue 2: observe bottom panel resize (textarea grows) and reposition
+  // NPC card, topic-detail-panel and model dropdown so they never overlap
+  // the (possibly taller on mobile) input bar.
+  const computeInputPanelBottom = (): number => {
+    const bp = document.getElementById('town-bottom-panel')
+    if (!bp) return document.body.classList.contains('embedded-mode') ? 134 : 124
+    const rect = bp.getBoundingClientRect()
+    const defaultBottom = document.body.classList.contains('embedded-mode') ? 134 : 124
+    const panelTopFromBottom = window.innerHeight - rect.top
+    const extra = Math.max(panelTopFromBottom - defaultBottom, 0)
+    return defaultBottom + extra
+  }
+  const repositionFloatingPanels = (): void => {
+    const bottom = computeInputPanelBottom()
+    // NPC card (delegates to UIManager which guards display:none)
+    scene.getUIManager().adjustNPCCardForInputPanel()
+    // Topic detail panel
+    const tdp = document.getElementById('topic-detail-panel')
+    if (tdp) tdp.style.bottom = `${bottom}px`
+    // Model dropdown
+    const md = document.getElementById('town-model-dropdown')
+    if (md) md.style.bottom = `${bottom}px`
+  }
   const bottomPanelEl = document.getElementById('town-bottom-panel')
   if (bottomPanelEl && typeof ResizeObserver !== 'undefined') {
     const ro = new ResizeObserver(() => {
-      scene.getUIManager().adjustNPCCardForInputPanel()
+      repositionFloatingPanels()
     })
     ro.observe(bottomPanelEl)
   }
+  window.addEventListener('resize', repositionFloatingPanels)
 
   // ── Model switching (click tas-model to change current target's model) ──
   let modelOptionsCache: Array<{ value: string; label: string }> | null = null
@@ -634,11 +833,14 @@ const syncTownSessionUrl = (townSessionId: string) => {
     loading.textContent = '...'
     dropdown.appendChild(loading)
 
-    // Position relative to anchor
+    // Position relative to anchor.
+    // Use a dynamic bottom offset computed from the actual input panel
+    // height so the dropdown never overlaps the input bar (especially on
+    // mobile where the bar is taller).
     const rect = anchorEl.getBoundingClientRect()
     dropdown.style.position = 'fixed'
     dropdown.style.left = `${rect.left}px`
-    dropdown.style.bottom = `${window.innerHeight - rect.top + 4}px`
+    dropdown.style.bottom = `${computeInputPanelBottom()}px`
 
     document.body.appendChild(dropdown)
 
@@ -802,6 +1004,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
 
     panel.appendChild(inner)
     document.body.appendChild(panel)
+    // Position above the (possibly taller on mobile) input bar — same logic
+    // as the NPC card so the topic detail panel never overlaps the input.
+    panel.style.bottom = `${computeInputPanelBottom()}px`
 
     // Issue 5: poll for new messages every 1s; re-render + scroll to bottom
     // when new messages arrive so the topic list stays fresh.
@@ -833,134 +1038,109 @@ const syncTownSessionUrl = (townSessionId: string) => {
     if (!actionDropdown) return
     actionDropdown.innerHTML = ''
 
-    // Old work mode removed; always false in Animal Mode.
-    const isWork = false
-    const isTopic = !!topicState
-
-    const topicItem = document.createElement('div')
-    topicItem.className = 'town-action-item' + (isWork || isTopic ? ' disabled' : '')
-    topicItem.textContent = t('menu.start_topic')
-    topicItem.addEventListener('click', async () => {
+    // ── Town editor (小镇改造) ──
+    const townEditorItem = document.createElement('div')
+    townEditorItem.className = 'town-action-item'
+    townEditorItem.textContent = t('topnav.town_editor')
+    townEditorItem.addEventListener('click', () => {
       closeActionDropdown()
-      if (isWork || isTopic) return
-
-      const { showTopicSetupPanel } = await import('./ui/TopicSetupPanel')
-
-      const citizens = scene.getAgentEnabledCitizens()
-      if (citizens.length < 2) {
-        scene.getUIManager().showToast('至少需要2位已开启 Agent 的居民')
-        return
-      }
-
-      // Issue 2: pause autonomy BEFORE showing the panel so citizens don't
-      // generate autonomous chat bubbles while the user is still selecting
-      // participants / composing the topic text.
-      scene.pauseTopicAutonomy()
-
-      const result = await showTopicSetupPanel(citizens, (id) => !!scene.isNpcVisible(id))
-      if (!result || result.citizens.length < 2) {
-        // User cancelled or too few selected — resume autonomy
-        scene.resumeTopicAutonomy()
-        return
-      }
-
-      const npcIds = result.citizens.map(c => c.id)
-      topicState = { npcIds, phase: 'gathering' }
-
-      const npcConfigs = result.citizens.map(c => ({
-        id: c.id, name: c.name, color: c.color,
-        spawn: { x: 0, y: 0, z: 0 }, role: 'worker' as const,
-        characterKey: c.characterKey, avatarUrl: c.avatarUrl,
-      }))
-      scene.getUIManager().updateTopicIndicator(npcConfigs)
-
-      inputBar.setBusy(true)
-      const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
-      if (textarea) textarea.placeholder = t('input.gathering')
-
-      wsSend({ type: 'topic_start', npcIds })
-
-      await scene.gatherForTopic(npcIds)
-
-      if (!topicState) return
-      topicState.phase = 'active'
-      inputBar.setBusy(false)
-      if (textarea) textarea.placeholder = t('input.topic')
-      showEndTopicBtn()
+      window.open('editor.html', '_blank')
     })
-    actionDropdown.appendChild(topicItem)
+    actionDropdown.appendChild(townEditorItem)
 
-    // ── Citizen detail panel ──
-    const detailItem = document.createElement('div')
-    detailItem.className = 'town-action-item'
-    detailItem.textContent = t('menu.citizen_detail')
-    detailItem.addEventListener('click', () => {
+    // ── Citizens editor (居民管理) ──
+    const citizenEditorItem = document.createElement('div')
+    citizenEditorItem.className = 'town-action-item'
+    citizenEditorItem.textContent = t('topnav.citizens')
+    citizenEditorItem.addEventListener('click', () => {
       closeActionDropdown()
-      showCitizenDetailPanel()
+      window.open('citizen-editor.html', '_blank')
     })
-    actionDropdown.appendChild(detailItem)
+    actionDropdown.appendChild(citizenEditorItem)
 
-    // ── Broadcast (send to all residents) ──
-    // Uses the group chat channel: a message with no @mention is dispatched to
-    // all enabled citizens, so it acts as a broadcast to everyone.
-    const broadcastItem = document.createElement('div')
-    broadcastItem.className = 'town-action-item'
-    const isBroadcast = !!groupChatState?.active
-    broadcastItem.textContent = isBroadcast ? t('menu.broadcast_active') : t('menu.broadcast')
-    broadcastItem.addEventListener('click', () => {
+    // ── Citizen chat (居民聊天) ──
+    const chatItem = document.createElement('div')
+    chatItem.className = 'town-action-item'
+    chatItem.textContent = t('topnav.chat')
+    chatItem.addEventListener('click', () => {
       closeActionDropdown()
-      if (isBroadcast) {
-        // Exit broadcast mode
-        groupChatState = null
-        inputBar.setGroupMode(false)
-        const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
-        if (textarea) textarea.placeholder = t('input.idle')
-        scene.getUIManager().clearChatTarget()
-        scene.getUIManager().showToast(t('menu.broadcast_active'))
-      } else {
-        // Enter broadcast mode — ensure group chat is initialized
-        if (!groupChatState) {
-          wsSend({ type: 'group_chat_init' })
-        }
-        // Activate group chat mode with all enabled citizens as mentionable
-        const citizens = scene.getAgentEnabledCitizens().map(c => ({
-          npcId: c.id, name: c.name, specialty: c.specialty,
-        }))
-        if (citizens.length === 0) {
-          scene.getUIManager().showToast('至少需要1位已开启 Agent 的居民')
-          return
-        }
-        if (!groupChatState) {
-          // group_chat_info hasn't arrived yet; create a minimal state so .active works
-          groupChatState = {
-            active: true,
-            groupId: 'town-square',
-            groupName: t('menu.broadcast'),
-            participants: citizens,
-          }
-        } else {
-          groupChatState.active = true
-          groupChatState.participants = citizens
-        }
-        inputBar.setGroupMode(true, citizens)
-        const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
-        if (textarea) textarea.placeholder = t('input.broadcast')
-        scene.getUIManager().showToast(t('menu.broadcast'))
-      }
+      window.open('chat.html', '_blank')
     })
-    actionDropdown.appendChild(broadcastItem)
+    actionDropdown.appendChild(chatItem)
 
-    // ── Topic detail (only when topic is active) ──
-    if (isTopic && topicState?.phase === 'active') {
-      const topicDetailItem = document.createElement('div')
-      topicDetailItem.className = 'town-action-item'
-      topicDetailItem.textContent = t('menu.topic_detail')
-      topicDetailItem.addEventListener('click', () => {
-        closeActionDropdown()
-        showTopicDetailPanel()
+    // ── Skill store (技能商店) ──
+    const skillStoreItem = document.createElement('div')
+    skillStoreItem.className = 'town-action-item'
+    skillStoreItem.textContent = t('topnav.skill_store')
+    skillStoreItem.addEventListener('click', () => {
+      closeActionDropdown()
+      window.open('https://clawhub.ai/', '_blank', 'noopener,noreferrer')
+    })
+    actionDropdown.appendChild(skillStoreItem)
+
+    // ── Town settings (小镇设置) ──
+    const settingsItem = document.createElement('div')
+    settingsItem.className = 'town-action-item'
+    settingsItem.textContent = t('topnav.settings')
+    settingsItem.addEventListener('click', () => {
+      closeActionDropdown()
+      import('./ui/SettingsPanel').then(({ showSettingsPanel }) => {
+        showSettingsPanel({
+          onMusicChange: (enabled) => {
+            document.dispatchEvent(new CustomEvent('agentshire:music', { detail: { enabled } }))
+            const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
+            iframe?.contentWindow?.postMessage({ type: 'agentshire:music', enabled }, '*')
+          },
+          onSoulModeChange: (enabled) => {
+            document.dispatchEvent(new CustomEvent('agentshire:soulmode', { detail: { enabled } }))
+            const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
+            iframe?.contentWindow?.postMessage({ type: 'agentshire:soulmode', enabled }, '*')
+          },
+          onAnimalModeChange: (enabled) => {
+            document.dispatchEvent(new CustomEvent('agentshire:animalmode', { detail: { enabled } }))
+            const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
+            iframe?.contentWindow?.postMessage({ type: 'agentshire:animalmode', enabled }, '*')
+          },
+          onReset: async () => {
+            try {
+              const resp = await fetch('/claw/_api/town/init', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+              })
+              const data = await resp.json().catch(() => ({}))
+              if (!data.success) {
+                console.error('[town-more] town/init failed:', data.error ?? 'unknown')
+                return
+              }
+              try {
+                await fetch('/claw/_api/town/restart', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({}),
+                })
+              } catch {
+                // Restart closes the gateway connection; ignore.
+              }
+              location.reload()
+            } catch (err) {
+              console.error('[town-more] town/init network error:', err)
+            }
+          },
+        })
       })
-      actionDropdown.appendChild(topicDetailItem)
-    }
+    })
+    actionDropdown.appendChild(settingsItem)
+
+    // ── Claw settings (Claw 设置) ──
+    const clawItem = document.createElement('div')
+    clawItem.className = 'town-action-item'
+    clawItem.textContent = t('topnav.claw')
+    clawItem.addEventListener('click', () => {
+      closeActionDropdown()
+      window.open('claw.html', '_blank')
+    })
+    actionDropdown.appendChild(clawItem)
 
     actionDropdown.style.display = 'block'
     dropdownOpen = true
@@ -976,9 +1156,9 @@ const syncTownSessionUrl = (townSessionId: string) => {
     const isWork = false
     const isTopic = !!topicState
 
-    const makeBtn = (label: string, disabled: boolean, onClick: () => void): HTMLElement => {
+    const makeBtn = (label: string, disabled: boolean, onClick: () => void, extraClass = ''): HTMLElement => {
       const btn = document.createElement('button')
-      btn.className = 'town-quick-btn' + (disabled ? ' disabled' : '')
+      btn.className = 'town-quick-btn' + (disabled ? ' disabled' : '') + (extraClass ? ' ' + extraClass : '')
       btn.textContent = label
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
@@ -988,50 +1168,19 @@ const syncTownSessionUrl = (townSessionId: string) => {
       return btn
     }
 
-    // Start topic
-    quickActionsEl.appendChild(makeBtn(t('menu.start_topic'), isWork || isTopic, async () => {
-      const { showTopicSetupPanel } = await import('./ui/TopicSetupPanel')
-      const citizens = scene.getAgentEnabledCitizens()
-      if (citizens.length < 2) {
-        scene.getUIManager().showToast('至少需要2位已开启 Agent 的居民')
-        return
-      }
-      scene.pauseTopicAutonomy()
-      const result = await showTopicSetupPanel(citizens, (id) => !!scene.isNpcVisible(id))
-      if (!result || result.citizens.length < 2) {
-        scene.resumeTopicAutonomy()
-        return
-      }
-      const npcIds = result.citizens.map(c => c.id)
-      topicState = { npcIds, phase: 'gathering' }
-      const npcConfigs = result.citizens.map(c => ({
-        id: c.id, name: c.name, color: c.color,
-        spawn: { x: 0, y: 0, z: 0 }, role: 'worker' as const,
-        characterKey: c.characterKey, avatarUrl: c.avatarUrl,
-      }))
-      scene.getUIManager().updateTopicIndicator(npcConfigs)
-      inputBar.setBusy(true)
-      const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
-      if (textarea) textarea.placeholder = t('input.gathering')
-      wsSend({ type: 'topic_start', npcIds })
-      await scene.gatherForTopic(npcIds)
-      if (!topicState) return
-      topicState.phase = 'active'
-      inputBar.setBusy(false)
-      if (textarea) textarea.placeholder = t('input.topic')
-      showEndTopicBtn()
-      refreshQuickActions()
-    }))
+    // Issue 1: button order = 详情 → 群发 → 话题 → 结束 (靠右排列)
+    // Short labels (详情/群发/话题) for the inline quick bar; the "More"
+    // dropdown still uses the full labels.
 
-    // Citizen detail
-    quickActionsEl.appendChild(makeBtn(t('menu.citizen_detail'), false, () => {
+    // 1) Citizen detail (short: 详情)
+    quickActionsEl.appendChild(makeBtn(t('menu.citizen_detail_short'), false, () => {
       scene.showCurrentTargetDetail()
     }))
 
-    // Broadcast
+    // 2) Broadcast (short: 群发)
     const isBroadcast = !!groupChatState?.active
     quickActionsEl.appendChild(makeBtn(
-      isBroadcast ? t('menu.broadcast_active') : t('menu.broadcast'),
+      isBroadcast ? t('menu.broadcast_active') : t('menu.broadcast_short'),
       false,
       () => {
         if (isBroadcast) {
@@ -1070,9 +1219,55 @@ const syncTownSessionUrl = (townSessionId: string) => {
       },
     ))
 
-    // Topic detail (only when topic is active)
+    // 3) Start topic / End topic — same slot, swaps label & action based on
+    //    topic state. Issue 1: when a topic is active, this button becomes
+    //    "结束" (end topic) instead of showing a disabled "话题" plus a separate
+    //    "结束" button, saving one slot in the action bar.
+    if (isTopic) {
+      // Topic active → show "结束" (end topic) in this slot
+      quickActionsEl.appendChild(makeBtn(t('menu.end_topic_short'), false, () => {
+        scene.getUIManager().showEndTopicConfirm()
+      }, 'town-quick-btn-end'))
+    } else {
+      // No topic → show "话题" (start topic)
+      quickActionsEl.appendChild(makeBtn(t('menu.start_topic_short'), isWork, async () => {
+        const { showTopicSetupPanel } = await import('./ui/TopicSetupPanel')
+        const citizens = scene.getAgentEnabledCitizens()
+        if (citizens.length < 2) {
+          scene.getUIManager().showToast('至少需要2位已开启 Agent 的居民')
+          return
+        }
+        scene.pauseTopicAutonomy()
+        const result = await showTopicSetupPanel(citizens, (id) => !!scene.isNpcVisible(id))
+        if (!result || result.citizens.length < 2) {
+          scene.resumeTopicAutonomy()
+          return
+        }
+        const npcIds = result.citizens.map(c => c.id)
+        topicState = { npcIds, phase: 'gathering' }
+        const npcConfigs = result.citizens.map(c => ({
+          id: c.id, name: c.name, color: c.color,
+          spawn: { x: 0, y: 0, z: 0 }, role: 'worker' as const,
+          characterKey: c.characterKey, avatarUrl: c.avatarUrl,
+        }))
+        scene.getUIManager().updateTopicIndicator(npcConfigs)
+        inputBar.setBusy(true)
+        const textarea = document.getElementById('town-input-text') as HTMLTextAreaElement
+        if (textarea) textarea.placeholder = t('input.gathering')
+        wsSend({ type: 'topic_start', npcIds })
+        await scene.gatherForTopic(npcIds)
+        if (!topicState) return
+        topicState.phase = 'active'
+        inputBar.setBusy(false)
+        if (textarea) textarea.placeholder = t('input.topic')
+        showEndTopicBtn()
+        refreshQuickActions()
+      }))
+    }
+
+    // 4) Topic detail (only when topic is active) — short: 话题详情
     if (isTopic && topicState?.phase === 'active') {
-      quickActionsEl.appendChild(makeBtn(t('menu.topic_detail'), false, () => {
+      quickActionsEl.appendChild(makeBtn(t('menu.topic_detail_short'), false, () => {
         showTopicDetailPanel()
       }))
     }
@@ -1083,6 +1278,41 @@ const syncTownSessionUrl = (townSessionId: string) => {
   showEndTopicBtn = () => { _origShowEndTopicBtn(); refreshQuickActions() }
   const _origHideEndTopicBtn = hideEndTopicBtn
   hideEndTopicBtn = () => { _origHideEndTopicBtn(); refreshQuickActions() }
+
+  // Restore topic state from runtime (page refresh). Called after the quick
+  // action bar + showEndTopicBtn are wired up so the restored topic controls
+  // (结束 / 话题详情 buttons) render correctly.
+  function applyRestoredTopic(): void {
+    const restoredIds = (scene as any).consumeRestoredTopicNpcIds?.() as string[] | undefined
+    if (!restoredIds || restoredIds.length === 0) return
+    const citizens = scene.getAgentEnabledCitizens()
+    const npcConfigs = restoredIds
+      .map((id: string) => citizens.find(c => c.id === id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .map(c => ({
+        id: c.id, name: c.name, color: c.color,
+        spawn: { x: 0, y: 0, z: 0 }, role: 'worker' as const,
+        characterKey: c.characterKey, avatarUrl: c.avatarUrl,
+      }))
+    scene.getUIManager().updateTopicIndicator(npcConfigs)
+    topicState = { npcIds: restoredIds, phase: 'active' }
+    showEndTopicBtn()
+    refreshQuickActions()
+    console.log(`[main] Restored topic state from runtime: ${restoredIds.length} NPCs`)
+  }
+  applyRestoredTopicRef = applyRestoredTopic
+  if (pendingTopicRestore) {
+    pendingTopicRestore = false
+    applyRestoredTopic()
+  }
+  // Register a callback so the lazy runtime-restore path (NPCs spawned after
+  // animal_state arrives) can still restore the topic UI once applyRuntimeState
+  // sets topicNpcIds. Without this, a refresh where NPCs spawn late would lose
+  // the 结束/话题详情 buttons.
+  ;(scene as any).setTopicRestoredCallback?.(() => {
+    if (topicState) return // already restored, avoid double-applying
+    applyRestoredTopic()
+  })
 
   moreBtn?.addEventListener('click', (e) => {
     e.stopPropagation()

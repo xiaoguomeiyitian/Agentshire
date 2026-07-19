@@ -883,11 +883,6 @@ export function getGroupInfo(groupId: string): {
   };
 }
 
-/** Get the default group ID. */
-export function getDefaultGroupId(): string {
-  return DEFAULT_GROUP_ID;
-}
-
 /**
  * Get the list of citizens currently composing a reply in a group.
  * Used to restore typing indicators on frontend reconnect/refresh.
@@ -903,13 +898,4 @@ export function getActiveTypingCitizens(groupId: string): Array<{ npcId: string;
     }
   }
   return result;
-}
-
-/** Stop all groups (on plugin shutdown). */
-export function stopAllGroups(): void {
-  for (const group of activeGroups.values()) {
-    clearAllTimers(group);
-  }
-  activeGroups.clear();
-  console.log("[group-chat] All groups stopped");
 }

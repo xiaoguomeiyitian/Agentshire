@@ -146,14 +146,4 @@ export function resolveGroupMeshUrl(group: CharacterGroup, variant?: number, col
   return url
 }
 
-export function getBuiltinModels(): CharacterModelEntry[] {
-  ensureBuiltinCache()
-  return _builtinModels!
-}
-
-export function findModelEntry(modelId: string): CharacterModelEntry | undefined {
-  ensureBuiltinCache()
-  return _builtinModels!.find(m => m.id === modelId)
-}
-
 export { SHARED_ANIM_URL }

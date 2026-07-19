@@ -20,5 +20,3 @@ export type { GameObject } from './World'
 export { Screen } from './Screen'
 export type { ScreenOrientation, SafeAreaInsets, ScreenState, ScreenCallbacks } from './Screen'
 
-export { detectProfile, getConfig, PROFILES, LOW, MEDIUM, HIGH } from './Performance'
-export type { PerformanceProfile, PerformanceConfig } from './Performance'

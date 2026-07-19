@@ -50,7 +50,7 @@ const _ndc = new THREE.Vector3()
 
 export type { OrbData, BossData, SmokeData }
 
-export class BanweiRenderer {
+export class TroubleRenderer {
   private camera!: THREE.Camera
   private renderer!: THREE.WebGLRenderer
   private container!: HTMLElement
@@ -395,14 +395,14 @@ export class BanweiRenderer {
 
   // ── Smoke ──
 
-  updateSmoke(npcId: string, stress: number): void {
+  updateSmoke(npcId: string, worry: number): void {
     const existing = this.smokeEls.get(npcId)
-    if (stress < 40) {
+    if (worry < 40) {
       if (existing) { existing.container.remove(); this.smokeEls.delete(npcId) }
       return
     }
 
-    const puffCount = stress >= 80 ? 8 : stress >= 60 ? 5 : 3
+    const puffCount = worry >= 80 ? 8 : worry >= 60 ? 5 : 3
 
     if (!existing) {
       const smokeContainer = document.createElement('div')
@@ -421,7 +421,7 @@ export class BanweiRenderer {
 
     const data = this.smokeEls.get(npcId)!
     data.puffs.forEach((p, i) => { p.style.display = i < puffCount ? '' : 'none' })
-    const alpha = stress >= 80 ? 0.9 : stress >= 60 ? 0.75 : 0.55
+    const alpha = worry >= 80 ? 0.9 : worry >= 60 ? 0.75 : 0.55
     data.container.style.setProperty('--smoke-alpha', String(alpha))
   }
 
@@ -484,10 +484,10 @@ export class BanweiRenderer {
     if (!el) return
     let text: string, cls: string
     const isEn = getLocale() === 'en'
-    if (n >= 10)     { text = isEn ? `Stress-free!!! x${n}` : `班味全消!!! x${n}`; cls = 'bw-combo-10' }
-    else if (n >= 7) { text = isEn ? `Revived! x${n}` : `满血复活! x${n}`;   cls = 'bw-combo-7' }
-    else if (n >= 4) { text = isEn ? `Energized! x${n}` : `提神醒脑! x${n}`;   cls = 'bw-combo-4' }
-    else if (n >= 2) { text = isEn ? `Fresh! x${n}` : `精神! x${n}`;       cls = 'bw-combo-2' }
+    if (n >= 10)     { text = isEn ? `Worry-free!!! x${n}` : `烦恼全消!!! x${n}`; cls = 'bw-combo-10' }
+    else if (n >= 7) { text = isEn ? `Relieved! x${n}` : `知心解忧! x${n}`;   cls = 'bw-combo-7' }
+    else if (n >= 4) { text = isEn ? `Comforted! x${n}` : `温暖治愈! x${n}`;   cls = 'bw-combo-4' }
+    else if (n >= 2) { text = isEn ? `Cheered! x${n}` : `开心! x${n}`;       cls = 'bw-combo-2' }
     else return
 
     el.textContent = text

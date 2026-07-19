@@ -12,6 +12,8 @@ import {
   loadAllActivityJournalSnapshots,
   saveClockState,
   loadClockState,
+  clearClockState,
+  clearAllSnapshots,
 } from '../animal-memory'
 import type { ActivityJournalSnapshot, Relationship } from '../animal-snapshot-types'
 import * as fs from 'node:fs'
@@ -148,6 +150,46 @@ describe('animal-memory (plugin-side persistence)', () => {
 
     it('returns null when no clock state', () => {
       expect(loadClockState()).toBeNull()
+    })
+
+    it('clearClockState removes saved clock state', () => {
+      saveClockState({ dayCount: 7, gameSeconds: 99999, savedAt: Date.now() })
+      expect(loadClockState()).not.toBeNull()
+      clearClockState()
+      expect(loadClockState()).toBeNull()
+    })
+  })
+
+  describe('clearAllSnapshots (Issue 6: town reset)', () => {
+    it('removes all snapshot files but leaves memory JSONL files', () => {
+      // Seed a snapshot and a memory entry
+      const rel: Relationship = {
+        npcId: 'bob', name: 'Bob', label: '朋友',
+        sentiment: 0.5, lastInteraction: Date.now(),
+        interactionCount: 3, recentTopics: [],
+      }
+      saveActivityJournalSnapshot('alice', {
+        npcId: 'alice', npcName: 'Alice', entries: [], dialogues: [],
+        relationships: [['bob', rel]],
+        reflections: [],
+        currentPlan: null,
+      })
+      appendDialogue('alice', 'Bob', '聊了天气')
+
+      // Both files exist
+      expect(loadActivityJournalSnapshot('alice')).not.toBeNull()
+      expect(loadAllEntries('alice').length).toBeGreaterThan(0)
+
+      clearAllSnapshots()
+
+      // Snapshot cleared, memory preserved
+      expect(loadActivityJournalSnapshot('alice')).toBeNull()
+      expect(loadAllEntries('alice').length).toBeGreaterThan(0)
+    })
+
+    it('is a no-op when no snapshots exist', () => {
+      expect(() => clearAllSnapshots()).not.toThrow()
+      expect(loadAllActivityJournalSnapshots()).toHaveLength(0)
     })
   })
 })

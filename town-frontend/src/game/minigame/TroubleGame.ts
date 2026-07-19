@@ -1,8 +1,8 @@
 import type { MinigameSlot, MinigameContext } from './MinigameSlot'
-import { BanweiRenderer, type OrbData, type BossData } from './BanweiRenderer'
-import { BanweiNpcEffects } from './BanweiNpcEffects'
+import { TroubleRenderer, type OrbData, type BossData } from './TroubleRenderer'
+import { TroubleNpcEffects } from './TroubleNpcEffects'
 import { getLocale } from '../../i18n'
-import { VOICE_POOL_EN, WARN_POOL_EN } from '../../i18n/banwei-en'
+import { VOICE_POOL_EN, WARN_POOL_EN } from '../../i18n/trouble-en'
 
 function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)] }
 function rand(a: number, b: number): number { return a + Math.random() * (b - a) }
@@ -13,72 +13,72 @@ function getSteward() { return getLocale() === 'en' ? STEWARD_EN : STEWARD_ZH }
 
 const VOICE_POOL_ZH: Record<number | string, string[]> = {
   2: [
-    '嗯？好像轻松了一点', '有人在帮我减压？', '镇长今天人不错', '续了一口气',
-    '我的精神状态稍微正常了', '感觉从ICU转到普通病房了', '属于是活过来了一点',
-    '好家伙，我差点就躺平了', '班味浓度-1，微乎其微', '我的i人电量充了1%',
-    '头发停止了脱落（暂时的）', '刚才闻到一丝自由的味道', '谢邀，人在工位，刚续命',
-    '摸鱼被发现的恐惧感降低了', '从社畜变回了社…蓄？', '这波属于回了一口血',
-    '精神状态从-100到-99了', '键盘上的泪痕干了一点', '班味radar显示略有下降',
-    '我不确定，但好像没那么想死了', '确认过眼神，是来救我的人', '感觉这空气不那么窒息了',
-    '麻木的神经突然跳了一下', '好消息：我还没有原地去世', '工位的怨气浓度降低0.1%',
-    '脑子里的浆糊稀了一点', '栓Q…等一下，好像没那么Q了', '精神状态：垂死病中惊坐起',
-    '感觉如同沙漠里喝到一滴水', '镇长做了什么？我突然没那么emo了',
+    '嗯？好像轻松了一点', '有人在安慰我？', '谢谢你愿意听我说', '心里好受了一些',
+    '我的心情稍微平复了', '感觉没那么孤单了', '好像没那么难过了',
+    '刚才有点钻牛角尖了', '烦恼减轻了一点点', '我的心情好了一点点',
+    '紧绷的神经放松了一些', '刚才闻到了花香，心情好了', '谢谢你，我没事了',
+    '被理解的感觉真好', '好像又看到了希望', '这波属于回了一口血',
+    '心情从阴转多云了', '眉头舒展了一点', '烦恼指数略微下降',
+    '我不确定，但好像没那么难过了', '确认过眼神，是关心我的人', '感觉空气清新了一些',
+    '麻木的心突然暖了一下', '好消息：我还没有被烦恼打倒', '心里的石头轻了一点',
+    '脑子里的乱麻理清了一点', '谢谢你，我好像想通了', '心情：柳暗花明又一村',
+    '感觉如同雨天看到了一缕阳光', '你做了什么？我突然没那么难过了',
   ],
   4: [
-    '感觉又能写两行了', '差点以为要猝死在工位上', '这个班上得有点人味了', '镇长出手了？',
-    '不是，哥们，你有点东西啊', '这波操作直接把我从ICU拉到蹦迪', '打工人DNA动了！',
-    '格局打开了，班味关闭了', '我宣布这就是遥遥领先', '牛马终于喘上气了，真的会谢',
-    '这波我直接精神状态遥遥领先', '好家伙，效率直接起飞', '我不允许还有人不知道这种镇长',
-    '什么神仙操作？班味直接蒸发', '脑雾散了，人间清醒了', '从摆烂直接切换到卷王模式',
-    '镇长这是开了外挂吧？', '不是哥们，这合理吗？太强了', '6到飞起，我直接原地复活',
-    '这泼天的福气终于轮到我了', '精神状态良好.jpg', '感觉自己又是一条好汉！',
-    '这代码我直接一把梭了', '班味大退潮！芭比Q不了我！', '内卷？不存在的，我现在是王',
-    '老六班味你给我等着', '感觉我的工位在发光', '直接从干饭人进化成干活人',
-    '什么叫专业？这就叫专业', '属于是泼天的富贵砸我脸上了',
+    '感觉又能笑出来了', '刚才差点被烦恼淹没', '今天总算有点开心了', '你真的帮了我大忙',
+    '不是，你人真的好好', '这波操作直接把我从低谷拉回来了', '心情DNA动了！',
+    '心结打开了，烦恼关闭了', '我宣布你就是小镇的温暖', '终于喘上气了，真的会谢',
+    '这波我直接心情大好', '好家伙，整个人都精神了', '我不允许还有人不知道你的好',
+    '什么神仙邻居？烦恼直接蒸发', '心结散了，人间清醒了', '从愁眉苦脸切换到开心模式',
+    '你是会安慰人的', '不是，这合理吗？太暖心了', '太好了，我直接原地复活',
+    '这泼天的温暖终于轮到我了', '心情良好.jpg', '感觉自己又活过来了！',
+    '烦恼大退潮！打不倒我！', '难过？不存在的，我现在很开心', '烦恼你给我等着',
+    '感觉我的世界在发光', '直接从愁容满面进化到笑逐颜开',
+    '什么叫温暖？这就叫温暖', '属于是满满的善意砸我脸上了',
   ],
   7: [
-    '活过来了...', '这一刻我不想提离职了', '感觉升职加薪有望', '我要发朋友圈表扬镇长',
-    '绝了绝了，镇长YYDS！', '我超！我真的哭死！太感动了', '这波属于是满血复活了',
-    '不是，我怎么突然这么能打？', '有被爽到！班味完全消失！', '我现在的精神状态能打十个！',
-    '建议全国推广这种镇长！', '太顶了，我甚至想加班（？）', '破防了家人们，是幸福的泪水',
-    '请给我再安排十个需求！（开玩笑的）', '我命由我不由天，班味休想缠着我', '整活能力MAX，代码随便写',
-    '完了，我开始热爱工作了，离谱', '赢麻了！今天就是我的主场', '什么卷王？我是卷神！',
-    '镇长看我一眼我直接满状态', '效率之王，说的就是我！', '显眼包精神状态全开！冲！',
-    '感觉全小镇的气运都在我这了', '这波直接一键三连——点赞投币收藏', '遥遥领先遥遥领先遥遥领先',
-    '拿捏了，这工作被我完全拿捏了', '从打工人进化为打工之神', '镇长你是懂管理的',
-    '我超，灵感喷涌如泉水', '今天的我，强得可怕',
+    '活过来了...', '这一刻我不想叹气了', '感觉生活充满希望', '我要发朋友圈表扬你',
+    '绝了绝了，你YYDS！', '我超！我真的哭死！太感动了', '这波属于是满血复活了',
+    '不是，我怎么突然这么开心？', '有被暖到！烦恼完全消失！', '我现在的心情能打十个！',
+    '建议全小镇推广这种好人！', '太顶了，我甚至想拥抱你', '破防了家人们，是幸福的泪水',
+    '请给我再安排十个烦恼！（开玩笑的）', '我命由我不由天，烦恼休想缠着我', '治愈能力MAX',
+    '完了，我开始热爱生活了，离谱', '赢麻了！今天就是我的好日子', '什么烦恼？我是快乐之神！',
+    '你看我一眼我直接满状态', '快乐之王，说的就是我！', '开心能量全开！冲！',
+    '感觉全小镇的温暖都在我这了', '这波直接一键三连——点赞投币收藏', '温暖温暖温暖',
+    '拿捏了，这烦恼被我完全拿捏了', '从愁人进化为快乐之神', '你是懂治愈的',
+    '我超，开心喷涌如泉水', '今天的我，快乐得可怕',
   ],
   10: [
-    '镇长！你是人！', '下辈子还跟你干！', '建议全行业推广这种镇长', '呜呜呜终于有人看到我了',
-    '我直接跪下了，镇长你是神！', '有被震撼到，什么绝世好镇长', '泰裤辣！镇长泰裤辣！',
-    '我已经不是牛马了，我是战神！！', '镇长请收下我的一键三连！！', '谁懂啊！这就是被当人看的感觉！',
-    '我为镇长打call到天荒地老！', '啊啊啊啊啊镇长我可以！！！', '这就是传说中的神级操作吗？？',
-    '爷青回！爷的工作热情回来了！', '我超我超我超！！无敌了！', '给镇长磕一个！咚咚咚！',
-    '镇长，你知道你有多离谱吗（褒义）', '什么叫降维打击？这就是！', '班味：已死。镇长：封神。',
-    '全体起立！为镇长鼓掌！！', '镇长指哪我打哪！绝无二话！', '属于是直接封神了，没有悬念',
-    '我不允许镇长没有一座雕像！', '完了，我觉得996也不是不行（大雾）', '什么档次？顶级档次！',
-    '镇长这波操作我要写进简历！', '我已经分不清这是上班还是天堂了', '镇长！我的精神状态全靠你了！',
-    '格局，绝对的格局！我服了！', '整个小镇最靓的仔就是镇长！',
+    '你是天使！真的！', '下辈子还跟你做邻居！', '建议全小镇推广这种好人', '呜呜呜终于有人看到我了',
+    '我直接跪下了，你是神！', '有被震撼到，什么绝世好邻居', '太暖了！你太暖了！',
+    '我已经不是愁人了，我是快乐战神！！', '请收下我的一键三连！！', '谁懂啊！这就是被关心的感觉！',
+    '我为你打call到天荒地老！', '啊啊啊啊啊我可以！！！', '这就是传说中的神级安慰吗？？',
+    '爷青回！我的笑容回来了！', '我超我超我超！！无敌了！', '给你磕一个！咚咚咚！',
+    '你知道你有多离谱吗（褒义）', '什么叫降维治愈？这就是！', '烦恼：已死。你：封神。',
+    '全体起立！为你鼓掌！！', '你指哪我走哪！绝无二话！', '属于是直接封神了，没有悬念',
+    '我不允许你没有一座雕像！', '完了，我觉得生活真美好', '什么档次？顶级档次！',
+    '这波温暖我要写进日记！', '我已经分不清这是人间还是天堂了', '你！我的快乐全靠你了！',
+    '格局，绝对的格局！我服了！', '整个小镇最暖的人就是你！',
   ],
   boss: [
-    '班味大魔王被消灭了！！', '办公室空气都清新了', '全员恢复战斗力！',
-    '芭比Q的是大魔王！不是我们！', '大魔王：我也想下班了（已被击毙）', '全体打工人宣布胜利！',
-    '这历史性一刻建议载入小镇史册！', '大魔王已死！有事烧纸！', '班味净化完毕，空气质量优！',
-    '赢！赢麻了！彻底赢麻了！', '打工人团结起来是无敌的！', 'GG，大魔王请回吧',
-    '终于可以准时下班了！奥利给！', '万恶的班味，永远的消失吧！', '今晚我请全小镇喝奶茶！',
-    '躺平？不，是躺赢！', '我们不是在上班，我们是在创造历史！', '大魔王的班味被完全蒸发了！',
-    '自由！！呼吸新鲜空气的自由！', '这一战，将被载入打工人传说！', '什么叫团灭？这就叫团灭（指魔王）',
-    '我已经开始期待明天上班了（？？）', '小镇和平，由我们守护！', '大魔王你给我记住，别再来了',
-    '感谢队友！感谢镇长！感谢自己！', '从此班味是路人！', '打工人翻身的一天！YYDS！',
-    '全网最强小镇，不接受反驳', '谢谢大魔王的配合演出（不是）', '今天以后，再也没有人说我是牛马！',
+    '烦恼乌云被驱散了！！', '小镇空气都清新了', '全员恢复好心情！',
+    '消散的是乌云！不是我们！', '乌云：我也想散了（已消散）', '全体居民宣布胜利！',
+    '这历史性一刻建议载入小镇史册！', '乌云已散！拨云见日！', '烦恼净化完毕，心情优！',
+    '赢！赢麻了！彻底赢麻了！', '居民团结起来是无敌的！', 'GG，乌云请回吧',
+    '终于可以开怀大笑了！奥利给！', '万恶的烦恼，永远的消失吧！', '今晚我请全小镇喝奶茶！',
+    '躺平？不，是躺赢！', '我们不是在发愁，我们是在创造快乐！', '乌云的烦恼被完全蒸发了！',
+    '自由！！呼吸新鲜空气的自由！', '这一战，将被载入小镇传说！', '什么叫拨云见日？这就叫',
+    '我已经开始期待明天了', '小镇和平，由我们守护！', '乌云你给我记住，别再来了',
+    '感谢队友！感谢你！感谢自己！', '从此烦恼是路人！', '居民翻身的一天！YYDS！',
+    '全网最强小镇，不接受反驳', '谢谢乌云的配合演出（不是）', '今天以后，再也没有人说我是愁人！',
   ],
 }
 
 const WARN_POOL_ZH: Record<number, string> = {
-  3: '班味浓度持续上升... ⚠️',
-  6: '班味已经开始蔓延了！ ⚠️',
-  9: '再不处理居民要罢工了！ ⚠️',
-  12: '班味浓度已达危险水平！！ ⚠️',
+  3: '烦恼浓度持续上升... ⚠️',
+  6: '烦恼已经开始蔓延了！ ⚠️',
+  9: '再不处理居民要难过了！ ⚠️',
+  12: '烦恼浓度已达危险水平！！ ⚠️',
 }
 
 function getVoicePool(): Record<number | string, string[]> {
@@ -99,19 +99,19 @@ const NPC_COLORS: Record<string, string> = {
   'xiaolie': '#d08050',
 }
 
-export class BanweiGame implements MinigameSlot {
-  readonly id = 'banwei'
+export class TroubleGame implements MinigameSlot {
+  readonly id = 'trouble'
 
   private ctx: MinigameContext | null = null
-  private renderer = new BanweiRenderer()
-  private effects = new BanweiNpcEffects()
+  private renderer = new TroubleRenderer()
+  private effects = new TroubleNpcEffects()
 
   private running = false
-  private workingNpcIds = new Set<string>()
+  private troubledNpcIds = new Set<string>()
 
   private orbs: OrbData[] = []
   private bosses: BossData[] = []
-  private npcStress = new Map<string, number>()
+  private npcWorry = new Map<string, number>()
   private npcOrbSlots = new Map<string, { ox: number; oy: number }[]>()
   private spawnTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private silenceTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -156,10 +156,10 @@ export class BanweiGame implements MinigameSlot {
     this.updateCb = (dt: number) => this.loop(dt)
     this.ctx.onUpdate(this.updateCb)
 
-    const existingNpcs = this.ctx.getWorkingNpcIds()
-    for (const npcId of existingNpcs) this.addWorkingNpc(npcId)
+    const existingNpcs = this.ctx.getTroubledNpcIds()
+    for (const npcId of existingNpcs) this.addTroubledNpc(npcId)
 
-    console.log('[Banwei] game started, existing NPCs:', existingNpcs)
+    console.log('[Trouble] game started, existing NPCs:', existingNpcs)
   }
 
   stop(): void {
@@ -183,37 +183,37 @@ export class BanweiGame implements MinigameSlot {
     this.orbs = []
     this.bosses = []
 
-    for (const npcId of this.workingNpcIds) {
+    for (const npcId of this.troubledNpcIds) {
       this.restoreNpc(npcId)
     }
-    this.workingNpcIds.clear()
-    this.npcStress.clear()
+    this.troubledNpcIds.clear()
+    this.npcWorry.clear()
     this.npcOrbSlots.clear()
     this.renderer.clearAll()
 
-      this.renderer.showVoice({ ...getSteward(), config: this.ctx?.getNpcVoiceConfig('steward') ?? null }, getLocale() === 'en' ? 'Off work!!!' : '下班了！！！', false)
+      this.renderer.showVoice({ ...getSteward(), config: this.ctx?.getNpcVoiceConfig('steward') ?? null }, getLocale() === 'en' ? 'All better now!!!' : '烦恼都散了！！！', false)
     this.renderer.scheduleHudFade(2000)
 
-    console.log('[Banwei] game stopped')
+    console.log('[Trouble] game stopped')
   }
 
   // ── Per-NPC lifecycle ──
 
-  addWorkingNpc(npcId: string): void {
-    if (!this.running || this.workingNpcIds.has(npcId)) return
+  addTroubledNpc(npcId: string): void {
+    if (!this.running || this.troubledNpcIds.has(npcId)) return
     const npc = this.ctx?.getNpc(npcId)
     if (!npc) return
 
-    this.workingNpcIds.add(npcId)
-    this.npcStress.set(npcId, 0)
+    this.troubledNpcIds.add(npcId)
+    this.npcWorry.set(npcId, 0)
     this.npcOrbSlots.set(npcId, this.generateOrbSlots())
     this.effects.snapshot(npc)
     this.scheduleSpawn(npcId)
-    console.log(`[Banwei] NPC added: ${npcId}`)
+    console.log(`[Trouble] NPC added: ${npcId}`)
   }
 
-  removeWorkingNpc(npcId: string): void {
-    if (!this.workingNpcIds.has(npcId)) return
+  removeTroubledNpc(npcId: string): void {
+    if (!this.troubledNpcIds.has(npcId)) return
 
     const orbsToRemove = this.orbs.filter(o => o.npcId === npcId)
     for (const orb of orbsToRemove) {
@@ -221,8 +221,8 @@ export class BanweiGame implements MinigameSlot {
     }
 
     this.restoreNpc(npcId)
-    this.workingNpcIds.delete(npcId)
-    this.npcStress.delete(npcId)
+    this.troubledNpcIds.delete(npcId)
+    this.npcWorry.delete(npcId)
     this.npcOrbSlots.delete(npcId)
 
     const timer = this.spawnTimers.get(npcId)
@@ -232,7 +232,7 @@ export class BanweiGame implements MinigameSlot {
 
     this.renderer.clearNpcSmoke(npcId)
     this.syncHudWithHazards()
-    console.log(`[Banwei] NPC removed: ${npcId}`)
+    console.log(`[Trouble] NPC removed: ${npcId}`)
   }
 
   private restoreNpc(npcId: string): void {
@@ -246,10 +246,10 @@ export class BanweiGame implements MinigameSlot {
   // ── Orb spawning ──
 
   private scheduleSpawn(npcId: string): void {
-    if (!this.running || !this.workingNpcIds.has(npcId)) return
+    if (!this.running || !this.troubledNpcIds.has(npcId)) return
     const delay = rand(5000, 30000)
     const timer = setTimeout(() => {
-      if (!this.running || !this.workingNpcIds.has(npcId)) return
+      if (!this.running || !this.troubledNpcIds.has(npcId)) return
       this.spawnOrb(npcId)
       this.scheduleSpawn(npcId)
     }, delay)
@@ -285,7 +285,7 @@ export class BanweiGame implements MinigameSlot {
     this.orbs.push(orb)
     this.totalUncleared++
     this.spawnsSinceBoss++
-    this.updateNpcStress(npcId)
+    this.updateNpcWorry(npcId)
 
     if (this.spawnsSinceBoss >= 6 && this.bosses.length < 3) {
       this.spawnsSinceBoss = 0
@@ -295,7 +295,7 @@ export class BanweiGame implements MinigameSlot {
     if (!this.firstOrbShown) {
       this.firstOrbShown = true
       this.renderer.clearCombo()
-      this.renderer.showVoice({ ...getSteward(), config: this.ctx?.getNpcVoiceConfig('steward') ?? null }, getLocale() === 'en' ? 'Citizens are stressed! Click to help' : '居民开始出现班味了，镇长请点击帮他们减压', false)
+      this.renderer.showVoice({ ...getSteward(), config: this.ctx?.getNpcVoiceConfig('steward') ?? null }, getLocale() === 'en' ? 'Citizens are worried! Click to help' : '居民开始烦恼了，请点击帮他们解忧', false)
       this.renderer.cancelHudFade()
       this.renderer.addPulseIndicator(orb.el)
     }
@@ -345,14 +345,14 @@ export class BanweiGame implements MinigameSlot {
     }
   }
 
-  private removeOrb(orb: OrbData, updateStress: boolean): void {
+  private removeOrb(orb: OrbData, updateWorry: boolean): void {
     const idx = this.orbs.indexOf(orb)
     if (idx >= 0) this.orbs.splice(idx, 1)
     this.renderer.removeOrbEl(orb)
     this.totalUncleared = Math.max(0, this.totalUncleared - 1)
 
-    if (updateStress) {
-      this.updateNpcStress(orb.npcId)
+    if (updateWorry) {
+      this.updateNpcWorry(orb.npcId)
 
       const existingSpawn = this.spawnTimers.get(orb.npcId)
       if (existingSpawn) clearTimeout(existingSpawn)
@@ -363,7 +363,7 @@ export class BanweiGame implements MinigameSlot {
 
       const silenceTimer = setTimeout(() => {
         this.silenceTimers.delete(orb.npcId)
-        if (this.running && this.workingNpcIds.has(orb.npcId)) this.scheduleSpawn(orb.npcId)
+        if (this.running && this.troubledNpcIds.has(orb.npcId)) this.scheduleSpawn(orb.npcId)
       }, rand(60000, 180000))
       this.silenceTimers.set(orb.npcId, silenceTimer)
     }
@@ -371,17 +371,17 @@ export class BanweiGame implements MinigameSlot {
     this.syncHudWithHazards()
   }
 
-  // ── NPC stress ──
+  // ── NPC worry ──
 
-  private updateNpcStress(npcId: string): void {
+  private updateNpcWorry(npcId: string): void {
     const npc = this.ctx?.getNpc(npcId)
     if (!npc) return
     const count = this.orbs.filter(o => o.npcId === npcId).length
-    const stress = Math.min(100, count * 20)
-    this.npcStress.set(npcId, stress)
+    const worry = Math.min(100, count * 20)
+    this.npcWorry.set(npcId, worry)
 
-    this.effects.applyStress(npc, stress)
-    this.renderer.updateSmoke(npcId, stress)
+    this.effects.applyWorry(npc, worry)
+    this.renderer.updateSmoke(npcId, worry)
   }
 
   // ── Boss ──
@@ -398,7 +398,7 @@ export class BanweiGame implements MinigameSlot {
       (b, e) => this.clickBoss(b, e),
     )
     this.bosses.push(boss)
-    console.log('[Banwei] Boss spawned, stage:', boss.stage, 'total:', this.bosses.length)
+    console.log('[Trouble] Boss spawned, stage:', boss.stage, 'total:', this.bosses.length)
   }
 
   private clickBoss(boss: BossData, e: MouseEvent): void {
@@ -520,19 +520,19 @@ export class BanweiGame implements MinigameSlot {
 
   private loop(dt: number): void {
     if (!this.running) return
-    const workflowNpcIds = this.ctx?.getWorkingNpcIds() ?? []
-    for (const npcId of workflowNpcIds) {
-      if (!this.workingNpcIds.has(npcId)) {
-        this.addWorkingNpc(npcId)
+    const troubledNpcIds = this.ctx?.getTroubledNpcIds() ?? []
+    for (const npcId of troubledNpcIds) {
+      if (!this.troubledNpcIds.has(npcId)) {
+        this.addTroubledNpc(npcId)
       }
     }
-    for (const npcId of [...this.workingNpcIds]) {
-      if (!workflowNpcIds.includes(npcId)) {
-        this.removeWorkingNpc(npcId)
+    for (const npcId of [...this.troubledNpcIds]) {
+      if (!troubledNpcIds.includes(npcId)) {
+        this.removeTroubledNpc(npcId)
       }
     }
     if (this._loopLogCount < 5 && this._loopLogCount % 1 === 0) {
-      const myIds = [...this.workingNpcIds]
+      const myIds = [...this.troubledNpcIds]
       void myIds
     }
     this._loopLogCount++

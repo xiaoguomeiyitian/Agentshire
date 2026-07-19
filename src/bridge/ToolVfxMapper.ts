@@ -38,8 +38,7 @@ export function toolEmoji(toolName: string): string {
 }
 
 const MANAGEMENT_TOOLS = new Set([
-  'sessions_spawn', 'sessions_yield', 'next_step', 'create_plan',
-  'project_complete', 'register_project', 'spawn_agent',
+  'sessions_spawn', 'sessions_yield', 'spawn_agent',
 ])
 
 /** Generate GameEvents for NPC animation, emoji, and VFX based on which tool is being used */

@@ -45,7 +45,7 @@ export function showSettingsPanel(opts: {
   const overlay = document.createElement('div')
   overlay.id = 'agentshire-settings-overlay'
   Object.assign(overlay.style, {
-    position: 'fixed', inset: '0', zIndex: '75',
+    position: 'fixed', inset: '0', zIndex: '1300',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
     WebkitBackdropFilter: 'blur(4px)',
@@ -159,15 +159,106 @@ export function showSettingsPanel(opts: {
     markDirty()
   })))
 
-  // ── Animal Mode toggle (动森模式) ──
+  // ── Animal Mode (citizen autonomy) toggle ──
+  // Controls whether citizens make autonomous L2 decisions (walk around,
+  // satisfy needs, chat). Persisted in localStorage; applied on save and
+  // on next startup via loadSettings() in main.ts.
 
-  card.appendChild(createRow(
-    getLocale() === 'en' ? 'Animal Mode' : '动森模式',
-    createToggle(draft.animalMode, (v) => {
+  if (opts.onAnimalModeChange) {
+    card.appendChild(createRow(t('settings.auto_walk'), createToggle(draft.animalMode, (v) => {
       draft.animalMode = v
       markDirty()
-    }),
-  ))
+    })))
+  }
+
+  // ── Init Town button (full re-initialization) ──
+  // Clicking opens a confirm dialog; confirming calls opts.onReset() which
+  // triggers the town/init API (removes all citizen agents + workspaces,
+  // clears ALL runtime data, re-creates steward + citizen workspaces from the
+  // project's latest personality files, re-registers citizen agents) and
+  // restarts OpenClaw.
+
+  const resetRow = document.createElement('div')
+  Object.assign(resetRow.style, {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.06)',
+  })
+  const resetLabel = document.createElement('div')
+  Object.assign(resetLabel.style, { fontSize: '14px', color: 'rgba(255,255,255,0.85)' })
+  resetLabel.textContent = t('settings.reset')
+  const resetDesc = document.createElement('div')
+  Object.assign(resetDesc.style, { fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' })
+  resetDesc.textContent = t('settings.reset_desc')
+  const resetLabelWrap = document.createElement('div')
+  resetLabelWrap.appendChild(resetLabel)
+  resetLabelWrap.appendChild(resetDesc)
+  resetRow.appendChild(resetLabelWrap)
+
+  const resetBtn = document.createElement('button')
+  Object.assign(resetBtn.style, {
+    padding: '6px 14px', borderRadius: '10px', border: '1px solid rgba(212,165,116,0.4)',
+    background: 'transparent', color: ACCENT, fontSize: '12px', fontWeight: '500',
+    cursor: 'pointer', transition: 'background 0.15s', flexShrink: '0',
+  })
+  resetBtn.textContent = t('settings.reset')
+  resetBtn.addEventListener('mouseenter', () => { resetBtn.style.background = 'rgba(212,165,116,0.12)' })
+  resetBtn.addEventListener('mouseleave', () => { resetBtn.style.background = 'transparent' })
+  resetBtn.addEventListener('click', () => {
+    // Show a confirm dialog before triggering the destructive reset.
+    const confirmOverlay = document.createElement('div')
+    Object.assign(confirmOverlay.style, {
+      position: 'fixed', inset: '0', zIndex: '1310',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)',
+      WebkitBackdropFilter: 'blur(4px)',
+    })
+    const confirmCard = document.createElement('div')
+    Object.assign(confirmCard.style, {
+      background: 'rgba(30,30,30,0.96)', border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: '16px', padding: '20px', width: '340px', maxWidth: '90vw',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.4)', color: '#eee',
+    })
+    const confirmTitle = document.createElement('div')
+    Object.assign(confirmTitle.style, { fontSize: '15px', fontWeight: '600', marginBottom: '10px', color: '#fff' })
+    confirmTitle.textContent = t('settings.reset')
+    const confirmMsg = document.createElement('div')
+    Object.assign(confirmMsg.style, { fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: '1.5', marginBottom: '16px' })
+    confirmMsg.textContent = getLocale() === 'en'
+      ? 'This will remove all citizen agents + workspaces, clear ALL sessions, memories, game clock, town state, economy, group-chat history, and agent databases, then re-create all workspaces from the project\'s latest personality files. OpenClaw will restart afterwards. Continue?'
+      : '将删除所有居民 Agent 及其工作区，清空所有会话、记忆、游戏时钟、小镇状态、经济、群聊历史和 Agent 数据库，然后从项目目录的最新人格文件重新创建所有工作区。此操作不可恢复，重置后将重启 OpenClaw。确定继续吗？'
+    const confirmBtnRow = document.createElement('div')
+    Object.assign(confirmBtnRow.style, { display: 'flex', gap: '10px', justifyContent: 'flex-end' })
+    const cancelBtn = document.createElement('button')
+    Object.assign(cancelBtn.style, {
+      padding: '8px 16px', borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.1)', background: 'transparent',
+      color: 'rgba(255,255,255,0.6)', fontSize: '13px', fontWeight: '500', cursor: 'pointer',
+    })
+    cancelBtn.textContent = getLocale() === 'en' ? 'Cancel' : '取消'
+    cancelBtn.addEventListener('click', () => confirmOverlay.remove())
+    const okBtn = document.createElement('button')
+    Object.assign(okBtn.style, {
+      padding: '8px 16px', borderRadius: '10px', border: 'none',
+      background: 'linear-gradient(135deg, #C4915E, #D4A574)', color: '#000',
+      fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+    })
+    okBtn.textContent = getLocale() === 'en' ? 'Confirm' : '确定'
+    okBtn.addEventListener('click', () => {
+      confirmOverlay.remove()
+      close()
+      opts.onReset()
+    })
+    confirmBtnRow.appendChild(cancelBtn)
+    confirmBtnRow.appendChild(okBtn)
+    confirmCard.appendChild(confirmTitle)
+    confirmCard.appendChild(confirmMsg)
+    confirmCard.appendChild(confirmBtnRow)
+    confirmOverlay.appendChild(confirmCard)
+    confirmOverlay.addEventListener('click', (e) => { if (e.target === confirmOverlay) confirmOverlay.remove() })
+    document.body.appendChild(confirmOverlay)
+  })
+  resetRow.appendChild(resetBtn)
+  card.appendChild(resetRow)
 
   // ── Bottom buttons: Cancel + Save ──
 

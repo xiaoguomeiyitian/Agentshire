@@ -108,6 +108,37 @@ export class CameraController {
     }
   }
 
+  /**
+   * Pan the camera target by a delta (used by WASD keyboard control).
+   * Stops following the mayor (decouples camera from mayor while panning).
+   */
+  panBy(dx: number, dz: number): void {
+    this.followTarget = null
+    this.autoPilotEnabled = false
+    this.autoPilotTarget = null
+    this.targetLookAt.x += dx
+    this.targetLookAt.z += dz
+    this.clampBounds(this.targetLookAt)
+    this.lastInteractionTime = performance.now()
+  }
+
+  /** Current lookAt target (for snap-back distance check). */
+  getLookAt(): { x: number; z: number } {
+    return { x: this.currentLookAt.x, z: this.currentLookAt.z }
+  }
+
+  /** Resume following the mayor NPC (re-bind follow target by id lookup). */
+  followMayor(): void {
+    // The actual follow target is set by MainScene via follow(mayor.mesh).
+    // Here we just signal that the next update should re-follow; MainScene
+    // calls cameraCtrl.follow(mayor.mesh) when snap-back completes.
+    // To keep this self-contained, we expose a flag MainScene can check.
+    this._wantsFollowMayor = true
+  }
+
+  /** Internal flag: MainScene polls this to re-bind follow target after WASD snap-back. */
+  _wantsFollowMayor = false
+
   setAutoPilot(enabled: boolean): void {
     this.autoPilotEnabled = enabled
     if (!enabled) {
@@ -149,7 +180,7 @@ export class CameraController {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault()
-    this.applyZoom(e.deltaY > 0 ? 1.06 : 0.94)
+    this.applyZoom(e.deltaY > 0 ? 1.12 : 0.88)
     this.lastInteractionTime = performance.now()
     this.followTarget = null
     this.autoPilotEnabled = false
@@ -217,6 +248,24 @@ export class CameraController {
     this.targetLookAt.copy(CameraController.OFFICE_LOOK_AT)
     this.currentLookAt.copy(CameraController.OFFICE_LOOK_AT)
     const pos = CameraController.OFFICE_LOOK_AT.clone().add(this.officeBaseOffset)
+    this.camera.position.copy(pos)
+    this.camera.lookAt(this.currentLookAt)
+  }
+
+  /**
+   * Issue 2: enter home scene camera mode. Looks at z=10 (center of the
+   * room) so NPCs walking in from the door (z=25) toward z=10 appear in the
+   * upper-center of the screen, visible above the chat input bar.
+   */
+  enterHomeMode(): void {
+    this.officeMode = true // reuse office pan/clamp logic
+    this.followTarget = null
+    this.autoPilotEnabled = false
+    this.autoPilotTarget = null
+    this.zoomLevel = 1.0
+    this.targetLookAt.set(15, 0, 10)
+    this.currentLookAt.set(15, 0, 10)
+    const pos = this.currentLookAt.clone().add(this.officeBaseOffset)
     this.camera.position.copy(pos)
     this.camera.lookAt(this.currentLookAt)
   }

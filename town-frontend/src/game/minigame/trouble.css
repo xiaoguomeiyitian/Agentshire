@@ -1,20 +1,20 @@
-/* ── 班味小游戏 — 游戏资产样式 ── */
+/* ── 烦恼事件小游戏 — 游戏资产样式 ── */
 
 :root {
   --bw-size: 80px;
   --float-delay: 0s;
-  /* 淡班味：朦胧灰紫 */
+  /* 淡烦恼：朦胧灰紫 */
   --bw-light-bg: radial-gradient(circle at 30% 30%, rgba(149, 136, 179, 0.85), rgba(120, 110, 150, 0.65));
   --bw-light-border: rgba(149, 136, 179, 0.5);
   --bw-light-eye: rgba(40, 30, 60, 0.85);
   --bw-light-cheek: rgba(180, 160, 200, 0.3);
   --bw-light-glow: rgba(149, 136, 179, 0.3);
-  /* 浓班味：纯正怨气紫 */
+  /* 浓烦恼：纯正怨气紫 */
   --bw-medium-bg: radial-gradient(circle at 30% 30%, rgba(106, 59, 140, 0.9), rgba(70, 35, 100, 0.75));
   --bw-medium-border: rgba(106, 59, 140, 0.6);
   --bw-medium-eye: rgba(20, 10, 40, 0.9);
   --bw-medium-glow: rgba(106, 59, 140, 0.4);
-  /* 焦班味：暗沉的深红 (Blood Moon / Crimson) */
+  /* 焦烦恼：暗沉的深红 (Blood Moon / Crimson) */
   --bw-heavy-bg: radial-gradient(circle at 30% 30%, rgba(160, 40, 55, 0.75), rgba(90, 20, 30, 0.6));
   --bw-heavy-border: rgba(140, 30, 40, 0.4);
   --bw-heavy-eye: rgba(40, 10, 15, 0.9);
@@ -52,7 +52,7 @@
   z-index: 20;
 }
 
-/* ── 淡班味「小困」── */
+/* ── 淡烦恼「小困」── */
 
 .banwei-light {
   background: var(--bw-light-bg);
@@ -86,7 +86,7 @@
   box-shadow: calc(var(--s) * 0.48) 0 0 0 var(--bw-light-cheek);
 }
 
-/* ── 浓班味「小丧」── */
+/* ── 浓烦恼「小丧」── */
 
 .banwei-medium {
   background: var(--bw-medium-bg);
@@ -122,7 +122,7 @@
   animation: banwei-blink-right 5s infinite;
 }
 
-/* ── 焦班味「小怒」── */
+/* ── 焦烦恼「小怒」── */
 
 .banwei-heavy {
   background: var(--bw-heavy-bg);
@@ -171,7 +171,7 @@
   pointer-events: none;
 }
 
-/* ── Boss「班味大王」── */
+/* ── Boss「烦恼大王」── */
 
 .boss-goo-container {
   position: relative;

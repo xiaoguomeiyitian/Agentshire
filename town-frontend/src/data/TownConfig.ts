@@ -45,12 +45,6 @@ export interface AnimalModeSettings {
   l2IntervalJitterMs: number
 }
 
-export const ANIMAL_MODE_SETTINGS_DEFAULTS: AnimalModeSettings = {
-  enabled: false,
-  l2IntervalMs: 90_000,
-  l2IntervalJitterMs: 30_000,
-}
-
 export interface TownConfig {
   townName: string
   steward: StewardConfig
@@ -62,12 +56,12 @@ export interface TownConfig {
 }
 
 const SPECIALTY_LABELS_ZH: Record<string, string> = {
-  architecture: '架构', planning: '策划', design: '设计', programming: '开发',
-  writing: '内容创作', data: '数据分析', general: '通用',
+  woodwork: '木工与搭建', ideas: '出点子', painting: '绘画与布置', mending: '手工修补',
+  repair: '修理与种植', diary: '写日记与拍照', bookkeeping: '记账与观察', general: '通用',
 }
 const SPECIALTY_LABELS_EN: Record<string, string> = {
-  architecture: 'Architect', planning: 'Planner', design: 'Design', programming: 'Dev',
-  writing: 'Content', data: 'Data', general: 'General',
+  woodwork: 'Woodwork', ideas: 'Ideas', painting: 'Painting', mending: 'Mending',
+  repair: 'Repair & Plant', diary: 'Diary & Photo', bookkeeping: 'Bookkeeping', general: 'General',
 }
 
 export const SPECIALTY_LABELS = SPECIALTY_LABELS_ZH
@@ -124,7 +118,6 @@ export function translateDefaultField(charId: string, field: keyof CharRef, valu
 
 let _hasPublished = false
 export function setHasPublished(v: boolean): void { _hasPublished = v }
-export function getHasPublished(): boolean { return _hasPublished }
 
 // ── Config creation ──
 

@@ -76,8 +76,6 @@ interface ClawConfig {
     auto?: { enabled?: boolean }
   }
   session?: {
-    maxHistoryTurns?: number
-    compactionThresholdTokens?: number
     scope?: string
     idleMinutes?: number
     dmScope?: string
@@ -297,8 +295,6 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
   const [updateChannel, setUpdateChannel] = useState('stable')
   const [updateCheckOnStart, setUpdateCheckOnStart] = useState(true)
   const [updateAutoEnabled, setUpdateAutoEnabled] = useState(false)
-  const [sessionMaxHistory, setSessionMaxHistory] = useState(50)
-  const [sessionCompactionThreshold, setSessionCompactionThreshold] = useState(100000)
   const [sessionScope, setSessionScope] = useState('per-sender')
   const [sessionIdleMinutes, setSessionIdleMinutes] = useState(0)
   const [diagEnabled, setDiagEnabled] = useState(true)
@@ -453,8 +449,6 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
         setUpdateChannel(data.config.update?.channel ?? 'stable')
         setUpdateCheckOnStart(data.config.update?.checkOnStart ?? true)
         setUpdateAutoEnabled(data.config.update?.auto?.enabled ?? false)
-        setSessionMaxHistory(data.config.session?.maxHistoryTurns ?? 50)
-        setSessionCompactionThreshold(data.config.session?.compactionThresholdTokens ?? 100000)
         setSessionScope(data.config.session?.scope ?? 'per-sender')
         setSessionIdleMinutes(data.config.session?.idleMinutes ?? 0)
         setDiagEnabled(data.config.diagnostics?.enabled ?? true)
@@ -642,8 +636,6 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
             auto: { enabled: updateAutoEnabled },
           },
           session: {
-            maxHistoryTurns: sessionMaxHistory || undefined,
-            compactionThresholdTokens: sessionCompactionThreshold || undefined,
             scope: sessionScope,
             idleMinutes: sessionIdleMinutes || undefined,
             dmScope: sessionDmScope,
@@ -887,8 +879,6 @@ export function ClawSettingsView({ visible }: ClawSettingsViewProps) {
     browserCdpPortRangeStart, setBrowserCdpPortRangeStart,
     browserDefaultProfile, setBrowserDefaultProfile,
     browserColor, setBrowserColor,
-    sessionMaxHistory, setSessionMaxHistory,
-    sessionCompactionThreshold, setSessionCompactionThreshold,
     sessionScope, setSessionScope,
     sessionIdleMinutes, setSessionIdleMinutes,
     sessionDmScope, setSessionDmScope,
@@ -1447,17 +1437,19 @@ function SessionsPanel({
           <span className="text-brand-secondary"><MessageSquare size={16} /></span>
           <h3 className="text-[15px] font-semibold text-text-primary">{t('claw.section_sessions')}</h3>
         </div>
-        {/* Clear sessions button */}
-        {Object.keys(sessionsByAgent).length > 0 && (
-          <button
-            onClick={() => setClearConfirm(true)}
-            disabled={clearing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-red-400 border border-red-500/30 hover:bg-red-500/10 cursor-pointer transition-colors disabled:opacity-50"
-          >
-            <Trash2 size={13} strokeWidth={1.8} />
-            {t('claw.clear_sessions')}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Clear sessions button */}
+          {Object.keys(sessionsByAgent).length > 0 && (
+            <button
+              onClick={() => setClearConfirm(true)}
+              disabled={clearing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-red-400 border border-red-500/30 hover:bg-red-500/10 cursor-pointer transition-colors disabled:opacity-50"
+            >
+              <Trash2 size={13} strokeWidth={1.8} />
+              {t('claw.clear_sessions')}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Clear confirm dialog */}
@@ -1708,8 +1700,6 @@ function AdvancedPanel(props: {
   browserCdpPortRangeStart: number; setBrowserCdpPortRangeStart: (v: number) => void
   browserDefaultProfile: string; setBrowserDefaultProfile: (v: string) => void
   browserColor: string; setBrowserColor: (v: string) => void
-  sessionMaxHistory: number; setSessionMaxHistory: (v: number) => void
-  sessionCompactionThreshold: number; setSessionCompactionThreshold: (v: number) => void
   sessionScope: string; setSessionScope: (v: string) => void
   sessionIdleMinutes: number; setSessionIdleMinutes: (v: number) => void
   sessionDmScope: string; setSessionDmScope: (v: string) => void
@@ -2001,28 +1991,6 @@ function AdvancedPanel(props: {
 
       {/* Session */}
       <AdvancedSection icon={<Clock size={16} />} title={t('claw.adv_session')}>
-        <SettingRow label={t('claw.adv_session_maxhistory')} desc={t('claw.adv_session_maxhistory_desc')}>
-          <input
-            type="number"
-            min={1}
-            value={props.sessionMaxHistory}
-            onChange={(e) => props.setSessionMaxHistory(Number(e.target.value) || 50)}
-            className="w-20 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-1.5 text-[13px] text-text-primary outline-none focus:border-brand-primary text-right"
-          />
-        </SettingRow>
-        <SettingRow label={t('claw.adv_session_compaction')} desc={t('claw.adv_session_compaction_desc')}>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={1000}
-              step={1000}
-              value={props.sessionCompactionThreshold}
-              onChange={(e) => props.setSessionCompactionThreshold(Number(e.target.value) || 100000)}
-              className="w-24 bg-bg-elevated border border-border-subtle rounded-lg px-3 py-1.5 text-[13px] text-text-primary outline-none focus:border-brand-primary text-right"
-            />
-            <span className="text-[12px] text-text-tertiary">{t('claw.tokens')}</span>
-          </div>
-        </SettingRow>
         <SettingRow label={t('claw.adv_session_scope')} desc={t('claw.adv_session_scope_desc')}>
           <select
             value={props.sessionScope}

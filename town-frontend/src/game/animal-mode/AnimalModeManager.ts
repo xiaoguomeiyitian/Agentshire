@@ -29,6 +29,11 @@ import type { AutonomyAction, AutonomyDeps } from './AutonomyEngine'
 import { RelationshipEngine } from './RelationshipEngine'
 import { FestivalEngine } from './FestivalEngine'
 import { MoveEngine } from './MoveEngine'
+import { EconomyEngine } from './EconomyEngine'
+import { DailySettlementEngine } from './DailySettlementEngine'
+import { CitizenTradeSystem } from './CitizenTradeSystem'
+import { EconomyEventEngine } from './EconomyEventEngine'
+import type { EconomyEvent } from './EconomyEventEngine'
 import type { MemoryEventReporter } from './MemoryStore'
 import type { GameClock } from '../GameClock'
 import type { TimePeriod } from '../../types'
@@ -40,13 +45,6 @@ export interface AnimalModeConfig {
   citizenIds: string[]
   l2IntervalMs: number       // default 180_000 (3 min)
   l2IntervalJitterMs: number // default 60_000 (1 min)
-}
-
-export const ANIMAL_MODE_DEFAULTS: AnimalModeConfig = {
-  enabled: false,
-  citizenIds: [],
-  l2IntervalMs: 180_000,
-  l2IntervalJitterMs: 60_000,
 }
 
 export class AnimalModeManager {
@@ -62,9 +60,16 @@ export class AnimalModeManager {
   private relationshipEngine = new RelationshipEngine()
   private festivalEngine = new FestivalEngine()
   private moveEngine = new MoveEngine()
+  private economyEngine = new EconomyEngine()
+  private dailySettlementEngine = new DailySettlementEngine()
+  private tradeSystem: CitizenTradeSystem | null = null
+  private eventEngine = new EconomyEventEngine()
   private gameClock: GameClock | null = null
   private dataSource: IWorldDataSource | null = null
   private lastTickHour = -1
+  private lastSettlementDay = -1
+  private economyReportTimer: number | null = null
+  private eventCheckTimer: number | null = null
   private pruneTimer: number | null = null
   private clockReportTimer: number | null = null
   private snapshotReportTimer: number | null = null
@@ -76,6 +81,11 @@ export class AnimalModeManager {
   private externalDeps: Partial<AutonomyDeps> = {}
   private homeBuildings: Map<string, string> = new Map() // npcId -> buildingKey
   private executingActions: Set<string> = new Set() // npcIds currently executing an action
+  /** Citizens whose needs/economy should freeze (e.g. gathered for an active
+   *  topic). Set each frame by MainScene.update via the update() arg. */
+  private frozenCitizens: Set<string> = new Set()
+  /** Callback when a citizen falls into trouble (worry event) — MainScene wires it to the trouble minigame. */
+  onTrouble: ((npcId: string, severity: 'low' | 'high') => void) | null = null
 
   /** Whether Animal Mode is currently active. */
   isEnabled(): boolean {
@@ -112,6 +122,19 @@ export class AnimalModeManager {
   /** Get a citizen's home building key. */
   getHomeBuilding(npcId: string): string | null {
     return this.homeBuildings.get(npcId) ?? null
+  }
+
+  /**
+   * Reverse lookup: given a building key, return the npcId whose home it is.
+   * Returns the first match (each residential building hosts one citizen in
+   * the default allocation). Used by MainScene to determine which resident NPC
+   * to show when the mayor visits a house scene.
+   */
+  getResidentOfBuilding(buildingKey: string): string | null {
+    for (const [npcId, key] of this.homeBuildings) {
+      if (key === buildingKey) return npcId
+    }
+    return null
   }
 
   /** Build the AutonomyEngine with current deps + gameClock. */
@@ -190,8 +213,10 @@ export class AnimalModeManager {
     // Register citizens in needs engine
     for (const id of citizenIds) {
       this.needsEngine.registerCitizen(id)
+      this.economyEngine.registerCitizen(id)
+      this.eventEngine.registerCitizen(id)
     }
-    console.log(`[AnimalMode] registered ${citizenIds.length} citizens in NeedsEngine`)
+    console.log(`[AnimalMode] registered ${citizenIds.length} citizens in NeedsEngine + EconomyEngine`)
     // Build AutonomyEngine with current deps + gameClock
     this.buildAutonomyEngine()
     // Wire FestivalEngine with IndoorTracker
@@ -202,6 +227,17 @@ export class AnimalModeManager {
     )
     // Wire MoveEngine with all engines
     this.moveEngine.setEngines(this.needsEngine, this.moodEngine, this.relationshipEngine, this.indoorTracker)
+    // Wire DailySettlementEngine with all engines
+    this.dailySettlementEngine.setEngines(this.needsEngine, this.moodEngine, this.economyEngine, this.indoorTracker)
+    // Wire CitizenTradeSystem with economy + needs + relationships
+    this.tradeSystem = new CitizenTradeSystem(this.economyEngine, this.needsEngine, this.relationshipEngine)
+    // Wire EconomyEventEngine with all engines
+    this.eventEngine.setDeps({
+      economy: this.economyEngine,
+      needs: this.needsEngine,
+      mood: this.moodEngine,
+      relationships: this.relationshipEngine,
+    })
     // Request persisted state from plugin (snapshots + clock)
     this.dataSource?.sendAction({ type: 'animal_state_load' } as any)
     // Start periodic mood event pruning (every 30s)
@@ -217,6 +253,11 @@ export class AnimalModeManager {
     // Start L2 tactical decision loop (every 30s check which citizens are due)
     this.l2DecisionTimer = window.setInterval(() => this.runL2Decisions(), 30_000)
     console.log('[AnimalMode] L2 decision loop started (30s interval)')
+    // Start periodic economy state reporting (every 60s)
+    this.economyReportTimer = window.setInterval(() => this.reportEconomyState(), 60_000)
+    // Start periodic economy event checking (every 60s)
+    this.eventCheckTimer = window.setInterval(() => this.checkEconomyEvents(), 60_000)
+    console.log('[AnimalMode] economy reporting + event checking started')
   }
 
   /** Run L2 tactical decisions for all citizens that are due. */
@@ -264,6 +305,12 @@ export class AnimalModeManager {
     this.festivalEngine.endFestival()
     this.executingActions.clear()
     this.homeBuildings.clear()
+    this.economyEngine.clear()
+    this.dailySettlementEngine.clear()
+    this.tradeSystem?.clear()
+    this.tradeSystem = null
+    this.eventEngine.clear()
+    this.lastSettlementDay = -1
     if (this.pruneTimer !== null) {
       clearInterval(this.pruneTimer)
       this.pruneTimer = null
@@ -279,6 +326,14 @@ export class AnimalModeManager {
     if (this.l2DecisionTimer !== null) {
       clearInterval(this.l2DecisionTimer)
       this.l2DecisionTimer = null
+    }
+    if (this.economyReportTimer !== null) {
+      clearInterval(this.economyReportTimer)
+      this.economyReportTimer = null
+    }
+    if (this.eventCheckTimer !== null) {
+      clearInterval(this.eventCheckTimer)
+      this.eventCheckTimer = null
     }
     // Issue 7: reset L2 pause flag so a fresh enable() starts unpaused.
     this.l2Paused = false
@@ -329,12 +384,18 @@ export class AnimalModeManager {
     if (!this.enabled) return
     if (this.needsEngine.getCitizens().includes(npcId)) return
     this.needsEngine.registerCitizen(npcId)
-    console.log(`[AnimalMode] late-registered citizen ${npcId} in NeedsEngine`)
+    this.economyEngine.registerCitizen(npcId)
+    this.eventEngine.registerCitizen(npcId)
+    console.log(`[AnimalMode] late-registered citizen ${npcId} in NeedsEngine + EconomyEngine`)
   }
 
-  /** Called every frame from MainScene.update(). Advances needs by game-time. */
-  update(deltaTimeMs: number): void {
+  /** Called every frame from MainScene.update(). Advances needs by game-time.
+   *  `frozenCitizens` — citizens whose needs/economy should freeze (e.g.
+   *  gathered for an active topic). */
+  update(deltaTimeMs: number, frozenCitizens?: Set<string>): void {
     if (!this.enabled || !this.gameClock) return
+    // Track frozen citizens for checkEconomyEvents() (independent timer).
+    this.frozenCitizens = frozenCitizens ?? new Set()
     // Update FestivalEngine (auto-end festival after duration)
     this.festivalEngine.update(deltaTimeMs)
     // Convert real ms to game-hours using GameClock's day duration
@@ -350,7 +411,7 @@ export class AnimalModeManager {
     // Only tick when accumulated at least 0.1 game-hours (6 game-minutes)
     // to avoid floating-point noise causing every-frame ticks.
     if (deltaHours >= 0.1) {
-      this.needsEngine.tick(deltaHours)
+      this.needsEngine.tick(deltaHours, frozenCitizens)
       this.lastTickHour = currentHour
       // Issue 6: citizens at home slowly recover all needs (rest, eat, clean).
       // Being home is a restorative state — hunger, fatigue, hygiene, safety
@@ -358,6 +419,7 @@ export class AnimalModeManager {
       // Issue 2: citizens in commercial buildings (cafe/market) also recover
       // hunger (and a bit of social/fun) while inside.
       for (const npcId of this.needsEngine.getCitizens()) {
+        if (frozenCitizens?.has(npcId)) continue
         if (this.indoorTracker.isIndoor(npcId)) {
           const indoorLoc = this.indoorTracker.getIndoorLocation(npcId)
           const homeKey = this.homeBuildings.get(npcId)
@@ -407,6 +469,16 @@ export class AnimalModeManager {
     // At dawn: check festival trigger + move-out eligibility
     if (_period === 'dawn' && this.gameClock) {
       const dayCount = this.gameClock.getState().dayCount
+      // Run daily settlement (salary + work reward + reputation bonus + need restores)
+      // Only once per game-day (guard against multiple dawn ticks)
+      if (this.lastSettlementDay !== dayCount) {
+        this.lastSettlementDay = dayCount
+        this.eventEngine.setCurrentDay(dayCount)
+        const settlement = this.dailySettlementEngine.runDailySettlement(dayCount)
+        // Check overdue loans
+        this.tradeSystem?.checkOverdueLoans(dayCount)
+        console.log(`[AnimalMode] Daily settlement for day ${dayCount}: ${settlement.citizens.length} citizens`)
+      }
       if (this.festivalEngine.shouldTriggerFestival(dayCount)) {
         this.festivalEngine.startFestival(null, dayCount)
         console.log(`[AnimalMode] Festival auto-triggered on day ${dayCount}`)
@@ -436,6 +508,10 @@ export class AnimalModeManager {
   getAutonomyEngine(): AutonomyEngine | null { return this.autonomyEngine }
   getRelationshipEngine(): RelationshipEngine { return this.relationshipEngine }
   getFestivalEngine(): FestivalEngine { return this.festivalEngine }
+  getEconomyEngine(): EconomyEngine { return this.economyEngine }
+  getDailySettlementEngine(): DailySettlementEngine { return this.dailySettlementEngine }
+  getTradeSystem(): CitizenTradeSystem | null { return this.tradeSystem }
+  getEventEngine(): EconomyEventEngine { return this.eventEngine }
   getMoveEngine(): MoveEngine { return this.moveEngine }
 
   // ── Plugin persistence reporting ──
@@ -468,6 +544,102 @@ export class AnimalModeManager {
     // does not produce a huge deltaHours that decays all needs to zero.
     this.lastTickHour = this.gameClock?.getGameHour() ?? -1
     console.log(`[AnimalMode] restoreAnimalState: ${snapshots.length} snapshots, clock=${clock ? 'yes' : 'no'}, lastTickHour reset to ${this.lastTickHour?.toFixed(2)}`)
+  }
+
+  /** Restore economy state received from plugin. Called by MainScene on reconnect. */
+  restoreEconomyState(economy: { citizens: Record<string, any>; savedAt: number } | null): void {
+    if (!economy) {
+      console.log('[AnimalMode] restoreEconomyState: no saved economy, using defaults')
+      return
+    }
+    this.economyEngine.restoreSnapshot(economy as any)
+    console.log(`[AnimalMode] restoreEconomyState: ${Object.keys(economy.citizens ?? {}).length} citizens restored`)
+  }
+
+  /** Report current economy state to plugin (called periodically). */
+  reportEconomyState(): void {
+    if (!this.dataSource) return
+    const snapshot = this.economyEngine.getSnapshot()
+    this.dataSource.sendAction({ type: 'economy_state_save', state: snapshot })
+  }
+
+  /** Check all citizens for economy-triggered events and dispatch them. */
+  private checkEconomyEvents(): void {
+    if (!this.enabled) return
+    const events = this.eventEngine.checkAll()
+    for (const evt of events) {
+      // Skip citizens frozen by an active topic (their economy should pause).
+      if (this.frozenCitizens.has(evt.npcId)) continue
+      console.log(`[AnimalMode] economy event: ${evt.type} for ${evt.npcId} — ${evt.message}`)
+      // Dispatch via externalDeps.onAction or handle welfare/mayor_care directly
+      this.handleEconomyEvent(evt)
+    }
+  }
+
+  /** Handle a single economy event (welfare relief, force home, notify mayor, etc.). */
+  private handleEconomyEvent(evt: EconomyEvent): void {
+    switch (evt.type) {
+      case 'welfare_relief': {
+        // Free food from town welfare (no coin cost)
+        this.needsEngine.satisfy(evt.npcId, 'hunger', evt.amount ?? 30)
+        console.log(`[AnimalMode] welfare relief: ${evt.npcId} hunger +${evt.amount ?? 30}`)
+        break
+      }
+      case 'force_go_home': {
+        if (this.externalDeps.onAction) {
+          this.externalDeps.onAction(evt.npcId, { type: 'go_home', reason: 'exhausted' })
+        }
+        break
+      }
+      case 'mayor_care': {
+        // Mayor care: mood boost (via fun need) + belonging boost
+        this.needsEngine.satisfy(evt.npcId, 'fun', evt.amount ?? 20)
+        this.needsEngine.satisfy(evt.npcId, 'belonging', 10)
+        this.moodEngine.applyEvent(evt.npcId, 20, 120_000)
+        console.log(`[AnimalMode] mayor care: ${evt.npcId} mood +20`)
+        break
+      }
+      case 'help_request': {
+        // Try to find a friend to help; if none, town welfare kicks in
+        const rels = this.relationshipEngine.getTopRelationships(evt.npcId, 3)
+        // getTopRelationships returns { name, sentiment } — we need the npcId.
+        // Look up via getAllRelationships to get the npcId.
+        const allRels = this.relationshipEngine.getAllRelationships(evt.npcId)
+        const friendEntry = allRels.find((r) => r.sentiment > 60)
+        if (friendEntry && this.tradeSystem) {
+          const result = this.tradeSystem.giftCoins(friendEntry.npcId, evt.npcId, friendEntry.name, evt.npcId)
+          console.log(`[AnimalMode] help_request: ${result.message}`)
+        } else {
+          // No friend: town welfare gives 10 coins
+          this.economyEngine.earn(evt.npcId, 10, 'welfare')
+          console.log(`[AnimalMode] help_request: no friend, welfare gives 10 coins to ${evt.npcId}`)
+        }
+        // Trigger trouble minigame — citizen is in distress
+        if (this.onTrouble) this.onTrouble(evt.npcId, 'high')
+        break
+      }
+      case 'celebration': {
+        // Host a gathering — gather friends at plaza
+        if (this.externalDeps.onAction) {
+          this.externalDeps.onAction(evt.npcId, { type: 'explore', target: 'plaza', reason: 'celebration' } as any)
+        }
+        break
+      }
+      case 'leave_warning':
+      case 'move_out': {
+        // Notify mayor (could trigger a dialog or UI notification)
+        console.warn(`[AnimalMode] ${evt.type}: ${evt.message}`)
+        break
+      }
+      case 'conflict': {
+        // Conflict event — trigger trouble minigame for the initiator
+        if (this.onTrouble) this.onTrouble(evt.npcId, 'high')
+        break
+      }
+      default:
+        // gratitude handled by EncounterManager directly
+        break
+    }
   }
 }
 

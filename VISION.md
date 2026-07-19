@@ -69,7 +69,7 @@ Here's what you can experience in Agentshire today:
 - A 3D town with day/night cycles, 12 weather types, and procedurally synthesized ambient sound
 - NPC residents with daily routines, chance encounters, casual conversations, and downtime
 - AI-driven Soul Mode: autonomous daily planning, choosing where to go, who to talk to
-- Full cinematic workflow: summon, rally, assign, code, celebrate, return
+- Full cinematic daily life: citizens craft, stroll, chat, encounter, and rest on their own rhythm
 - Visual map editor and character workshop
 - 3D town + IM chat dual-mode interface
 

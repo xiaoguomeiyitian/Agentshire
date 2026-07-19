@@ -4,15 +4,7 @@ import type { SceneType, Vec3, GlowColor, GlobalMode, WorkSubState, TimePeriod }
 
 export type NPCCategory = 'steward' | 'citizen'
 
-export type GameNPCRole =
-  | 'steward'
-  | 'architecture'
-  | 'planning'
-  | 'design'
-  | 'programming'
-  | 'writing'
-  | 'data'
-  | 'general'
+export type GameNPCRole = string
 
 export type NPCPhase =
   | 'idle'
@@ -102,13 +94,11 @@ export type GameEvent =
   | { type: 'mode_change'; mode: GlobalMode; workSubState?: WorkSubState; summonedNpcIds?: string[]; taskDescription?: string }
   | { type: 'mode_switch'; mode: 'life' | 'work'; taskDescription?: string; workSubState?: WorkSubState }
 
-  // Summoning
-  | { type: 'summon_npcs'; npcIds: string[]; stewardId: string; taskDescription: string }
+  // Gathering (topic mode)
   | { type: 'npc_gathered'; npcId: string; stewardId: string }
   | { type: 'all_npcs_gathered'; npcIds: string[] }
 
-  // Task briefing
-  | { type: 'task_briefing'; stewardId: string; npcIds: string[]; lines: string[]; gameName: string }
+  // Task assignment (legacy, kept as no-op events for backward compat)
   | { type: 'task_assign_start'; stewardId: string; npcIds: string[] }
   | { type: 'task_assign_message'; stewardId: string; npcId: string; npcName: string; task: string; index: number; total: number }
   | { type: 'task_assign_complete'; stewardId: string }
@@ -126,13 +116,6 @@ export type GameEvent =
   | { type: 'celebration_start'; npcIds: string[] }
   | { type: 'celebration_end' }
   | { type: 'game_completion_popup'; gameName: string; gameUrl: string; developers: string[]; previewImageUrl?: string }
-
-  // Workflow intent events (Bridge → Choreographer)
-  | { type: 'workflow_summon'; agents: Array<{ npcId: string; displayName: string; task: string }> }
-  | { type: 'workflow_assign'; agents: Array<{ npcId: string; displayName: string; task: string }> }
-  | { type: 'workflow_go_office'; agents: Array<{ npcId: string; stationId?: string }> }
-  | { type: 'workflow_publish'; summary: string; deliverableCards: unknown[]; agents: Array<{ npcId: string; displayName: string; status: string }> }
-  | { type: 'workflow_return'; agents: Array<{ npcId: string }>; wasInOffice: boolean }
 
   // Scene / FX / progress / world / camera
   | { type: 'scene_switch'; target: SceneType }
@@ -176,9 +159,7 @@ export type GameEvent =
   // Town configuration
   | { type: 'town_config_ready'; config: TownConfig }
 
-  // Work state restoration
-  | { type: 'restore_work_state'; agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }> }
-
+  // Work state restoration (legacy, kept for backward compat — no longer emitted)
   // Session management
   | { type: 'set_session_id'; sessionId: string }
 
@@ -221,7 +202,6 @@ export type GameAction =
   | { type: 'npc_move_completed'; npcId: string; requestId?: string; status: 'arrived' | 'interrupted' }
   | { type: 'npc_query_result'; requestId: string; data: unknown }
   | { type: 'workstation_released'; npcId: string; stationId?: string }
-  | { type: 'workflow_phase_complete'; phase: string }
 
   // Animal Mode persistence (World → Plugin via WS)
   | { type: 'animal_memory_event'; npcId: string; entry: { type: 'dialogue'; partnerName: string; summary: string; timestamp: number } | { type: 'activity'; action: string; location: string; detail?: string; timestamp: number } }
@@ -229,6 +209,34 @@ export type GameAction =
   | { type: 'animal_clock_save'; state: { dayCount: number; gameSeconds: number; savedAt: number } }
   | { type: 'animal_state_load' }
   | { type: 'animal_memory_clear_all' }
+  | { type: 'economy_state_save'; state: {
+      citizens: Record<string, {
+        coins: number
+        reputation: number
+        savingsGoal: number
+        todayWorkReward: number
+        frugal: boolean
+      }>
+      savedAt: number
+    } }
+
+  // Context compaction (World → Plugin via WS)
+  // Actively trigger /compact for a citizen's chat session at lifecycle
+  // moments (sleep, action end, dialog end) to manage context without
+  // lowering contextTokens.
+  | { type: 'compact_citizen'; npcId: string }
+
+  // Town runtime state persistence (World → Plugin via WS)
+  // NPC positions, scene type, topic state, indoor citizens — survives
+  // openclaw restart, page refresh, and device switching.
+  | { type: 'town_runtime_save'; state: {
+      sceneType: string
+      mayorPos: { x: number; z: number }
+      npcPositions: Record<string, { x: number; z: number }>
+      topicNpcIds: string[]
+      indoorCitizens: string[]
+      savedAt: number
+    } }
 
 // Re-export config types used in GameAction
 import type { StewardConfig, CitizenConfig, TownConfig } from './TownConfig'

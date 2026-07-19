@@ -39,7 +39,7 @@ import { t, getLocale } from '../i18n'
 t('settings.title')        // → "设置" or "Settings"
 
 // With template variables
-t('workflow.briefing', { name: 'Yan' })  // → "岩 收到任务" or "Yan received task"
+t('npc.greeting', { name: 'Yan' })  // → "岩 打招呼" or "Yan greets"
 
 // For module-level constants that depend on locale, use lazy getters:
 function getLabels() {
@@ -56,8 +56,8 @@ function getLabels() {
 
 ### Dialogue / voice pools
 
-- Chinese dialogues: `src/npc/DialogueScripts.ts`, `src/game/minigame/BanweiGame.ts`
-- English dialogues: `src/i18n/dialogue-en.ts`, `src/i18n/banwei-en.ts`
+- Chinese dialogues: `src/npc/DialogueScripts.ts`, `src/game/minigame/TroubleGame.ts`
+- English dialogues: `src/i18n/dialogue-en.ts`, `src/i18n/trouble-en.ts`
 - Use lazy getter pattern: `function getVoicePool() { return getLocale() === 'en' ? VOICE_EN : VOICE_ZH }`
 
 ### Default character data

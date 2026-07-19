@@ -45,7 +45,7 @@ describe('EventTranslator', () => {
         type: 'npc_spawn',
         npcId: 'alice',
         name: 'Alice',
-        role: 'programming',
+        role: 'citizen',
         category: 'citizen',
         task: 'Build the frontend',
       })
@@ -86,10 +86,10 @@ describe('EventTranslator', () => {
       expect(result[0]).toMatchObject({ type: 'npc_spawn', name: 'agent_charlie' })
     })
 
-    it('should allocate all 10 office workstations before running out', () => {
+    it('should allocate all 6 office workstations before running out', () => {
       const assignedStations = new Set<string>()
 
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 6; i++) {
         const event: AgentEvent = {
           type: 'sub_agent',
           subtype: 'started',
@@ -105,7 +105,7 @@ describe('EventTranslator', () => {
         assignedStations.add((workstationAssign as { stationId: string }).stationId)
       }
 
-      expect(assignedStations.size).toBe(10)
+      expect(assignedStations.size).toBe(6)
 
       const overflowEvent: AgentEvent = {
         type: 'sub_agent',

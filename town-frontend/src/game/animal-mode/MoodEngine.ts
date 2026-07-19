@@ -11,7 +11,7 @@
  *   - Decision tendency (low mood -> prioritize most lacking need)
  */
 
-import type { NeedsEngine, NeedsSnapshot, NeedKey } from './NeedsEngine'
+import type { NeedsEngine, NeedKey } from './NeedsEngine'
 
 export type MoodLevel = 'great' | 'good' | 'neutral' | 'bad' | 'terrible'
 
@@ -108,6 +108,3 @@ export const MOOD_LABELS_ZH: Record<MoodLevel, string> = {
   great: '极好', good: '不错', neutral: '平静', bad: '低落', terrible: '糟糕',
 }
 
-export const MOOD_LABELS_EN: Record<MoodLevel, string> = {
-  great: 'Great', good: 'Good', neutral: 'Neutral', bad: 'Bad', terrible: 'Terrible',
-}

@@ -71,10 +71,10 @@ describe('WAYPOINTS data integrity', () => {
 })
 
 describe('NPC_CONFIGS data integrity', () => {
-  it('contains 6 NPCs (1 producer + 4 workers + 1 user)', () => {
+  it('contains 6 NPCs (1 steward + 4 workers + 1 user)', () => {
     expect(NPC_CONFIGS).toHaveLength(6)
     const roles = NPC_CONFIGS.map(c => c.role)
-    expect(roles.filter(r => r === 'producer')).toHaveLength(1)
+    expect(roles.filter(r => r === 'steward')).toHaveLength(1)
     expect(roles.filter(r => r === 'worker')).toHaveLength(4)
     expect(roles.filter(r => r === 'user')).toHaveLength(1)
   })
@@ -114,8 +114,8 @@ describe('GameProtocol type coverage', () => {
       'time_period_changed',
       'npc_building_enter', 'npc_building_leave',
       'mode_change', 'mode_switch',
-      'summon_npcs', 'npc_gathered', 'all_npcs_gathered',
-      'task_briefing', 'task_assign_start', 'task_assign_message', 'task_assign_complete',
+      'npc_gathered', 'all_npcs_gathered',
+      'task_assign_start', 'task_assign_message', 'task_assign_complete',
       'office_transition_start', 'work_status_update', 'work_complete',
       'workstation_assign', 'workstation_screen',
       'celebration_start', 'celebration_end', 'game_completion_popup',

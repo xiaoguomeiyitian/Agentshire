@@ -20,6 +20,9 @@ export interface CitizenChatDeps {
   onInputTargetChange: (npc: NPCConfig | null) => void
   /** Issue 7: called when user starts walking toward a citizen (approaching state). */
   onApproachingStart?: (npcId: string) => void
+  /** Called when a citizen chat interaction ends (disconnect/idle timeout).
+   *  Used to trigger context compaction for the citizen's chat session. */
+  onDisconnect?: (npcId: string) => void
 }
 
 interface ActiveInteraction {
@@ -100,9 +103,11 @@ export class CitizenChatManager {
 
   disconnect(): void {
     if (!this.interaction) return
+    const npcId = this.interaction.npcId
     this.interaction = null
     this.deps.onDialogTargetChange('steward')
     this.deps.onInputTargetChange(null)
+    this.deps.onDisconnect?.(npcId)
   }
 
   update(dtMs: number): void {

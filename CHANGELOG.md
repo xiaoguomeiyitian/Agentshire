@@ -1,5 +1,125 @@
 # Changelog
 
+## 2026.7.20 — Topic Persistence, Mobile Layout, Mayor Pathfinding
+
+### Fixed: Topic state lost after page refresh
+
+After refreshing the page, an active topic (gathered citizens + 结束/话题详情 buttons) used to disappear and citizens resumed autonomous decisions. Now the topic state is fully restored from the persisted runtime.
+
+- `MainScene.applyRuntimeState()` now restores `topicNpcIds`, pauses autonomy (`pauseTopicAutonomy`) and marks gathered citizens as executing (`animalMode.setExecuting`) instead of just logging.
+- New `MainScene.consumeRestoredTopicNpcIds()` returns (and clears) the restored topic ids for the UI layer.
+- New `MainScene.onTopicRestored` callback — fired after `applyRuntimeState` restores a topic, so `main.ts` can wire up the UI even when the restore happens on the deferred `onNpcSpawn` path (citizens spawned after `animal_state` arrived).
+- `main.ts` adds `applyRestoredTopic()` which rebuilds the `topicState` closure, updates the topic indicator, and shows the 结束/话题详情 buttons. Triggered via `applyRestoredTopicRef` (module-level ref) so both the synchronous and deferred restore paths work.
+
+### Fixed: Mayor pathfinding took wide detours
+
+Clicking on the ground made the mayor hug navmesh polygon edges and take big detours. The mayor's crowd agent now takes straighter shortcuts.
+
+- `CrowdService.ts` `MAYOR_AGENT_PARAMS.pathOptimizationRange` `0.5` → `2.5` so the `DT_CROWD_OPTIMIZE_TOPO/VIS` passes find more aggressive shortcuts through the navmesh.
+
+### Fixed: Mobile layout — model dropdown & topic detail overlapped the input bar
+
+On mobile (narrow viewports) the model-switch dropdown and the topic-detail panel overlapped the taller input bar because they used a hardcoded `bottom: 124px`.
+
+- `main.ts` adds `computeInputPanelBottom()` which measures the actual `#town-bottom-panel` height and returns the correct bottom offset (reusing the same logic as `NpcCardPanel.adjustBottomForInputPanel`).
+- `main.ts` adds `repositionFloatingPanels()` — called by a `ResizeObserver` on the bottom panel and on window resize — which repositions the NPC card, topic-detail panel and model dropdown together.
+- The model dropdown (`showModelDropdown`) and the topic-detail panel (`showTopicDetailPanel`) now use `computeInputPanelBottom()` instead of the hardcoded `124px`.
+
+### Fixed: Mobile layout — model id overlapped the 详情/群发/话题 buttons
+
+On mobile the steward name + model id row and the quick-action buttons row collided, hiding the 详情 button.
+
+- `town-panel.css` adds a `@media (max-width: 480px)` block: `#town-agent-status` wraps to two lines, `.tas-meta` takes the full first row, and `#town-quick-actions` drops to the second row with `overflow: visible` so no button is clipped.
+
+### Changed: Resident detail card height matches topic detail panel
+
+On mobile the resident detail card (`#npc-card`) with logs used `top: 12%` while the topic-detail panel used `top: 12px`, making the resident card shorter.
+
+- `layout.css` `#npc-card.has-logs` (mobile media query) `top: 12%` → `top: 12px` so both panels occupy the same vertical span.
+
+### Changed: Topic window scrollbar unified with the dark theme
+
+The "发起话题" citizen list used the browser default scrollbar. It now matches the rest of the app (`.styled-scrollbar` style).
+
+- `town-panel.css` `.topic-citizen-list` now uses a 4px thin scrollbar with `rgba(255,255,255,0.15)` thumb (hover `0.25`), transparent track — identical to `.styled-scrollbar` in `app.css`.
+
+### Changed: Reset button label
+
+- `i18n/zh-CN.ts` and `i18n/en.ts` `settings.reset` `全新初始化` / `Re-initialize` → `初始化`.
+
+### Changed: Needs & economy freeze during topic discussions
+
+When citizens are gathered for a topic their needs decay and economy events used to keep running, which felt wrong (citizens "starved" while discussing).
+
+- `NeedsEngine.tick()` accepts an optional `skipSet` to skip decay for frozen citizens.
+- `AnimalModeManager.update()` accepts an optional `frozenCitizens` set, passes it to `needsEngine.tick()` and skips indoor recovery for those citizens. The set is stored as a member so the independent `checkEconomyEvents()` timer also skips frozen citizens.
+- `MainScene.update()` passes `new Set(this.topicNpcIds)` as the frozen set when a topic is active.
+
+### Tests
+
+- frontend: 494 passed | 1 skipped
+- `tsc --noEmit` clean
+
+## 2026.7.19 — Town Life Overhaul: Remove Workflow, Rewrite Citizens
+
+### Removed: Steward Workflow Orchestration
+
+The "steward organizes everyone to work" flow has been removed. The town is now a place where citizens live freely.
+
+- **Deleted** `src/plugin/plan-manager.ts` (multi-agent plan state machine) and its 6 work tools (`create_project`, `create_task`, `create_plan`, `next_step`, `mission_complete`, `register_project`) from `src/plugin/tools.ts`.
+- **Simplified** `src/bridge/DirectorBridge.ts` Phase state machine from 7 phases (idle → summoning → assigning → going_to_office → working → publishing → returning) to a single `idle` phase. Citizens are no longer summoned/assigned/published; they just live.
+- **Removed** workflow GameEvent types (`workflow_summon`, `workflow_assign`, `go_office`, `workflow_publish`, `workflow_return`, `restore_work_state`, `workflow_phase_complete`) from `town-frontend/src/data/GameProtocol.ts` and the corresponding `EventDispatcher` handlers.
+- **Removed** whiteboard polling from `OfficeBuilder.ts`, ACT_3–8 narrative sequences, and the `startWorkDemo` mock.
+- **Cleaned** `index.ts` of all `plan-manager` imports and calls (`onAgentStarted`, `onAgentCompleted`, `clearPlan`, `isCurrentBatchDone`, `hasActivePlan`, `cleanupStaleSessionPlans`).
+
+### Renamed: Banwei Buster → Town Trouble Events
+
+The "Banwei Buster" mini-game (workplace-stress theme) is now **Town Trouble Events** — citizens occasionally run into little life worries (a leaky roof, a lost cat, a neighborly spat) and worry bubbles appear above them. Click to soothe.
+
+- `BanweiGame` → `TroubleGame`, `BanweiRenderer` → `TroubleRenderer`, `BanweiNpcEffects` → `TroubleNpcEffects`, `banwei-en.ts` → `trouble-en.ts`, `banwei.css` → `trouble.css`.
+- Fields renamed: `npcStress` → `npcWorry`, `addWorkingNpc` → `addTroubledNpc`, `removeWorkingNpc` → `removeTroubledNpc`, `applyStress` → `applyWorry`.
+- All voice/warning text pools rewritten to life-worries themes (no more workplace memes).
+- Triggered by `AnimalModeManager` `help_request` / `conflict` economy events via a new `onTrouble` callback.
+
+### Rewritten: Citizen Personas (IT Roles → Life Crafts)
+
+All 7 citizen soul files were rewritten from IT job roles to life crafts. The steward is now the town guide, not a task dispatcher.
+
+| Citizen | Old Role | New Craft |
+|---------|----------|-----------|
+| 岩 YAN | Architect | Woodworking & Building |
+| 橙子 CHENGZI | Product Manager | Idea Person |
+| 海棠 HAITANG | UI Designer | Painting & Decorating |
+| 点点 DIANDIAN | Frontend Dev | Hand-mending |
+| 小烈 XIAOLIE | Backend Dev | Repairing & Planting |
+| 柒柒 QIQI | Content Ops | Diary-keeping & Photography |
+| 辰 CHEN | Data Analyst | Bookkeeping & Observing |
+
+- Soul file sections renamed: `## 岗位职责与专长` → `## 小镇生活`, `## 工作方式` → `## 日常手艺`, `## 激活指令` → `## 自我介绍`; `> 岗位:` → `> 手艺:`.
+- `town-data/citizen-config.json` bio/specialty rewritten to life descriptions; steward bio no longer says "调度居民完成任务".
+- `src/plugin/soul-prompt-template.ts` SOUL_EXAMPLE / PERSONA_EXAMPLE / buildSoulPrompt / buildPersonaPrompt templates all updated to the life-craft structure.
+- `town-data/souls/soul.md` and `town-souls/SOUL_tpl.md` steward runtime personas rewritten (introduce residents, help the mayor chat with them — no task dispatch).
+- `town-frontend/src/npc/DialogueScripts.ts` line "工作很重要但不是全部" → "手艺很重要但不是全部".
+
+### Changed: Player Home → Residence
+
+The player's dedicated "home" is now a regular residence (住宅D, tag `home`) — the player is no longer assigned a special house.
+
+- `types.ts` / `TownMapConfig.ts` / `BindingPanel.ts` / `MainScene.ts` updated.
+
+### Docs
+
+- `README.md` / `README.zh-CN.md`: removed workflow descriptions, Banwei references, and IT-role specialty lists; updated architecture diagrams (DirectorBridge is now a single-idle life orchestrator; `workflow/` → `animal-mode/`).
+- `ROADMAP.md`: workflow and Banwei references replaced with life-simulation and Town Trouble Events.
+
+### Tests
+
+- root: 495 passed | 1 skipped
+- frontend: 494 passed | 1 skipped
+- `tsc --noEmit` clean
+
+---
+
 ## 2026.7.18 — Town UX Polish & Topic Mode Fixes
 
 ### NPC Stuck at Buildings (Issue 1)

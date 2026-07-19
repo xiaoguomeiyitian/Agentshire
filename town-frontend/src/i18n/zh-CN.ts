@@ -43,20 +43,25 @@ const zhCN: Record<string, string> = {
   // ── More menu ──
   'menu.new_task': '新任务',
   'menu.start_topic': '发起话题',
+  'menu.start_topic_short': '话题',
   'menu.enter_group': '小镇广场（群聊）',
   'menu.exit_group': '退出群聊',
   'menu.broadcast': '群发消息',
+  'menu.broadcast_short': '群发',
   'menu.broadcast_active': '退出群发',
   'menu.settings': '设置',
   'menu.citizen_detail': '居民详情',
+  'menu.citizen_detail_short': '详情',
   'menu.topic_detail': '话题详情',
+  'menu.topic_detail_short': '话题详情',
+  'menu.end_topic_short': '结束',
   'topic_detail.title': '话题详情',
   'topic_detail.empty': '暂无发言',
   'topic_detail.no_topic': '当前没有进行中的话题',
 
   // ── Buttons / Popups ──
   'back_to_town': '← 返回小镇',
-  'task_done': '任务完成',
+  'task_done': '手艺完成',
   'try_now': '立即体验',
   'later': '稍后再说',
   'download': '下 载',
@@ -75,10 +80,10 @@ const zhCN: Record<string, string> = {
   'settings.music': '小镇音乐',
   'settings.soul_mode': '灵魂模式',
   'settings.soul_mode_desc': 'NPC 使用 AI 进行深度对话',
-  'settings.auto_walk': '居民自动行走',
-  'settings.auto_walk_desc': '关闭后居民不再定时自动行走',
-  'settings.reset': '重置小镇',
-  'settings.reset_desc': '清除所有设定，重新开始',
+  'settings.auto_walk': '居民自主决策',
+  'settings.auto_walk_desc': '关闭后居民不再自主决策与行动',
+  'settings.reset': '初始化',
+  'settings.reset_desc': '删除所有居民并从项目目录重新同步人格文件',
   'settings.on': '开',
   'settings.off': '关',
   'settings.cancel': '取消',
@@ -105,14 +110,14 @@ const zhCN: Record<string, string> = {
   'group.participant_joined': '{name} 加入了群聊',
   'group.participant_left': '{name} 离开了群聊',
 
-  // ── Reset confirm ──
-  'reset.confirm': '重置小镇？将清除所有设定并重新开始创镇流程。',
+  // ── Init confirm ──
+  'reset.confirm': '全新初始化？将删除所有居民并从项目目录重新同步人格文件，清空所有会话与记忆。',
 
   // ── NPC card ──
   'card.chat': '聊天',
   'card.busy_working': '对方正在专心工作',
   'card.offline': '对方不在线',
-  'card.task_list': '任务列表',
+  'card.task_list': '待办清单',
   'card.work_logs': '最近工作日志',
   'card.thinking': '正在思考',
   'card.chat_history': '聊天记录',
@@ -178,7 +183,9 @@ const zhCN: Record<string, string> = {
   'topnav.town_editor': '小镇改造',
   'topnav.skill_store': '技能商店',
   'topnav.model_manager': '模型管理',
-  'topnav.settings': '设置',
+  'topnav.settings': '小镇设置',
+  'topnav.chat': '居民聊天',
+  'topnav.claw': 'Claw 设置',
 
   // ── Claw settings panel ──
   'claw.title': 'OpenClaw 设置',
@@ -299,6 +306,15 @@ const zhCN: Record<string, string> = {
   'claw.clearing': '清空中...',
   'claw.clear_result': '已清空 {n} 个会话',
   'claw.delete_session': '删除此会话',
+
+  // ── Claw: town init (full re-initialization from project files) ──
+  'claw.reset_town': '全新初始化',
+  'claw.reset_town_title': '全新初始化',
+  'claw.reset_town_confirm': '将删除所有居民 Agent 及工作区，清空所有会话、记忆、游戏时钟、小镇状态、经济、群聊历史和 Agent 数据库，然后从项目目录的最新人格文件重新创建所有工作区。此操作不可恢复，重置后将重启 OpenClaw。确定继续吗？',
+  'claw.resetting_town': '初始化中...',
+  'claw.reset_town_result': '小镇已全新初始化（删除 {removed} 个工作区，重建 {citizens} 个居民），正在重启 OpenClaw...',
+  'claw.reset_town_restart': '正在重启 OpenClaw，请稍候...',
+  'claw.reset_town_failed': '初始化失败：{error}',
 
   // ── Claw: advanced panel ──
   'claw.adv_logging': '日志设置',

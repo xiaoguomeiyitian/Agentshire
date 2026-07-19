@@ -54,10 +54,6 @@ export function getSkillsByCategory(cat: string): SkillEntry[] {
   return ensureCache().skills.filter(s => s.category === cat)
 }
 
-export function getCategoryDef(cat: string): CategoryDef | undefined {
-  return ensureCache().categories[cat]
-}
-
 export function getAllCategories(): Record<string, CategoryDef> {
   return ensureCache().categories
 }
@@ -128,48 +124,4 @@ export function createSkillIcon(slug: string, size = 48): HTMLElement {
   }
 
   return container
-}
-
-export function createSkillCard(slug: string): HTMLElement {
-  const skill = ensureCache().skillMap.get(slug)
-  const card = document.createElement('div')
-  card.className = 'skill-card'
-
-  const icon = createSkillIcon(slug, 44)
-
-  const info = document.createElement('div')
-  info.className = 'skill-card-info'
-
-  const name = document.createElement('div')
-  name.className = 'skill-card-name'
-  name.textContent = skill?.name ?? slug
-
-  const desc = document.createElement('div')
-  desc.className = 'skill-card-desc'
-  desc.textContent = skill?.desc ?? ''
-
-  const stats = document.createElement('div')
-  stats.className = 'skill-card-stats'
-  if (skill) {
-    stats.innerHTML = `
-      <span class="stat">↓ ${formatNum(skill.downloads)}</span>
-      <span class="stat">☆ ${formatNum(skill.stars)}</span>
-      <span class="stat">⊕ ${formatNum(skill.installs)}</span>
-    `
-  }
-
-  info.appendChild(name)
-  info.appendChild(desc)
-  info.appendChild(stats)
-
-  card.appendChild(icon)
-  card.appendChild(info)
-
-  return card
-}
-
-function formatNum(n: number): string {
-  if (n >= 10000) return (n / 10000).toFixed(1) + '万'
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
-  return String(n)
 }

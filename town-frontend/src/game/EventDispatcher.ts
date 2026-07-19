@@ -35,8 +35,6 @@ export interface EventHandlers {
   onNpcPersonaUpdate(npcId: string, name: string): void
   onSetupComplete(): void
   onModeChange(event: GameEvent & { type: 'mode_change' }): void
-  onSummonNpcs(stewardId: string, npcIds: string[], taskDescription: string): void
-  onTaskBriefing(lines: string[], gameName: string): void
   onWorkStatusUpdate(updates: Array<{ npcId: string; phase: string; message?: string }>): void
   onWorkComplete(taskDescription: string, gameUrl?: string): void
   onGameCompletionPopup(gameName: string, gameUrl: string, previewImageUrl?: string): void
@@ -49,7 +47,6 @@ export interface EventHandlers {
   onNpcActivityRestore(npcId: string, entries: Array<{ kind: string; icon?: string; message?: string; status?: string; todos?: Array<{ id: number; content: string; status: string }> }>): void
   onSkillLearned(slug: string): void
   onModeSwitch(mode: string, taskDescription?: string): void
-  onRestoreWorkState(agents: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }>): void
   onSetSessionId(sessionId: string): void
   onTownConfigReady(config: TownConfig): void
   onNpcChangeModel(npcId: string, characterKey: string, modelUrl?: string, modelTransform?: any, animMapping?: any, animFileUrls?: string[]): void
@@ -57,7 +54,6 @@ export interface EventHandlers {
   onSetTime(event: GameEvent & { type: 'set_time' }): void
   onSetWeather(event: GameEvent & { type: 'set_weather' }): void
   onSceneEdit(event: GameEvent & { type: 'scene_edit' }): void
-  onWorkflowIntent(event: GameEvent): void
 }
 
 export class EventDispatcher {
@@ -136,12 +132,6 @@ export class EventDispatcher {
       case 'mode_change':
         this.handlers.onModeChange(event)
         break
-      case 'summon_npcs':
-        this.handlers.onSummonNpcs(event.stewardId, event.npcIds, event.taskDescription)
-        break
-      case 'task_briefing':
-        this.handlers.onTaskBriefing(event.lines, event.gameName)
-        break
       case 'time_period_changed':
       case 'npc_encounter_start':
       case 'npc_encounter_message':
@@ -198,9 +188,6 @@ export class EventDispatcher {
       case 'skill_learned':
         this.handlers.onSkillLearned(event.slug)
         break
-      case 'restore_work_state':
-        this.handlers.onRestoreWorkState(event.agents)
-        break
       case 'set_session_id':
         this.handlers.onSetSessionId(event.sessionId)
         break
@@ -221,13 +208,6 @@ export class EventDispatcher {
         break
       case 'scene_edit':
         this.handlers.onSceneEdit(event)
-        break
-      case 'workflow_summon':
-      case 'workflow_assign':
-      case 'workflow_go_office':
-      case 'workflow_publish':
-      case 'workflow_return':
-        this.handlers.onWorkflowIntent(event)
         break
       default:
         break

@@ -83,9 +83,12 @@ export class NeedsEngine {
     this.needs.delete(npcId)
   }
 
-  /** Advance needs by `gameHours` (game-time hours, not real seconds). */
-  tick(gameHours: number): void {
-    for (const [, needs] of this.needs) {
+  /** Advance needs by `gameHours` (game-time hours, not real seconds).
+   *  Optionally skip citizens in `skipSet` (e.g. citizens gathered for a
+   *  topic — their needs should freeze while the topic is active). */
+  tick(gameHours: number, skipSet?: Set<string>): void {
+    for (const [npcId, needs] of this.needs) {
+      if (skipSet?.has(npcId)) continue
       for (const k of ALL_NEEDS) {
         const decay = this.config[k].decayPerHour * gameHours
         needs[k] = Math.max(0, needs[k] - decay)
@@ -148,7 +151,3 @@ export const NEED_LABELS_ZH: Record<NeedKey, string> = {
   hygiene: '卫生', safety: '安全', esteem: '自我实现', belonging: '归属',
 }
 
-export const NEED_LABELS_EN: Record<NeedKey, string> = {
-  hunger: 'Hunger', fatigue: 'Fatigue', social: 'Social', fun: 'Fun',
-  hygiene: 'Hygiene', safety: 'Safety', esteem: 'Esteem', belonging: 'Belonging',
-}

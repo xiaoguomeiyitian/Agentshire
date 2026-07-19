@@ -92,9 +92,9 @@ describe('StateTracker', () => {
     })
 
     it('returns null when all stations are exhausted', () => {
-      // WORKSTATION_IDS has 10 entries
+      // WORKSTATION_IDS has 6 entries (Issue 3: reduced from 10)
       const allocated: string[] = []
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; i < 6; i++) {
         const s = tracker.allocateStation()
         expect(s).not.toBeNull()
         allocated.push(s!)
@@ -180,10 +180,10 @@ describe('StateTracker', () => {
       expect(tracker.resolveNpcId('a1')).toBeUndefined()
       expect(tracker.resolveAgentId('n1')).toBeUndefined()
       expect(tracker.getAllNpcStates()).toEqual([])
-      // After clear, all 10 stations should be available
+      // After clear, all 6 stations should be available (Issue 3: reduced from 10)
       let count = 0
       while (tracker.allocateStation() !== null) count++
-      expect(count).toBe(10)
+      expect(count).toBe(6)
     })
   })
 

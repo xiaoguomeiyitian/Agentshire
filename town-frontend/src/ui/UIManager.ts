@@ -396,7 +396,7 @@ export class UIManager {
 
     if (showingCitizen && this.activeCitizenTarget) {
       const name = this.activeCitizenTarget.label || this.activeCitizenTarget.name
-      // Issue 2: append specialty (occupation) to the name display
+      // append specialty (craft) to the name display
       const spec = this.activeCitizenTarget.specialty
       this.tasNameEl.textContent = spec ? `${name} · ${spec}` : name
       this.rebuildAvatar(this.activeCitizenTarget)

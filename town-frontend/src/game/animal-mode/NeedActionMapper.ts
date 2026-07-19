@@ -14,7 +14,6 @@
  */
 
 import type { NeedKey } from './NeedsEngine'
-import type { BuildingDef } from '../../types'
 import { BUILDING_REGISTRY } from '../../types'
 
 export interface NeedAction {
@@ -141,4 +140,3 @@ export class NeedActionMapper {
   }
 }
 
-export const NEED_ACTION_LABELS = NEED_LABEL_ZH

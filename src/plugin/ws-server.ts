@@ -21,6 +21,16 @@ import {
 } from "./animal-memory.js";
 import type { MemoryEntry, ClockState } from "./animal-memory.js";
 import type { ActivityJournalSnapshot } from "./animal-snapshot-types.js";
+import {
+  saveTownRuntimeState,
+  loadTownRuntimeState,
+} from "./town-runtime-state.js";
+import type { TownRuntimeState } from "./town-runtime-state.js";
+import {
+  saveEconomyState,
+  loadEconomyState,
+} from "./economy-state.js";
+import type { EconomyState } from "./economy-state.js";
 
 export interface TownWsServerOptions {
   port: number;
@@ -46,6 +56,7 @@ export interface TownWsServerOptions {
     agentId?: string;
   }) => Promise<{ text: string; usage?: { input: number; output: number } }>;
   onCitizenChat?: (payload: { npcId: string; message: string; townSessionId: string }) => void;
+  onCompactCitizen?: (payload: { npcId: string; townSessionId: string }) => void;
   onTopicStart?: (payload: { npcIds: string[]; topic?: string; townSessionId: string }) => void;
   onTopicMessage?: (payload: { npcIds: string[]; message: string; mentions?: string[]; townSessionId: string }) => void;
   onTopicEnd?: (payload: { townSessionId: string }) => void;
@@ -574,6 +585,10 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
             `${sessionLogPrefix(townSessionId)} WS ← citizen_chat npc=${msg.npcId} len=${String(msg.message).length}${_debug ? ` "${String(msg.message).slice(0, 80)}"` : ""}`,
           );
           opts.onCitizenChat?.({ npcId: msg.npcId, message: msg.message, townSessionId });
+        } else if (msg.type === "compact_citizen" && typeof msg.npcId === "string") {
+          const townSessionId = getClientSessionId(ws);
+          console.log(`${sessionLogPrefix(townSessionId)} WS ← compact_citizen npc=${msg.npcId}`);
+          opts.onCompactCitizen?.({ npcId: msg.npcId, townSessionId });
         } else if (msg.type === "topic_start" && Array.isArray(msg.npcIds)) {
           const townSessionId = getClientSessionId(ws);
           const topic = typeof msg.topic === "string" ? msg.topic : undefined;
@@ -730,19 +745,43 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
           console.log(
             `${sessionLogPrefix(townSessionId)} WS ← animal_clock_save day=${state.dayCount}`,
           );
+        } else if (msg.type === "town_runtime_save" && typeof msg.state === "object") {
+          // Frontend reports town runtime state (NPC positions, scene type,
+          // topic state, indoor citizens). Persisted to
+          // stateDir/agents/town-runtime-state.json so it survives openclaw
+          // restart, page refresh, and device switching.
+          const townSessionId = getClientSessionId(ws);
+          const state = msg.state as TownRuntimeState;
+          saveTownRuntimeState(state);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← town_runtime_save scene=${state.sceneType} npcs=${Object.keys(state.npcPositions ?? {}).length}`,
+          );
+        } else if (msg.type === "economy_state_save" && typeof msg.state === "object") {
+          // Frontend reports citizen economy state (coins, reputation, savings).
+          // Persisted to stateDir/agents/animal-economy.json
+          const townSessionId = getClientSessionId(ws);
+          const state = msg.state as EconomyState;
+          saveEconomyState(state);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← economy_state_save citizens=${Object.keys(state.citizens ?? {}).length}`,
+          );
         } else if (msg.type === "animal_state_load") {
-          // Frontend requests all persisted state (snapshots + clock) on reconnect.
+          // Frontend requests all persisted state (snapshots + clock + runtime + economy) on reconnect.
           const townSessionId = getClientSessionId(ws);
           const snapshots = loadAllActivityJournalSnapshots();
           const clock = loadClockState();
+          const runtime = loadTownRuntimeState();
+          const economy = loadEconomyState();
           const payload = JSON.stringify({
             type: "animal_state",
             snapshots,
             clock,
+            runtime,
+            economy,
           });
           if (ws.readyState === WebSocket.OPEN) ws.send(payload);
           console.log(
-            `${sessionLogPrefix(townSessionId)} WS → animal_state snapshots=${snapshots.length} clock=${clock ? "yes" : "no"}`,
+            `${sessionLogPrefix(townSessionId)} WS → animal_state snapshots=${snapshots.length} clock=${clock ? "yes" : "no"} runtime=${runtime ? "yes" : "no"} economy=${economy ? "yes" : "no"}`,
           );
         } else if (msg.type === "animal_memory_clear_all") {
           // Frontend requests clearing all memories (e.g., Animal Mode disabled).

@@ -127,7 +127,7 @@ describe('ActivityJournal', () => {
   it('supports work-mode activity actions', () => {
     const workActions = ['summoned', 'assigned_task', 'started_working', 'completed_task', 'celebrating', 'returned_from_work'] as const
     for (const action of workActions) {
-      journal.record({ location: 'office_door', locationName: '办公室', action })
+      journal.record({ location: 'office_door', locationName: '工坊', action })
     }
     expect(journal.getEntries()).toHaveLength(6)
     expect(journal.getEntries().map(e => e.action)).toEqual(workActions)

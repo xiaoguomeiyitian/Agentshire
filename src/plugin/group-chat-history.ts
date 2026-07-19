@@ -3,7 +3,7 @@
  * Stores group chat messages as JSONL files under stateDir()/agents/group-chats/{groupId}/.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { stateDir } from "./paths.js";
 
@@ -72,21 +72,6 @@ export function loadGroupHistory(groupId: string, limit: number = 50): Persisted
   }
 }
 
-/** Load the full history (for summary generation). */
-export function loadFullGroupHistory(groupId: string): PersistedGroupMessage[] {
-  try {
-    const filePath = historyFilePath(groupId);
-    if (!existsSync(filePath)) return [];
-    const content = readFileSync(filePath, "utf-8");
-    return content.trim().split("\n").filter(Boolean).map(line => {
-      try { return JSON.parse(line) as PersistedGroupMessage; }
-      catch { return null; }
-    }).filter(Boolean) as PersistedGroupMessage[];
-  } catch {
-    return [];
-  }
-}
-
 /** Save a summary for the group. */
 export function saveSummary(groupId: string, summary: StoredSummary): void {
   try {
@@ -106,20 +91,6 @@ export function loadSummary(groupId: string): StoredSummary | null {
     return JSON.parse(readFileSync(filePath, "utf-8")) as StoredSummary;
   } catch {
     return null;
-  }
-}
-
-/** List all group chat directories. */
-export function listGroupChats(): string[] {
-  try {
-    const baseDir = join(stateDir(), "agents", "group-chats");
-    if (!existsSync(baseDir)) return [];
-    return readdirSync(baseDir).filter(f => {
-      const stat = statSync(join(baseDir, f));
-      return stat.isDirectory();
-    });
-  } catch {
-    return [];
   }
 }
 

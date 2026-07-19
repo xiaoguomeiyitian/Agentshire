@@ -517,8 +517,8 @@ export class CitizenWorkshop {
           <input class="cw-input cw-input-name" id="cw-cit-name" value="${this.esc(c.name)}" placeholder="${getLocale() === 'en' ? 'Name' : '角色名'}" ${hasPresetSoul ? 'readonly' : ''} />
         </div>
         <div class="cw-field">
-          <div class="cw-field-label">${getLocale() === 'en' ? 'Specialty' : '专业技能'}</div>
-          <input class="cw-input" id="cw-cit-specialty" value="${this.esc(c.specialty)}" placeholder="${getLocale() === 'en' ? 'e.g. Frontend, PM...' : '如：前端开发、产品经理…'}" ${hasPresetSoul ? 'readonly' : ''} />
+          <div class="cw-field-label">${getLocale() === 'en' ? 'Specialty' : '手艺'}</div>
+          <input class="cw-input" id="cw-cit-specialty" value="${this.esc(c.specialty)}" placeholder="${getLocale() === 'en' ? 'e.g. Woodwork, Painting...' : '如：木工与搭建、绘画与布置…'}" ${hasPresetSoul ? 'readonly' : ''} />
         </div>
         <div class="cw-field">
           <div class="cw-field-label">${getLocale() === 'en' ? 'Bio' : '一句话介绍'}</div>

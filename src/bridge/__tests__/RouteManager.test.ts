@@ -1,4 +1,5 @@
-// @desc Tests for RouteManager: A* pathfinding and NPC movement
+// @desc Tests for RouteManager: NPC movement ack/timeout and destination claim management.
+// A* pathfinding tests removed (recast-navigation Crowd now handles pathfinding).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RouteManager } from '../RouteManager.js'
 
@@ -42,21 +43,9 @@ describe('RouteManager', () => {
   })
 
   describe('planRouteNodePath', () => {
-    it('returns [startId] when start equals end', () => {
-      expect(rm.planRouteNodePath('node_a', 'node_a', 'town')).toEqual(['node_a'])
-    })
-
-    it('returns correct path through graph', () => {
-      const path = rm.planRouteNodePath('node_a', 'node_d', 'town')
-      expect(path[0]).toBe('node_a')
-      expect(path[path.length - 1]).toBe('node_d')
-      expect(path.length).toBeGreaterThanOrEqual(3)
-    })
-
-    it('returns direct [start, end] for disconnected nodes', () => {
-      const path = rm.planRouteNodePath('off_a', 'off_b', 'office')
-      expect(path).toEqual(['off_a', 'off_b'])
-    })
+    // A* pathfinding removed (recast-navigation Crowd now handles pathfinding).
+    // Tests skipped — methods deleted from RouteManager.
+    it.skip('placeholder', () => {})
   })
 
   describe('chooseCitizenDestination', () => {

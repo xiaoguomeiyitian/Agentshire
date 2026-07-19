@@ -147,7 +147,6 @@ export interface TownMapConfig {
   bindings: {
     office: string | null
     museum: string | null
-    userHome: string | null
     houses: string[]
     landmarks: Record<string, string>
   }
@@ -210,86 +209,24 @@ export function createDefaultConfig(): TownMapConfig {
     bindings: {
       office: null,
       museum: null,
-      userHome: null,
       houses: [],
       landmarks: {},
     },
   }
 }
 
-export type BindingSlot = 'office' | 'museum' | 'userHome' | 'houses'
+export type BindingSlot = 'office' | 'museum' | 'houses'
 
 const SLOT_LABELS: Record<BindingSlot, string> = {
-  office: '办公室',
+  office: '工坊',
   museum: '博物馆',
-  userHome: '用户住宅',
   houses: 'NPC 住宅',
 }
 
 export function getBuildingBindingSlot(config: TownMapConfig, buildingId: string): { slot: BindingSlot; label: string } | null {
   if (config.bindings.office === buildingId) return { slot: 'office', label: SLOT_LABELS.office }
   if (config.bindings.museum === buildingId) return { slot: 'museum', label: SLOT_LABELS.museum }
-  if (config.bindings.userHome === buildingId) return { slot: 'userHome', label: SLOT_LABELS.userHome }
   if (config.bindings.houses.includes(buildingId)) return { slot: 'houses', label: SLOT_LABELS.houses }
   return null
 }
 
-export interface ValidationError {
-  field: string
-  message: string
-}
-
-export function validateConfig(config: TownMapConfig): ValidationError[] {
-  const errors: ValidationError[] = []
-
-  if (!config.bindings.office) {
-    errors.push({ field: 'bindings.office', message: '必须绑定一个办公室建筑' })
-  } else {
-    const officeExists = config.buildings.some(b => b.id === config.bindings.office)
-    if (!officeExists) {
-      errors.push({ field: 'bindings.office', message: '绑定的办公室建筑不存在' })
-    }
-  }
-
-  if (config.bindings.museum) {
-    const museumExists = config.buildings.some(b => b.id === config.bindings.museum)
-    if (!museumExists) {
-      errors.push({ field: 'bindings.museum', message: '绑定的博物馆建筑不存在' })
-    }
-  }
-
-  if (config.bindings.userHome) {
-    const homeExists = config.buildings.some(b => b.id === config.bindings.userHome)
-    if (!homeExists) {
-      errors.push({ field: 'bindings.userHome', message: '绑定的用户住宅建筑不存在' })
-    }
-  }
-
-  const boundIds: string[] = []
-  if (config.bindings.office) boundIds.push(config.bindings.office)
-  if (config.bindings.museum) boundIds.push(config.bindings.museum)
-  if (config.bindings.userHome) boundIds.push(config.bindings.userHome)
-  boundIds.push(...config.bindings.houses)
-  const seen = new Set<string>()
-  for (const id of boundIds) {
-    if (seen.has(id)) {
-      errors.push({ field: 'bindings', message: `建筑 ${id} 被重复绑定到多个功能` })
-    }
-    seen.add(id)
-  }
-
-  if (config.grid.cols < 20 || config.grid.rows < 16) {
-    errors.push({ field: 'grid', message: '地图最小尺寸为 20×16' })
-  }
-  if (config.grid.cols > 80 || config.grid.rows > 60) {
-    errors.push({ field: 'grid', message: '地图最大尺寸为 80×60' })
-  }
-
-  const ids = new Set<string>()
-  for (const b of config.buildings) {
-    if (ids.has(b.id)) errors.push({ field: `buildings.${b.id}`, message: `重复的建筑 ID: ${b.id}` })
-    ids.add(b.id)
-  }
-
-  return errors
-}

@@ -167,7 +167,7 @@ export class ActivityStream {
     if (toolName === 'browser') return 'globe'
     if (toolName === 'process') return 'terminal'
     if (toolName === 'skill') return 'zap'
-    if (toolName === 'spawn_agent' || toolName === 'sessions_spawn') return 'users'
+    if (toolName === 'spawn_agent' || toolName === 'sessions_spawn') return 'brain'
     if (toolName === 'todo_write') return 'list-checks'
     return 'wrench'
   }
@@ -223,7 +223,7 @@ export class ActivityStream {
     }
     if (toolName === 'spawn_agent' || toolName === 'sessions_spawn') {
       const name = String(inp.name ?? inp.displayName ?? inp.label ?? '').slice(0, 15)
-      return `召唤 ${name || '居民'}`
+      return `思考子任务${name ? '：' + name : ''}`
     }
     if (toolName === 'todo_write') return ''
     return `使用工具：${toolName}`

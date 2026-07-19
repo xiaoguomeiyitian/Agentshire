@@ -44,15 +44,15 @@ https://github.com/user-attachments/assets/3328aa6c-3432-4f71-abfd-91aea4db15df
 
 https://github.com/user-attachments/assets/720a63fc-863c-483c-bfdf-5e07e82c6f0e
 
-**Give them a mission. Watch them rally.**
+**Give them a life. Watch them live.**
 
 https://github.com/user-attachments/assets/1983f60b-aaf6-4adc-b46c-5612e4ba4c83
 
-**Work too long? Banwei Boss appears. Pop it.**
+**A citizen has a worry? Click to soothe.**
 
 https://github.com/user-attachments/assets/9be946e0-9ecf-42de-b793-a5d7ebe55612
 
-**Mission complete. Fireworks. Playable game delivered.**
+**Life goes on. Neighbors chat, craft, and enjoy the town.**
 
 https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
@@ -62,7 +62,7 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 
 ### Tri-Mode Interface
 
-- **Town Mode** — Low-poly 3D town where you watch NPCs live, work, collaborate, and celebrate in real time (lazy-loaded on first visit to save resources)
+- **Town Mode** — Low-poly 3D town where you watch NPCs live, socialize, and practice their crafts in real time (lazy-loaded on first visit to save resources)
 - **Chat Mode** — IM-style chat interface with an agent list (steward + citizens, online status), message history, multimodal support (text/image), full OpenClaw slash-command autocomplete (40+ commands: sessions, model controls, discovery, skills, subagents, admin, voice), group chat with @mention, and inline thinking-level / reasoning-visibility dropdowns in the header. Default route on app open.
 - **Claw Settings** — In-app panel for OpenClaw runtime config with 11 organized nav sections: General (gateway mode, subagent timeout, default model), System (logging, update, diagnostics, audit), Messaging (session, messages, commands, cron), Tools (browser, tools, web, media, MCP), AI (talk/voice, transcripts, commitments, broadcast, ACP), Network (memory, proxy, env, hooks, UI), plus Providers (per-agent model proxy), Models (LLM provider/model CRUD), Plugin config, Sessions (live token-usage inspection), and About — all defaults aligned with `openclaw.json` values
 - **Top Navigation** — One-click switch between Town / Chat / Claw, with a quick menu (Citizen Workshop / Town Editor / Skill Store / Settings)
@@ -71,9 +71,9 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 ### Core
 
 - **Agent = NPC** — Every sub-agent automatically becomes a 3D citizen with a name, appearance, and personality
-- **Cinematic Workflow** — Summon → Rally → Assign → Enter Office → Code → Celebrate → Return to Town, fully choreographed with animations
+- **Free-Life Simulation** — Citizens live their own lives: socialize, practice crafts, stroll the town — no central orchestration, just neighbors being neighbors
 - **Real-Time Dialog Bubbles** — AI responses appear above NPC heads with a typewriter effect, streaming updates, and pagination
-- **Multi-Agent Collaboration** — The steward automatically decomposes tasks into parallel steps with file boundary validation
+- **Independent Citizens** — Each citizen is an independent agent with their own craft and daily rhythm; the steward is the town guide, not a task dispatcher
 - **Zero Configuration** — Install the plugin, start the Gateway, and the town runs automatically
 
 ### Town Life
@@ -81,12 +81,12 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **Day/Night Cycle** — 24-hour clock (6 periods), real-time lighting changes, automatic street/window lights
 - **12 Weather Types** — Clear / cloudy / fog / drizzle / rain / storm / snow / blizzard / sandstorm / aurora… daily random theme with smooth transitions
 - **Procedural Ambient Sound** — Rain, wind, birdsong, crickets, traffic, thunder — all synthesized in real time via Web Audio API, zero audio files
-- **4-Track BGM** — Day / dusk / night / work tracks, auto-switching by weather, time period, and scene with 3.5s crossfade
+- **4-Track BGM** — Day / dusk / night / life tracks, auto-switching by weather, time period, and scene with 3.5s crossfade
 - **NPC Daily Behavior (Dual Mode)** — Algorithm-driven by default: state machine + 5 behavior templates + 400+ preset dialog lines, zero LLM cost. Enable Soul Mode to switch to AI-driven: AgentBrain 3-tier decisions (L1 daily plan / L2 tactical / L3 dialogue) + deep multi-turn LLM conversations + relationship graph + daily narrative summaries. Toggle the "Citizen Auto-Walk" setting to pause/resume scheduled walking without removing any NPC from the map.
 - **Citizen Chat** — Click any citizen NPC to start a conversation, routed to that citizen's independent Agent session
 - **Group Chat** — Multi-citizen group conversations with @mention picker, per-citizen role display, JSONL history persistence, and context token budget tracking
-- **Topic Discussion** — Start a group discussion with multiple citizens on a topic, with structured turn-taking and AI-moderated dialogue
-- **Banwei Buster Mini-Game** — NPCs generate "banwei orbs" while working; click to pop them! Includes combo system, boss battles, and NPC stress mechanics
+- **Topic Discussion** — Start a group discussion with multiple citizens on a topic, with structured turn-taking and AI-moderated dialogue. Topic state persists across page refresh (gathered citizens + control buttons restored), and citizen needs/economy freeze while a discussion is active
+- **Town Trouble Events** — Citizens occasionally run into little worries (a leaky roof, a lost cat, a neighborly spat); worry bubbles appear above them — click to soothe and watch the mood lift. Includes combo system and NPC mood mechanics
 
 ### UGC Tools
 
@@ -97,18 +97,18 @@ https://github.com/user-attachments/assets/fa6563ae-e78b-49b1-ae7b-8a8a96738341
 - **Editor Preview** — One-click game-level preview window (WASD controls + full day/night + weather + vehicle animations + audio)
 - **LLM Model Manager** — Manage `openclaw.json` providers/models CRUD (add/update/delete, import/export, undo/redo) directly inside the Claw Settings panel — no separate page needed
 - **Agent Models Panel** — Per-resident (Agent) LLM model proxy management: primary model + fallbacks, identity (name, emoji), thinking/reasoning defaults, context tokens, subagent timeout, group-chat history limit — all mapped to `openclaw.json` `agents.list[]`
-- **Soul System** — Each NPC has a Markdown personality file defining character traits, speaking style, expertise, and work approach
+- **Soul System** — Each NPC has a Markdown personality file defining character traits, speaking style, craft, and daily life
 
 ### Interaction & Visuals
 
-- **Interactive 3D** — Click NPCs to view status cards (avatar / persona / work logs / thinking stream / TODO), drag to pan, scroll to zoom
-- **3 Scene Types** — Town (daily life) / Office (work) / Showroom (in development), with fade transitions and NPC migration
-- **Rich VFX** — Summon shockwave, completion fireworks, error lightning, persona-transform magic circle, thinking halo, search radar, confetti…
-- **10-Workstation Office** — Each workstation has its own monitor (real-time code animation), full NPC enter/work/leave choreography
-- **Deliverable Preview** — After project completion, deliverable cards pop up with image lightbox, video, audio preview and download; games/websites launch directly in iframe
+- **Interactive 3D** — Click NPCs to view status cards (avatar / persona / activity logs / thinking stream / TODO), drag to pan, scroll to zoom
+- **3 Scene Types** — Town (daily life) / Workshop (craft workshop) / Showroom (in development), with fade transitions and NPC migration
+- **Rich VFX** — Persona-transform magic circle, thinking halo, search radar, confetti, mood lift sparkles…
+- **10-Workbench Workshop** — Each workbench has its own monitor (real-time craft animation), full NPC enter/craft/leave choreography
+- **Craft Result Preview** — Craft output cards pop up with image lightbox, video, audio preview and download; games/websites launch directly in iframe
 - **AI Tool Control** — Agents can control the town via tools (broadcast messages, spawn NPCs, trigger effects, set time/weather, edit the map: place/move/transform/delete objects, set terrain, expand map, and now perceive/move in 3D space: get status, query nearby citizens, walk to coordinates)
 - **Token Usage Tracking** — Per-turn token usage with cache read/write breakdown and compaction count; heuristic fallback estimation when the LLM API returns zero usage
-- **Reconnection** — WebSocket auto-reconnect with exponential backoff and work state recovery
+- **Reconnection** — WebSocket auto-reconnect with exponential backoff and state recovery
 
 ---
 
@@ -241,12 +241,6 @@ Customize ports and behavior in your `openclaw.json` (`~/.openclaw/openclaw.json
 | `town_set_time` | Control the game clock |
 | `town_set_weather` | Control weather (12 types available) |
 | `town_status` | View current town status |
-| `register_project` | Register a simple project (single-agent or steward-only) |
-| `create_project` | Create a project directory for multi-agent work |
-| `create_task` | Create a task directory for single-agent delegation |
-| `create_plan` | Create a collaboration plan (parallel steps, requires `create_project` or `create_task` first) |
-| `next_step` | Query plan progress and get next step instructions |
-| `mission_complete` | Unified completion handler — auto-routes to celebration or partial delivery based on remaining work |
 | `town_list_assets` | List available 3D assets (buildings / props / roads / characters / pets), filterable by category |
 | `town_list_objects` | List objects currently placed in the town map, filterable by type |
 | `town_place_object` | Place a new object (building / prop / road) on the grid with rotation, scale, and footprint |
@@ -260,7 +254,7 @@ Customize ports and behavior in your `openclaw.json` (`~/.openclaw/openclaw.json
 
 ## Soul System
 
-Every NPC has an independent **soul file** (Markdown) that defines personality, speaking style, expertise, and work approach.
+Every NPC has an independent **soul file** (Markdown) that defines personality, speaking style, craft, and daily life.
 
 Format: a Markdown file starting with `# Character Name`, optionally containing metadata (model ID, gender, role), core persona, detailed personality settings, and dialog examples. The content is injected as the Agent's system prompt.
 
@@ -308,8 +302,8 @@ You can:
 │  Bridge Layer (Browser)                     src/bridge/  │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │ DirectorBridge — Phase State Machine               │  │
-│  │ idle→summoning→assigning→office→working→publish→ret│  │
+│  │ DirectorBridge — Town Life Orchestrator              │  │
+│  │ idle (citizens live freely, no central workflow)      │  │
 │  └────────────────────────────────────────────────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │  Event-  │  │  Route-  │  │ Citizen- │  │implicit- │  │
@@ -325,8 +319,8 @@ You can:
 │  │ MainScene ── EventDispatcher ── update() loop      │  │
 │  └────────────────────────────────────────────────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │workflow/ │  │  npc/    │  │   ui/    │  │  audio/  │  │
-│  │Choreogr  │  │ NPC 7-SM │  │ChatBubbl │  │ BGM+Amb  │  │
+│  │animal-md/│  │  npc/    │  │   ui/    │  │  audio/  │  │
+│  │AutonomyE │  │ NPC 7-SM │  │ChatBubbl │  │ BGM+Amb  │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │ scene/   │  │ editor/  │  │ engine/  │  │  data/   │  │
@@ -373,7 +367,7 @@ The frontend has 4 entry pages:
 
 ## Asset Pack (Optional)
 
-Basic features **require no extra downloads** — built-in models (KayKit + Kenney) for the town, office, and NPCs are included in the repository.
+Basic features **require no extra downloads** — built-in models (KayKit + Kenney) for the town, workshop, and NPCs are included in the repository.
 
 For advanced features, download the optional asset pack:
 
@@ -410,7 +404,7 @@ Without the asset pack: the game runs normally, editor has basic assets, and the
 
 ### Plugin tools not recognized by the agent
 
-**Symptom**: Steward agent cannot find `create_project`, `create_plan`, or other plugin tools.
+**Symptom**: Steward agent cannot find `town_announce`, `town_spawn_npc`, or other plugin tools.
 
 **Cause**: On OpenClaw 2026.3.13, Rollup code-splitting can create separate module instances, causing `api.registerTool()` registrations to be invisible to the agent runtime. Additionally, a manual `tools` section in `openclaw.json` overrides plugin-registered tools.
 
@@ -461,7 +455,7 @@ We imagine a different future. A quieter one. A gentler interface. A place where
 
 | Phase | Direction | Status |
 |-------|-----------|--------|
-| **A Town** | 3D visualization, workflow orchestration, soul system, citizen workshop, dual-mode UI | ✅ Implemented |
+| **A Town** | 3D visualization, soul system, citizen workshop, dual-mode UI | ✅ Implemented |
 | **A Stable Town** | QClaw + OpenClaw compatibility, bilingual i18n, topic discussions, npm publish | 🔥 Current Focus |
 | **A Living Town** | Editor ↔ runtime integration, life simulation (clothing/food/shelter/travel/play), growth systems, mobile | 📋 Next |
 | **A World** | Town federation protocol, cross-town NPC visits, skill exchange, world events | 🌍 Long-term |

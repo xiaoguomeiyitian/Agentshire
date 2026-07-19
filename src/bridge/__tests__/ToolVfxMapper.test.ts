@@ -134,20 +134,8 @@ describe('toolEmoji', () => {
 describe('toolToVfxEvents', () => {
   const npcId = 'npc_001'
 
-  it('returns thinking phase for management tools', () => {
-    const result = toolToVfxEvents('create_plan', npcId)
-    expect(result.phase).toBe('thinking')
-    expect(result.events).toHaveLength(1)
-    expect(result.events[0]).toMatchObject({ type: 'npc_emoji', npcId })
-  })
-
   it('returns thinking phase for sessions_spawn', () => {
     const result = toolToVfxEvents('sessions_spawn', npcId)
-    expect(result.phase).toBe('thinking')
-  })
-
-  it('returns thinking phase for project_complete', () => {
-    const result = toolToVfxEvents('project_complete', npcId)
     expect(result.phase).toBe('thinking')
   })
 

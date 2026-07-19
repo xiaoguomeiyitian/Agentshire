@@ -62,9 +62,9 @@ function buildMapInfoForChat(): string {
     const lines: string[] = ["【小镇地图】"];
     // Buildings
     const bNames: Record<string, string> = {
-      building_A: "办公室", building_B: "住宅", building_C: "住宅",
+      building_A: "工坊", building_B: "住宅", building_C: "住宅",
       building_D: "住宅", building_E: "市场", building_F: "咖啡店",
-      building_G: "玩家家", building_H: "博物馆",
+      building_G: "镇长的家", building_H: "博物馆",
     };
     lines.push("建筑：");
     for (const b of config.buildings ?? []) {

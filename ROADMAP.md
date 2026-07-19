@@ -14,15 +14,16 @@
 Agentshire is not a slide deck. It's a working system with:
 
 - **3D Town + IM Chat** dual-mode interface, real-time dialog bubbles, multimodal support, **bilingual UI (Chinese + English)**
-- **Agent = NPC** real-time mapping, cinematic workflow choreography (summon → assign → code → celebrate → return)
+- **Agent = NPC** real-time mapping, free-life simulation (citizens socialize, practice crafts, live their own lives)
 - **Day/night cycle + 12 weather types + procedural ambient sound (zero audio files) + 4-track dynamic BGM**
 - **Citizen Workshop**: three-source character models (12 built-in + 300+ library + custom upload), AI soul generation, 8-slot animation mapping, **per-agent LLM model assignment**, publish as independent Agents
 - **Town Editor**: drag-and-drop buildings/roads/lights, grouping/alignment/undo, JSON export + game-level preview
 - **LLM Model Manager**: standalone page for `openclaw.json` providers/models CRUD with undo/redo history
 - **Group Chat**: multi-citizen group conversations with @mention picker, JSONL history persistence, context token budget tracking
 - **Soul Mode (basic)**: AgentBrain 3-tier AI decisions + LLM deep conversations + relationship graph
-- **Zero-LLM daily social interactions** + Banwei Buster mini-game
-- **Topic Discussions**: multi-citizen group discussions with structured turn-taking
+- **Zero-LLM daily social interactions** + Town Trouble Events mini-game
+- **Topic Discussions**: multi-citizen group discussions with structured turn-taking, **state persists across page refresh** (gathered citizens + control buttons restored), needs/economy frozen during discussions
+- **Mobile-friendly UI**: responsive layout that adapts floating panels (resident detail, topic detail, model dropdown) to the taller mobile input bar; unified dark-theme scrollbars
 - **QClaw + OpenClaw compatibility**: auto-detects state directory, works on both platforms
 
 The focus of this roadmap is not "0 to 1" — it's **stabilizing the foundation before building higher**.
@@ -120,7 +121,7 @@ Abstract a unified compat shim to hide OpenClaw version differences:
 
 ### Developer Experience
 
-- e2e test coverage: install → start → chat → workflow full pipeline automated verification
+- e2e test coverage: install → start → chat → town life full pipeline automated verification
 - Version compatibility CI: every PR automatically tested across multiple OpenClaw versions
 - Plugin development docs: let other developers use Agentshire as a reference for building their own OpenClaw plugins
 
@@ -141,7 +142,7 @@ Once the engineering foundation is solid, take the town from "animated" to "aliv
 - **Food**: In-building interactions — cafés restore energy, restaurants as social scenes
 - **Shelter**: Home ownership — coming home, decorating, neighbor relationships
 - **Travel**: More natural movement — with purpose and small random events along the way
-- **Play**: More mini-games + NPC entertainment interactions (Banwei Buster is just the first)
+- **Play**: More mini-games + NPC entertainment interactions (Town Trouble Events is just the first)
 
 Plus a full progression system:
 

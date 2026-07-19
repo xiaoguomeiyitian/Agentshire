@@ -26,7 +26,7 @@ import type { RulesEngine } from './RulesEngine'
 import type { NeedActionMapper, NeedAction } from './NeedActionMapper'
 import type { MoodAnimator } from './MoodAnimator'
 import type { IndoorTracker } from './IndoorTracker'
-import type { TimePeriod, DailyPlan, DailyPlanItem } from '../../types'
+import type { TimePeriod, DailyPlan } from '../../types'
 import { BUILDING_REGISTRY, getBuildingName, WAYPOINTS } from '../../types'
 import type { GameClock } from '../GameClock'
 
@@ -110,7 +110,7 @@ export class AutonomyEngine {
   /** Cooldown after ending a chat before starting a new one (ms). */
   private readonly talkCooldownMs = 120_000
 
-  constructor(deps: AutonomyDeps, l2IntervalMs = 60_000, l2JitterMs = 20_000) {
+  constructor(deps: AutonomyDeps, l2IntervalMs = 180_000, l2JitterMs = 60_000) {
     this.deps = deps
     this.l2IntervalMs = l2IntervalMs
     this.l2JitterMs = l2JitterMs
@@ -288,10 +288,6 @@ export class AutonomyEngine {
       return { type: 'stay', reason: '正在聊天中' }
     }
 
-    // ── Anti-clustering (issue 5): if too many NPCs nearby, discourage talk_to ──
-    const crowdThreshold = 3  // 3+ nearby NPCs = crowd
-    const isCrowded = ctx.nearbyNpcs.length >= crowdThreshold
-
     // All other decisions go through the LLM with full context.
     const system = this.buildSystemPrompt(ctx)
     const user = this.buildUserPrompt(ctx)
@@ -407,7 +403,7 @@ export class AutonomyEngine {
     const extraMapInfo = ctx.extraMapInfo ? `\n${ctx.extraMapInfo}` : ''
     const places = [...landmarkPlaces, ...buildingPlaces].join('、')
     lines.push(`可前往的地点：${places}${extraMapInfo}`)
-    lines.push('注意：leave_to 的 target 必须是上面括号内的英文 key 之一（如 plaza_center=中心广场、gathering_point=集合点、office_door=办公室）')
+    lines.push('注意：leave_to 的 target 必须是上面括号内的英文 key 之一（如 plaza_center=中心广场、gathering_point=集合点、office_door=工坊）')
     lines.push('当有人喊"来中心广场/广场集合"时，请用 leave_to 前往 plaza_center 或 gathering_point。')
     lines.push('', '请做出决策：')
     return lines.join('\n')

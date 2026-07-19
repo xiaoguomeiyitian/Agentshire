@@ -1,8 +1,8 @@
 /* @desc NPC card panel styles — #npc-card, .card-header, .card-avatar, .card-log-*, .log-todo-* */
 
 #npc-card {
-  position: absolute; bottom: 140px; left: 16px; right: 16px;
-  max-height: 42%;
+  position: absolute; top: 12px; bottom: 124px; left: 16px; right: 16px;
+  max-height: none;
   max-width: 768px;
   margin-left: auto; margin-right: auto;
   display: none; flex-direction: column;
@@ -15,15 +15,11 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   animation: slideUp 0.25s ease;
 }
-#npc-card.has-logs {
-  top: 12px; bottom: 140px; max-height: none;
-}
 /* Issue 6: screen-adaptive — clamp card so it never overflows the viewport */
 @media (max-height: 600px) {
-  #npc-card.has-logs { top: 8px; bottom: 140px; }
+  #npc-card { top: 8px; bottom: 124px; }
 }
-body.embedded-mode #npc-card { bottom: 150px; }
-body.embedded-mode #npc-card.has-logs { top: 10px; bottom: 150px; }
+body.embedded-mode #npc-card { top: 10px; bottom: 134px; }
 
 @keyframes slideUp {
   from { transform: translateY(20px); opacity: 0; }
@@ -532,8 +528,8 @@ body.embedded-mode #npc-card.has-logs { top: 10px; bottom: 150px; }
 /* Issue 4: sized to match the NPC detail card — absolute positioned above
    the input bar, not a full-screen overlay, so it never covers the input. */
 #topic-detail-panel {
-  position: absolute; bottom: 140px; left: 16px; right: 16px;
-  max-height: 42%; max-width: 768px;
+  position: absolute; top: 12px; bottom: 124px; left: 16px; right: 16px;
+  max-height: none; max-width: 768px;
   margin-left: auto; margin-right: auto;
   display: flex; flex-direction: column;
   background: rgba(30, 30, 30, 0.96);
@@ -544,9 +540,9 @@ body.embedded-mode #npc-card.has-logs { top: 10px; bottom: 150px; }
   animation: slideUp 0.25s ease;
   -webkit-user-select: text; user-select: text;
 }
-body.embedded-mode #topic-detail-panel { bottom: 150px; }
+body.embedded-mode #topic-detail-panel { top: 10px; bottom: 134px; }
 @media (max-height: 600px) {
-  #topic-detail-panel { bottom: 130px; max-height: 50%; }
+  #topic-detail-panel { top: 8px; bottom: 124px; }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 

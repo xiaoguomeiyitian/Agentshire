@@ -43,20 +43,25 @@ const en: Record<string, string> = {
   // ── More menu ──
   'menu.new_task': 'New Task',
   'menu.start_topic': 'Start Topic',
+  'menu.start_topic_short': 'Topic',
   'menu.enter_group': 'Town Square (Group)',
   'menu.exit_group': 'Exit Group',
   'menu.broadcast': 'Broadcast to All',
+  'menu.broadcast_short': 'Broadcast',
   'menu.broadcast_active': 'Exit Broadcast',
   'menu.settings': 'Settings',
   'menu.citizen_detail': 'Citizen Detail',
+  'menu.citizen_detail_short': 'Detail',
   'menu.topic_detail': 'Topic Detail',
+  'menu.topic_detail_short': 'Topic Detail',
+  'menu.end_topic_short': 'End',
   'topic_detail.title': 'Topic Detail',
   'topic_detail.empty': 'No messages',
   'topic_detail.no_topic': 'No active topic',
 
   // ── Buttons / Popups ──
   'back_to_town': '← Back',
-  'task_done': 'Done!',
+  'task_done': 'Craft Done!',
   'try_now': 'Try Now',
   'later': 'Later',
   'download': 'Download',
@@ -75,10 +80,10 @@ const en: Record<string, string> = {
   'settings.music': 'Music',
   'settings.soul_mode': 'Soul Mode',
   'settings.soul_mode_desc': 'NPC AI conversations',
-  'settings.auto_walk': 'Citizen Auto-Walk',
-  'settings.auto_walk_desc': 'Disable scheduled NPC roaming',
-  'settings.reset': 'Reset Town',
-  'settings.reset_desc': 'Clear all data and restart',
+  'settings.auto_walk': 'Citizen Autonomy',
+  'settings.auto_walk_desc': 'Disable autonomous citizen decisions',
+  'settings.reset': '初始化',
+  'settings.reset_desc': 'Remove all citizens and re-sync personality files from project',
   'settings.on': 'ON',
   'settings.off': 'OFF',
   'settings.cancel': 'Cancel',
@@ -105,14 +110,14 @@ const en: Record<string, string> = {
   'group.participant_joined': '{name} joined the group',
   'group.participant_left': '{name} left the group',
 
-  // ── Reset confirm ──
-  'reset.confirm': 'Reset town? This will clear all settings and restart.',
+  // ── Init confirm ──
+  'reset.confirm': 'Re-initialize? This will remove all citizens and re-sync personality files from the project, clearing all sessions and memories.',
 
   // ── NPC card ──
   'card.chat': 'Chat',
   'card.busy_working': 'Busy working',
   'card.offline': 'Offline',
-  'card.task_list': 'Tasks',
+  'card.task_list': 'To-Do',
   'card.work_logs': 'Logs',
   'card.thinking': 'Thinking',
   'card.chat_history': 'Chat History',
@@ -178,7 +183,9 @@ const en: Record<string, string> = {
   'topnav.town_editor': 'Town Editor',
   'topnav.skill_store': 'Skill Store',
   'topnav.model_manager': 'Model Manager',
-  'topnav.settings': 'Settings',
+  'topnav.settings': 'Town Settings',
+  'topnav.chat': 'Citizen Chat',
+  'topnav.claw': 'Claw Settings',
 
   // ── Claw settings panel ──
   'claw.title': 'OpenClaw Settings',
@@ -299,6 +306,15 @@ const en: Record<string, string> = {
   'claw.clearing': 'Clearing...',
   'claw.clear_result': 'Cleared {n} sessions',
   'claw.delete_session': 'Delete this session',
+
+  // ── Claw: town init (full re-initialization from project files) ──
+  'claw.reset_town': 'Re-initialize',
+  'claw.reset_town_title': 'Re-initialize Town',
+  'claw.reset_town_confirm': 'This will remove all citizen agents + workspaces, clear ALL sessions, memories, game clock, town state, economy, group-chat history, and agent databases, then re-create all workspaces from the project\'s latest personality files. This cannot be undone. OpenClaw will restart afterwards. Continue?',
+  'claw.resetting_town': 'Re-initializing...',
+  'claw.reset_town_result': 'Town re-initialized (removed {removed} workspaces, re-created {citizens} citizens). Restarting OpenClaw...',
+  'claw.reset_town_restart': 'Restarting OpenClaw, please wait...',
+  'claw.reset_town_failed': 'Init failed: {error}',
 
   // ── Claw: advanced panel ──
   'claw.adv_logging': 'Logging',

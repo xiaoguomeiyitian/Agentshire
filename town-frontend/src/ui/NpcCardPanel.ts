@@ -181,8 +181,8 @@ export class NpcCardPanel {
     const bottomPanel = document.getElementById('town-bottom-panel')
     if (!bottomPanel) return
     const panelRect = bottomPanel.getBoundingClientRect()
-    // Default bottom offset (matches CSS: 140px, or 150px in embedded mode)
-    const defaultBottom = document.body.classList.contains('embedded-mode') ? 150 : 140
+    // Default bottom offset (matches CSS: 124px, or 134px in embedded mode)
+    const defaultBottom = document.body.classList.contains('embedded-mode') ? 134 : 124
     // How much the input panel top has risen above the default bottom line
     const panelTopFromBottom = window.innerHeight - panelRect.top
     const extra = Math.max(panelTopFromBottom - defaultBottom, 0)
@@ -422,7 +422,9 @@ export class NpcCardPanel {
       const moodValue = document.createElement('span')
       moodValue.className = `card-mood-value mood-${mood.level}`
       const moodText = getLocale() === 'en' ? mood.level : (MOOD_LABELS_ZH[mood.level as keyof typeof MOOD_LABELS_ZH] ?? mood.level)
-      moodValue.textContent = `${moodText} (${mood.value > 0 ? '+' : ''}${mood.value})`
+      // Issue 1: round mood value to integer for display
+      const moodValRounded = Math.round(mood.value)
+      moodValue.textContent = `${moodText} (${moodValRounded > 0 ? '+' : ''}${moodValRounded})`
       moodRow.appendChild(moodLabel)
       moodRow.appendChild(moodValue)
       area.appendChild(moodRow)
@@ -464,41 +466,8 @@ export class NpcCardPanel {
     return area
   }
 
-  private buildRelationshipsArea(rels: RelationshipInfo[]): HTMLElement {
-    const area = document.createElement('div')
-    area.className = 'card-rel-area'
-    const title = document.createElement('div')
-    title.className = 'card-section-title'
-    title.textContent = getLocale() === 'en' ? 'Relationships' : '人际关系'
-    area.appendChild(title)
-    const list = document.createElement('div')
-    list.className = 'card-rel-list'
-    // Sort by sentiment descending, show top 5
-    const sorted = [...rels].sort((a, b) => b.sentiment - a.sentiment).slice(0, 5)
-    for (const rel of sorted) {
-      const row = document.createElement('div')
-      row.className = 'card-rel-row'
-      const name = document.createElement('span')
-      name.className = 'card-rel-name'
-      name.textContent = rel.name
-      const levelLabel = getLocale() === 'en' ? rel.level : (RELATIONSHIP_LABELS_ZH[rel.level as keyof typeof RELATIONSHIP_LABELS_ZH] ?? rel.level)
-      const level = document.createElement('span')
-      level.className = `card-rel-level rel-${rel.level}`
-      level.textContent = levelLabel
-      const sentiment = document.createElement('span')
-      sentiment.className = 'card-rel-sentiment'
-      sentiment.textContent = `${rel.sentiment > 0 ? '+' : ''}${rel.sentiment}`
-      row.appendChild(name)
-      row.appendChild(level)
-      row.appendChild(sentiment)
-      list.appendChild(row)
-    }
-    area.appendChild(list)
-    return area
-  }
-
   /**
-   * Issue 2: Build a full relationships area for the dedicated "关系" tab.
+   * Build a full relationships area for the dedicated "关系" tab.
    * Shows ALL relationships (not just top 5), sorted by sentiment descending,
    * with interaction count and a sentiment bar for richer detail.
    */
@@ -564,18 +533,20 @@ export class NpcCardPanel {
     const zhMap: Record<string, string> = {
       arrived: '到达', departed: '离开', staying: '停留', walking: '行走',
       chatted: '聊天', went_home: '回家', woke_up: '起床',
-      summoned: '被召唤', assigned_task: '接受任务', started_working: '开始工作',
-      completed_task: '完成任务', celebrating: '庆祝', returned_from_work: '工作归来',
+      summoned: '被叫到', assigned_task: '接下活儿', started_working: '开始做手艺',
+      completed_task: '做完手艺', celebrating: '庆祝', returned_from_work: '从工坊回来',
       need_urgent: '需求紧急', need_satisfied: '需求满足', mood_changed: '心情变化',
       went_indoor: '进入室内', left_indoor: '离开室内',
+      decided: '决策',
     }
     const enMap: Record<string, string> = {
       arrived: 'Arrived', departed: 'Departed', staying: 'Staying', walking: 'Walking',
       chatted: 'Chatted', went_home: 'Went home', woke_up: 'Woke up',
-      summoned: 'Summoned', assigned_task: 'Assigned task', started_working: 'Started working',
-      completed_task: 'Completed task', celebrating: 'Celebrating', returned_from_work: 'Returned from work',
+      summoned: 'Called', assigned_task: 'Took the job', started_working: 'Started crafting',
+      completed_task: 'Finished craft', celebrating: 'Celebrating', returned_from_work: 'Back from workshop',
       need_urgent: 'Need urgent', need_satisfied: 'Need satisfied', mood_changed: 'Mood changed',
       went_indoor: 'Went indoor', left_indoor: 'Left indoor',
+      decided: 'Decided',
     }
     const map = getLocale() === 'en' ? enMap : zhMap
     return map[action] ?? action

@@ -1,4 +1,4 @@
-// @desc Central orchestrator: translates AgentEvents into a phased town narrative (idle → summoning → assigning → working → publishing → returning)
+// @desc Central orchestrator: translates AgentEvents into a free-living town narrative (idle only — workflow phases removed)
 import { EventTranslator } from './EventTranslator.js'
 import type { GameEvent, NPCPhase } from '../../town-frontend/src/data/GameProtocol.js'
 import type { AgentEvent } from '../contracts/events.js'
@@ -6,11 +6,11 @@ import { StateTracker } from './StateTracker.js'
 import { getCharacterKeyForNpc, pickUnusedCharacterKey } from '../../town-frontend/src/data/CharacterRoster.js'
 import { NpcEventQueue } from './NpcEventQueue.js'
 import { RouteManager } from './RouteManager.js'
-import { toolToVfxEvents, toolEmoji, inferDeliverableCardType, CARD_TYPES } from './ToolVfxMapper.js'
+import { toolToVfxEvents, toolEmoji } from './ToolVfxMapper.js'
 import { ActivityStream } from './ActivityStream.js'
 import { CitizenManager } from './CitizenManager.js'
 
-type Phase = 'idle' | 'summoning' | 'assigning' | 'going_to_office' | 'working' | 'publishing' | 'returning'
+type Phase = 'idle'
 
 function isToolSuccess(name: string, output: string): boolean {
   if (['read', 'read_file', 'grep', 'glob'].includes(name)) return true
@@ -32,20 +32,14 @@ interface AgentInfo {
   avatarId?: string
 }
 
-const OFFICE_DOOR_SPAWN = { x: 15, z: 24 }
 
-const SUMMON_COLLECT_WINDOW = 3000
-
-
-
-/** Facade that orchestrates the town's response to agent events. Delegates to RouteManager (pathfinding), ActivityStream (logs), CitizenManager (citizen lifecycle), and ToolVfxMapper (VFX). Manages the phase state machine and sub-agent lifecycle. */
+/** Facade that orchestrates the town's response to agent events. Delegates to RouteManager (pathfinding), ActivityStream (logs), CitizenManager (citizen lifecycle), and ToolVfxMapper (VFX). Town runs in free-living mode (phase always idle). */
 export class DirectorBridge {
   private tracker = new StateTracker()
   private translator = new EventTranslator(this.tracker)
   private phase: Phase = 'idle'
   private agents = new Map<string, AgentInfo>()
   private agentOrder: string[] = []
-  private summonTimer: ReturnType<typeof setTimeout> | null = null
   private emitFn: ((events: GameEvent[]) => void) | null = null
   private emitBuffer: GameEvent[][] = []
   private stewardName = 'steward'
@@ -56,11 +50,8 @@ export class DirectorBridge {
   private personaChangedFn: ((name: string) => void) | null = null
   private npcQueues = new Map<string, NpcEventQueue>()
   private lastToolInput: Record<string, unknown> = {}
-  private pendingProjectName = ''
-  private pendingProjectType = ''
   private bubbleDebugEnabled = this.readBubbleDebugFlag()
   private systemInitReceived = false
-  private workflowSummonEmitted = false
   private npcCharacterAssignments = new Map<string, string>([
     ['user', getCharacterKeyForNpc('user')],
     ['steward', getCharacterKeyForNpc('steward')],
@@ -184,14 +175,8 @@ export class DirectorBridge {
       case 'town_setup_complete':
         return null
       case 'return_to_town':
-        if (this.phase === 'working') {
-          this.emit([{ type: 'scene_switch', target: 'town' }])
-        }
         return null
       case 'building_door_clicked':
-        if (this.phase === 'working' && action.buildingId === 'office') {
-          this.emit([{ type: 'scene_switch', target: 'office' }])
-        }
         return null
       case 'npc_move_completed':
         this.routes.resolveMoveRequest(String(action.requestId ?? ''), String(action.npcId ?? ''), action.status === 'arrived' ? 'arrived' : 'interrupted')
@@ -204,66 +189,6 @@ export class DirectorBridge {
         }
         if (npcId) {
           this.tracker.removeMappingByNpcId(npcId)
-        }
-        return null
-      }
-      case 'workflow_phase_complete': {
-        const completedPhase = String(action.phase ?? '')
-        console.log(`[DirectorBridge] workflow_phase_complete: ${completedPhase}, current phase: ${this.phase}`)
-        if (completedPhase === 'summoning' && this.phase === 'summoning') {
-          this.phase = 'assigning'
-          this.emit([{ type: 'mode_change', mode: 'work', workSubState: 'assigning' }])
-          const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
-          this.emit([{
-            type: 'workflow_assign',
-            agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, task: a.task })),
-          } as GameEvent])
-        } else if (completedPhase === 'assigning' && this.phase === 'assigning') {
-          this.phase = 'going_to_office'
-          const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
-          this.emit([
-            { type: 'mode_change', mode: 'work', workSubState: 'going_to_office' },
-            { type: 'workflow_go_office', agents: agents.map(a => ({ npcId: a.npcId })) } as GameEvent,
-          ])
-        } else if (completedPhase === 'going_to_office' && this.phase === 'going_to_office') {
-          this.phase = 'working'
-          const doneCount = [...this.agents.values()].filter(a => a.status === 'completed' || a.status === 'failed').length
-          const totalCount = this.agents.size
-          this.emit([
-            { type: 'mode_change', mode: 'work', workSubState: 'working' },
-            { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
-          ])
-        } else if (completedPhase === 'publishing' && this.phase === 'publishing') {
-          this.phase = 'returning'
-          this.emit([{ type: 'mode_change', mode: 'work', workSubState: 'returning' }])
-          const retAgents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
-          this.emit([{
-            type: 'workflow_return',
-            agents: retAgents.map(a => ({ npcId: a.npcId })),
-            wasInOffice: true,
-          } as GameEvent])
-        } else if (completedPhase === 'returning' && this.phase === 'returning') {
-          this.phase = 'idle'
-          this.activeToolCount = 0
-          this.emit([
-            { type: 'mode_change', mode: 'life' },
-            { type: 'npc_phase', npcId: this.stewardName, phase: 'idle' },
-          ])
-          this.agents.clear()
-          this.agentOrder = []
-          this.tracker.clear()
-          this.pendingProjectName = ''
-          this.pendingProjectType = ''
-          if (this.citizens.pendingStewardRenameTimer) {
-            clearTimeout(this.citizens.pendingStewardRenameTimer)
-            this.citizens.pendingStewardRenameTimer = null
-          }
-          this.routes.destinationClaimCount.clear()
-          this.routes.npcDestinationClaim.clear()
-          this.routes.npcLastDestination.clear()
-          for (const q of this.npcQueues.values()) q.flush()
-          this.npcQueues.clear()
-          this.workflowSummonEmitted = false
         }
         return null
       }
@@ -311,8 +236,6 @@ export class DirectorBridge {
       this.stewardPersonaConfirmed = true
     }
 
-    const agentInfos: Array<{ npcId: string; displayName: string; task: string; status: string; avatarId: string }> = []
-
     for (const a of snapshot.agents) {
       const rawName = a.displayName ?? a.id.replace(/^agent_/, '')
       const displayName = rawName.replace(/^agent_/, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
@@ -344,15 +267,7 @@ export class DirectorBridge {
         avatarId = configured?.avatarId ?? getCharacterKeyForNpc(npcId)
       }
       this.npcCharacterAssignments.set(npcId, avatarId)
-      agentInfos.push({ npcId, displayName, task: a.task, status: resolvedStatus, avatarId })
     }
-
-    this.phase = 'working'
-
-    this.emit([{
-      type: 'restore_work_state',
-      agents: agentInfos,
-    }])
 
     for (const a of snapshot.agents) {
       const log = a.activityLog
@@ -398,7 +313,7 @@ export class DirectorBridge {
       }
       case 'thinking_delta':
         this.activity.appendThinkingDelta(this.stewardName, event.delta ?? '')
-        if (this.phase === 'idle' || this.phase === 'working') {
+        if (this.phase === 'idle') {
           console.log('[DirectorBridge] → steward thinking')
           this.getQueue(this.stewardName).enqueuePhase([
             { type: 'npc_phase', npcId: this.stewardName, phase: 'thinking' },
@@ -406,7 +321,7 @@ export class DirectorBridge {
         }
         return
       case 'tool_input_delta':
-        if (this.phase === 'idle' || this.phase === 'working') {
+        if (this.phase === 'idle') {
           if (this.activeToolCount === 0) {
             this.getQueue(this.stewardName).enqueuePhase([
               { type: 'npc_phase', npcId: this.stewardName, phase: 'thinking' },
@@ -423,7 +338,7 @@ export class DirectorBridge {
         } else {
           this.activity.emitActivity(this.stewardName, this.activity.toolActivityIcon(event.name ?? ''), this.activity.toolActivityMsg(event.name ?? '', event.input), false, event.toolUseId)
         }
-        if (this.phase === 'idle' || this.phase === 'working') {
+        if (this.phase === 'idle') {
           this.activeToolCount++
           const { events: toolEvents, phase: toolPhase } = toolToVfxEvents(event.name ?? '', this.stewardName, event.input)
           this.getQueue(this.stewardName).enqueuePhase([
@@ -437,26 +352,7 @@ export class DirectorBridge {
         this.activity.emitActivityStatus(this.stewardName, isToolSuccess(event.name ?? '', event.output ?? ''), event.toolUseId)
         void this.citizens.detectPersonaSwitch(event)
         this.citizens.detectCitizenCreated(event)
-        if (event.name === 'register_project') {
-          if (this.lastToolInput.name) this.pendingProjectName = String(this.lastToolInput.name)
-          if (this.lastToolInput.type) this.pendingProjectType = String(this.lastToolInput.type)
-        }
-        if (event.name === 'project_complete') {
-          if (this.phase === 'idle' || this.phase === 'working') {
-            this.activeToolCount = Math.max(0, this.activeToolCount - 1)
-          }
-          this.handleProjectComplete(event)
-          return
-        }
-        if (event.name === 'deliver_output') {
-          if (this.phase === 'idle' || this.phase === 'working') {
-            this.activeToolCount = Math.max(0, this.activeToolCount - 1)
-          }
-          this.handleDeliverOutput()
-          return
-        }
-        
-        if (this.phase === 'idle' || this.phase === 'working') {
+        if (this.phase === 'idle') {
           this.activeToolCount = Math.max(0, this.activeToolCount - 1)
           if (this.activeToolCount === 0) {
             this.getQueue(this.stewardName).enqueuePhase([
@@ -470,19 +366,14 @@ export class DirectorBridge {
         this.activity.flushThinking(this.stewardName)
         for (const q of this.npcQueues.values()) q.flush()
         this.citizens.flushPendingCitizens()
-        if (this.phase === 'summoning') {
-          if (this.summonTimer) { clearTimeout(this.summonTimer); this.summonTimer = null }
-          this.emitWorkflowSummon()
-          return
-        }
-        if (this.phase === 'idle' || this.phase === 'working') {
+        if (this.phase === 'idle') {
           this.activeToolCount = 0
           this.emit([{ type: 'npc_phase', npcId: this.stewardName, phase: 'idle' }])
         }
         return
       case 'llm_call':
         if (event.subtype === 'start') {
-          if (this.phase === 'idle' || this.phase === 'working') {
+          if (this.phase === 'idle') {
             this.getQueue(this.stewardName).enqueuePhase([
               { type: 'npc_phase', npcId: this.stewardName, phase: 'thinking' },
             ])
@@ -504,9 +395,7 @@ export class DirectorBridge {
         }
         return
       case 'hook_activity':
-        if (this.phase !== 'working') {
-          this.emit([{ type: 'fx', effect: 'hookFlash', params: { npcId: this.stewardName } }])
-        }
+        this.emit([{ type: 'fx', effect: 'hookFlash', params: { npcId: this.stewardName } }])
         return
       case 'media_output': {
         if (event.role !== 'assistant') return
@@ -687,51 +576,8 @@ export class DirectorBridge {
       this.agents.set(agentId, info)
       this.agentOrder.push(agentId)
 
-      if (this.phase === 'idle') {
-        this.phase = 'summoning'
-        this.emit([
-          { type: 'npc_phase', npcId: this.stewardName, phase: 'idle' },
-          { type: 'npc_emoji', npcId: this.stewardName, emoji: null },
-          { type: 'mode_change', mode: 'work', workSubState: 'summoning' },
-          { type: 'dialog_message', npcId: this.stewardName, text: '好，我来召唤团队！', isStreaming: false },
-        ])
-        const RIPPLE_COUNT = 5
-        const RIPPLE_INTERVAL = 350
-        for (let i = 0; i < RIPPLE_COUNT; i++) {
-          this.scheduleDelayedEmit(800 + i * RIPPLE_INTERVAL, [
-            { type: 'fx', effect: 'summon_ripple', params: { npcId: this.stewardName } },
-          ])
-        }
-      }
+      this.emitArrival(info)
 
-      this.emitArrival(
-        info,
-        this.phase === 'working' ? OFFICE_DOOR_SPAWN : undefined,
-      )
-
-      if (this.phase === 'working') {
-        this.assignLateArrival(info)
-        const doneCount = [...this.agents.values()].filter(a => a.status === 'completed' || a.status === 'failed').length
-        const totalCount = this.agents.size
-        this.emit([
-          { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
-        ])
-        return
-      }
-
-      if (this.phase === 'going_to_office' || this.phase === 'assigning') {
-        return
-      }
-
-      if (this.workflowSummonEmitted) return
-
-      if (this.summonTimer) clearTimeout(this.summonTimer)
-      this.summonTimer = setTimeout(() => {
-        this.summonTimer = null
-        if (this.phase === 'summoning') {
-          this.emitWorkflowSummon()
-        }
-      }, SUMMON_COLLECT_WINDOW)
       return
     }
 
@@ -742,8 +588,8 @@ export class DirectorBridge {
       const inner = event.event
       if (!inner) return
       const q = this.getQueue(npcId)
-      const inWorkPhase = this.phase === 'working' || this.phase === 'going_to_office'
-      const canDriveNpcWorkingState = this.phase === 'working'
+      const inWorkPhase = false
+      const canDriveNpcWorkingState = false
 
       switch (inner.type) {
         case 'thinking_delta':
@@ -854,15 +700,6 @@ export class DirectorBridge {
         this.tempWorkerNpcIds.delete(npcId)
       }
 
-      const doneCount = [...this.agents.values()].filter(a => a.status === 'completed' || a.status === 'failed').length
-      const totalCount = this.agents.size
-      this.emit([
-        { type: 'progress', current: doneCount, total: totalCount, label: `${doneCount}/${totalCount} 完成` },
-      ])
-
-      if (this.allAgentsDone()) {
-        console.log('[DirectorBridge] all agents done — waiting for steward to call project_complete')
-      }
       return
     }
   }
@@ -881,156 +718,8 @@ export class DirectorBridge {
 
     const spawnVec = spawn ? { x: spawn.x, y: 0, z: spawn.z } : undefined
     this.emit([
-      { type: 'npc_spawn', npcId: info.npcId, name: info.displayName, role: 'programming', category: 'citizen', task: info.task, avatarId: safeAvatarId, spawn: spawnVec, arrivalFanfare: true },
+      { type: 'npc_spawn', npcId: info.npcId, name: info.displayName, role: 'citizen', category: 'citizen', task: info.task, avatarId: safeAvatarId, spawn: spawnVec, arrivalFanfare: true },
     ])
-  }
-
-  private emitWorkflowSummon(): void {
-    if (this.workflowSummonEmitted) return
-    this.workflowSummonEmitted = true
-    const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
-    this.emit([{
-      type: 'workflow_summon',
-      agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, task: a.task })),
-    } as GameEvent])
-  }
-
-  private assignLateArrival(info: AgentInfo): void {
-    info.status = 'working'
-    this.emit([
-      { type: 'workstation_assign', npcId: info.npcId, stationId: '' },
-    ])
-  }
-
-  private allAgentsDone(): boolean {
-    if (this.agents.size === 0) return false
-    for (const info of this.agents.values()) {
-      if (info.status !== 'completed' && info.status !== 'failed') return false
-    }
-    return true
-  }
-
-  private handleProjectComplete(event: Extract<AgentEvent, { type: 'tool_result' }>): void {
-    const output = String(event?.output ?? '')
-    if (/^error:/i.test(output.trim())) {
-      console.warn('[DirectorBridge] project_complete rejected by tool:', output)
-      return
-    }
-
-    const input = this.lastToolInput ?? {}
-    const deliverableType = String(input.type ?? 'operation')
-    const summary = String(input.summary ?? '')
-    const url = input.url ? String(input.url) : undefined
-    const name = input.name ? String(input.name) : this.pendingProjectName || ''
-    const files = Array.isArray(input.files)
-      ? input.files.map((file: unknown) => String(file ?? '').trim()).filter(Boolean)
-      : []
-    let cardType = CARD_TYPES[deliverableType] ?? null
-    if (!cardType && this.pendingProjectType) {
-      cardType = CARD_TYPES[this.pendingProjectType] ?? null
-    }
-    const enriched = Array.isArray(input._enrichedFiles) ? input._enrichedFiles as Array<{ path: string; fileName: string; mediaType: string; mimeType: string; data?: string; thumbnailData?: string; httpUrl?: string }> : []
-    const deliverableCards: GameEvent[] = []
-    if (cardType && files.length > 0) {
-      const entryFile = files[0]
-      const match = enriched.find((e: any) => e.path === entryFile)
-      const entryUrl = match?.httpUrl || url || entryFile
-      deliverableCards.push({
-        type: 'deliverable_card',
-        cardType: cardType as 'game' | 'app' | 'website',
-        name: name || undefined,
-        url: entryUrl,
-      } as GameEvent)
-    } else if (cardType && url) {
-      deliverableCards.push({
-        type: 'deliverable_card',
-        cardType: cardType as 'game' | 'app' | 'website',
-        name: name || undefined,
-        url,
-      } as GameEvent)
-    } else if (deliverableType === 'files' || deliverableType === 'media') {
-      for (const filePath of files) {
-        const match = enriched.find((e: any) => e.path === filePath)
-        if (match && (match.data || match.httpUrl)) {
-          deliverableCards.push({
-            type: 'deliverable_card',
-            cardType: match.mediaType as any,
-            name: match.fileName,
-            url: match.httpUrl,
-            filePath,
-            mimeType: match.mimeType,
-            data: match.data,
-            thumbnailData: match.thumbnailData,
-            httpUrl: match.httpUrl,
-          } as GameEvent)
-        } else {
-          deliverableCards.push({
-            type: 'deliverable_card',
-            cardType: inferDeliverableCardType(filePath),
-            name: filePath.split('/').pop() ?? filePath,
-            filePath,
-          } as GameEvent)
-        }
-      }
-    }
-
-    console.log(
-      '[DirectorBridge] project_complete:',
-      deliverableType,
-      'pendingType:',
-      this.pendingProjectType,
-      'name:',
-      name,
-      'cards:',
-      deliverableCards.length,
-      'phase:',
-      this.phase,
-    )
-    if (this.phase === 'publishing' || this.phase === 'returning') {
-      if (deliverableCards.length > 0) {
-        this.emit(deliverableCards)
-      }
-      return
-    }
-
-    const wasInOffice = this.phase === 'working'
-    this.phase = 'publishing'
-    if (wasInOffice) {
-      this.emit([{ type: 'mode_change', mode: 'work', workSubState: 'publishing' }])
-    }
-    const agents = this.agentOrder.map(id => this.agents.get(id)!).filter(Boolean)
-    this.emit([{
-      type: 'workflow_publish',
-      summary: summary || '任务完成了！',
-      deliverableCards: deliverableCards as unknown[],
-      agents: agents.map(a => ({ npcId: a.npcId, displayName: a.displayName, status: a.status })),
-    } as GameEvent])
-  }
-
-  private handleDeliverOutput(): void {
-    const input = this.lastToolInput ?? {}
-    const deliverableType = String(input.type ?? 'operation')
-    const url = input.url ? String(input.url) : undefined
-    const name = input.name ? String(input.name) : ''
-    const files = Array.isArray(input.files)
-      ? input.files.map((file: unknown) => String(file ?? '').trim()).filter(Boolean)
-      : []
-    let cardType = CARD_TYPES[deliverableType] ?? null
-    if (!cardType && this.pendingProjectType) {
-      cardType = CARD_TYPES[this.pendingProjectType] ?? null
-    }
-
-    const cards: GameEvent[] = []
-    if (cardType && url) {
-      cards.push({ type: 'deliverable_card', cardType: cardType as any, name: name || undefined, url } as GameEvent)
-    } else if (deliverableType === 'files' || deliverableType === 'media') {
-      for (const filePath of files) {
-        cards.push({ type: 'deliverable_card', cardType: inferDeliverableCardType(filePath), name: filePath.split('/').pop() ?? filePath, filePath } as GameEvent)
-      }
-    }
-
-    console.log('[DirectorBridge] deliver_output: cards:', cards.length)
-    if (cards.length > 0) this.emit(cards)
   }
 
   private emit(events: GameEvent[]): void {

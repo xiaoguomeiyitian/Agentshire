@@ -488,11 +488,6 @@ export function loadNewMessages(
   return readSessionMessages(target.filePath);
 }
 
-export function getCurrentSessionId(): string | null {
-  const sessions = getSessions();
-  return sessions.length > 0 ? sessions[0].sessionId : null;
-}
-
 export function loadCitizenHistory(
   agentId: string,
   limit: number = 50,
@@ -515,6 +510,9 @@ export function loadCitizenHistory(
         if (!key.startsWith(prefix)) continue;
         // Skip group chat sessions to keep single-chat context isolated
         if (key.includes(":group:")) continue;
+        // Skip implicit (autonomy/encounter) sessions — these are internal LLM
+        // calls, not user-visible chat. They use the ":implicit:" session key prefix.
+        if (key.includes(":implicit:")) continue;
         const entry = value as any;
         if (!entry?.sessionId) continue;
         const filePath = join(sessDir, `${entry.sessionId}.jsonl`);
@@ -976,6 +974,8 @@ export function loadCitizenNewMessages(agentId: string): ChatHistoryMessage[] {
       if (!key.startsWith(prefix)) continue;
       // Skip group chat sessions to keep single-chat context isolated
       if (key.includes(":group:")) continue;
+      // Skip implicit (autonomy/encounter) sessions — internal LLM calls
+      if (key.includes(":implicit:")) continue;
       const entry = value as any;
       if (!entry?.sessionId) continue;
       indexedIds.add(entry.sessionId);

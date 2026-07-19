@@ -75,8 +75,8 @@ describe('buildSoulPrompt', () => {
 describe('buildPersonaPrompt', () => {
   const sampleInput: PersonaPromptInput = {
     name: '小红',
-    bio: '细心的产品经理',
-    specialty: '产品设计',
+    bio: '细心的木工',
+    specialty: '木工与搭建',
   }
 
   it('returns an object with system and user fields', () => {
@@ -94,19 +94,19 @@ describe('buildPersonaPrompt', () => {
 
   it('user prompt includes the bio', () => {
     const result = buildPersonaPrompt(sampleInput)
-    expect(result.user).toContain('细心的产品经理')
+    expect(result.user).toContain('细心的木工')
   })
 
   it('user prompt includes the specialty', () => {
     const result = buildPersonaPrompt(sampleInput)
-    expect(result.user).toContain('产品设计')
+    expect(result.user).toContain('木工与搭建')
   })
 
   it('system prompt includes format instructions', () => {
     const result = buildPersonaPrompt(sampleInput)
     expect(result.system).toContain('人设核心')
     expect(result.system).toContain('性格详细设定')
-    expect(result.system).toContain('岗位职责与专长')
+    expect(result.system).toContain('小镇生活')
   })
 
   it('system prompt includes the persona example', () => {
@@ -127,7 +127,7 @@ describe('buildPersonaPrompt', () => {
   it('handles empty bio', () => {
     const result = buildPersonaPrompt({ ...sampleInput, bio: '' })
     expect(result.user).toContain('小红')
-    expect(result.user).toContain('产品设计')
+    expect(result.user).toContain('木工与搭建')
   })
 
   it('handles special characters in name', () => {

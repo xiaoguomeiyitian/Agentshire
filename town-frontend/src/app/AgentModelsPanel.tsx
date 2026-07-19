@@ -223,7 +223,10 @@ export function AgentModelsPanel() {
               ? (effectiveRef.split('/').slice(1).join('/') || effectiveRef)
               : t('claw.am_default_model')
             return (
-              <div key={agent.id} className="rounded-2xl bg-bg-surface border border-border-subtle overflow-hidden">
+              <div key={agent.id} className={cn(
+                'rounded-2xl bg-bg-surface border border-border-subtle relative',
+                isMenuOpen && 'z-40',
+              )}>
                 {/* Card header */}
                 <div className="flex items-center gap-3 px-4 py-3">
                   {/* Avatar */}
@@ -323,7 +326,7 @@ export function AgentModelsPanel() {
                   />
                 )}
                 {isOpen && !cfg && (
-                  <div className="border-t border-border-subtle px-4 py-3 text-[12px] text-text-tertiary">
+                  <div className="border-t border-border-subtle px-4 py-3 text-[12px] text-text-tertiary rounded-b-2xl">
                     {t('claw.loading')}
                   </div>
                 )}
@@ -363,7 +366,7 @@ function AgentConfigEditor({
   const groupChat = config.groupChat ?? {}
 
   return (
-    <div className="border-t border-border-subtle px-4 py-3 space-y-4">
+    <div className="border-t border-border-subtle px-4 py-3 space-y-4 rounded-b-2xl">
       {/* Identity section */}
       <ConfigSection icon={<User size={13} />} title={t('claw.am_identity')}>
         <ConfigRow label={t('claw.am_display_name')}>

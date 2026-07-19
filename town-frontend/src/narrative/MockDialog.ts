@@ -28,7 +28,7 @@ export class MockDialog {
       return { reply: tourReplies[Math.floor(Math.random() * tourReplies.length)], event: 'tour' }
     }
 
-    if (text.includes('回办公') || text.includes('回去') || text.includes('office')) {
+    if (text.includes('回工坊') || text.includes('回去') || text.includes('office')) {
       return { reply: replies.return_office[0], event: 'return_office' }
     }
 
