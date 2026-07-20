@@ -11,7 +11,7 @@
  *
  * 每个 agent 维护一个 pending Promise,moveTo 调用时创建,到达/中断时 resolve。
  */
-import { Crowd, CrowdAgent, NavMesh, Vector3 } from 'recast-navigation'
+import { Crowd, CrowdAgent, NavMesh, NavMeshQuery, Vector3 } from 'recast-navigation'
 
 /** agent 移动状态 */
 export type MoveStatus = 'arrived' | 'interrupted'
@@ -80,6 +80,8 @@ interface PendingMove {
 export class CrowdService {
   private crowd: Crowd | null = null
   private navMesh: NavMesh | null = null
+  /** 懒加载的 NavMeshQuery(供 getClosestPoint 贴地查询)。 */
+  private navMeshQuery: NavMeshQuery | null = null
   /** npcId → CrowdAgent */
   private agents = new Map<string, CrowdAgent>()
   /** npcId → pending move */
@@ -125,6 +127,7 @@ export class CrowdService {
       this.crowd = null
     }
     this.navMesh = null
+    this.navMeshQuery = null
   }
 
   /** 添加 agent。返回是否成功。 */
@@ -250,11 +253,50 @@ export class CrowdService {
     return this.agents.has(npcId)
   }
 
+  /** 获取 agent 的 agentIndex(供 CrowdHelper 可见性过滤)。 */
+  getAgentIndex(npcId: string): number | null {
+    const agent = this.agents.get(npcId)
+    return agent ? agent.agentIndex : null
+  }
+
+  /** 反查:agentIndex → npcId(供 CrowdHelper 可见性过滤)。 */
+  getNpcIdByAgentIndex(agentIndex: number): string | null {
+    for (const [npcId, agent] of this.agents) {
+      if (agent.agentIndex === agentIndex) return npcId
+    }
+    return null
+  }
+
   /** agent 是否在移动(velocity 长度 > 0.05)。 */
   isAgentMoving(npcId: string): boolean {
     const v = this.getAgentVelocity(npcId)
     if (!v) return false
     return Math.abs(v.x) + Math.abs(v.z) > 0.05
+  }
+
+  /**
+   * 查询给定世界坐标在 NavMesh 上的最近可走点。
+   *
+   * 用于连续移动(摇杆/键盘)时把候选新位置贴回导航网格,防止镇长穿墙
+   * 进入建筑内部(与点击寻路 `requestMoveTarget` 的一致性保证)。
+   *
+   * 若 Crowd/NavMesh 未就绪或查询失败,返回原始位置(降级:不贴地)。
+   */
+  getClosestPoint(position: { x: number; y?: number; z: number }): { x: number; y: number; z: number } {
+    const fallback = { x: position.x, y: position.y ?? 0, z: position.z }
+    if (!this.navMesh) return fallback
+    try {
+      if (!this.navMeshQuery) {
+        this.navMeshQuery = new NavMeshQuery(this.navMesh)
+      }
+      const result = this.navMeshQuery.findClosestPoint({
+        x: position.x, y: position.y ?? 0, z: position.z,
+      })
+      if (result.success && result.point) {
+        return { x: result.point.x, y: result.point.y, z: result.point.z }
+      }
+    } catch { /* ignore — fall back to raw position */ }
+    return fallback
   }
 
   /**

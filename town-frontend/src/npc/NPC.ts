@@ -774,6 +774,16 @@ export class NPC {
           this.desiredRotationY = Math.atan2(nx, nz)
         }
       }
+    } else if (this.crowdService?.hasAgent(this.id) && this.id !== 'user') {
+      // ── 被动避障同步:NPC 没有主动寻路,但在 Crowd 中可能被其他 agent
+      // (如镇长)的 RVO separation 挤开。此时 Crowd agent 位置已变,但
+      // mesh 不跟随会导致红色圆柱与模型脱节。每帧从 Crowd 同步位置,
+      // 让 mesh 跟随 agent 被动位移。镇长('user')由 MayorInputController
+      // 直接控制位置,不在此同步(否则会与控制器冲突)。 ──
+      const pos = this.crowdService.getAgentPosition(this.id)
+      if (pos) {
+        this.mesh.position.set(pos.x, 0, pos.z)
+      }
     }
 
     if (this.desiredRotationY !== null) {

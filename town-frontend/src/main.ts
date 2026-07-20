@@ -127,7 +127,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
   /** Guards against duplicate animal_state_load requests (sent once per WS session). */
   let animalStateRequested = false
   /** Cached animal_state response when sceneRef is null on arrival. Applied after loadScene. */
-  let pendingAnimalState: { snapshots: any[]; clock: any; runtime: any; economy: any } | null = null
+  let pendingAnimalState: { snapshots: any[]; clock: any; runtime: any; economy: any; inventory: any } | null = null
   /** Flag: animal_state restore completed but topicState not yet restored
    * (topicState is declared after the deferred restore point, so we defer
    * the topic UI restoration to after refreshQuickActions is wired up). */
@@ -171,6 +171,11 @@ const syncTownSessionUrl = (townSessionId: string) => {
       pendingHistoryNpcIds.set(agentId, c.id)
       wsSend({ type: 'chat_history_request', agentId, format: 'messages', limit: 50 })
     }
+    // Also request steward (管家) chat history so the conversation persists
+    // across page refreshes. Steward agentId is 'steward'; backend loadChatHistory
+    // handles agentId='steward' (or undefined) as the main session history.
+    pendingHistoryNpcIds.set('steward', 'steward')
+    wsSend({ type: 'chat_history_request', agentId: 'steward', format: 'messages', limit: 50 })
   }
 
   // Restore citizen chat history (user + assistant) into ChatPanel with correct
@@ -475,22 +480,23 @@ const syncTownSessionUrl = (townSessionId: string) => {
           }
         } else if (data.type === 'animal_state') {
           // Plugin returns persisted Animal Mode state (snapshots + clock + runtime)
-          console.log(`[main] animal_state received: snapshots=${data.snapshots?.length ?? 0} clock=${data.clock ? 'yes' : 'no'} runtime=${data.runtime ? 'yes' : 'no'} economy=${data.economy ? 'yes' : 'no'}`)
+          console.log(`[main] animal_state received: snapshots=${data.snapshots?.length ?? 0} clock=${data.clock ? 'yes' : 'no'} runtime=${data.runtime ? 'yes' : 'no'} economy=${data.economy ? 'yes' : 'no'} inventory=${data.inventory ? 'yes' : 'no'}`)
           if (sceneRef) {
             // Check if scene is fully initialized (gameClock + bootstrap are set in init()).
             // If not, cache for deferred restore after loadScene completes.
             if ((sceneRef as any).gameClock && (sceneRef as any).bootstrap) {
               ;(sceneRef as any).restoreAnimalState(data.snapshots ?? [], data.clock ?? null, data.runtime ?? null)
               ;(sceneRef as any).restoreEconomyState?.(data.economy ?? null)
+              ;(sceneRef as any).restoreInventoryState?.(data.inventory ?? null)
               if (applyRestoredTopicRef) applyRestoredTopicRef()
               else pendingTopicRestore = true
             } else {
-              pendingAnimalState = { snapshots: data.snapshots ?? [], clock: data.clock ?? null, runtime: data.runtime ?? null, economy: data.economy ?? null }
+              pendingAnimalState = { snapshots: data.snapshots ?? [], clock: data.clock ?? null, runtime: data.runtime ?? null, economy: data.economy ?? null, inventory: data.inventory ?? null }
               console.log('[main] animal_state: scene not yet initialized (gameClock missing), cached for deferred restore')
             }
           } else {
             // Scene not yet ready — cache for deferred restore after loadScene
-            pendingAnimalState = { snapshots: data.snapshots ?? [], clock: data.clock ?? null, runtime: data.runtime ?? null, economy: data.economy ?? null }
+            pendingAnimalState = { snapshots: data.snapshots ?? [], clock: data.clock ?? null, runtime: data.runtime ?? null, economy: data.economy ?? null, inventory: data.inventory ?? null }
             console.log('[main] animal_state: sceneRef is null, cached for deferred restore')
           }
         }
@@ -640,9 +646,10 @@ const syncTownSessionUrl = (townSessionId: string) => {
   // If animal_state arrived before sceneRef was set, apply it now.
   if (pendingAnimalState) {
     console.log('[main] Applying deferred animal_state after loadScene')
-    const ps = pendingAnimalState as { snapshots: any[]; clock: any; runtime: any; economy: any }
+    const ps = pendingAnimalState as { snapshots: any[]; clock: any; runtime: any; economy: any; inventory: any }
     ;(scene as any).restoreAnimalState(ps.snapshots, ps.clock, ps.runtime)
     ;(scene as any).restoreEconomyState?.(ps.economy)
+    ;(scene as any).restoreInventoryState?.(ps.inventory)
     if (applyRestoredTopicRef) applyRestoredTopicRef()
     else pendingTopicRestore = true
     pendingAnimalState = null
@@ -1101,9 +1108,13 @@ const syncTownSessionUrl = (townSessionId: string) => {
             const iframe = document.querySelector<HTMLIFrameElement>('iframe[title="Agentshire Town"]')
             iframe?.contentWindow?.postMessage({ type: 'agentshire:animalmode', enabled }, '*')
           },
+          onNavDebugChange: (enabled) => {
+            // 问题6:运行时开关导航网格调试显示(红色线条)
+            scene.setNavMeshDebugEnabled(enabled)
+          },
           onReset: async () => {
             try {
-              const resp = await fetch('/claw/_api/town/init', {
+              const resp = await fetch(apiUrl('/claw/_api/town/init'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({}),
@@ -1114,7 +1125,7 @@ const syncTownSessionUrl = (townSessionId: string) => {
                 return
               }
               try {
-                await fetch('/claw/_api/town/restart', {
+                await fetch(apiUrl('/claw/_api/town/restart'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({}),
@@ -1351,6 +1362,8 @@ const syncTownSessionUrl = (townSessionId: string) => {
   if (!savedSettings.music) scene.setMusicEnabled(false)
   // Issue 1: enable Animal Mode on startup so citizens become visible & active
   scene.setAnimalModeEnabled(savedSettings.animalMode !== false)
+  // 问题6:启动时应用导航网格调试设置(若之前开启过,恢复红色线框显示)
+  if (savedSettings.navDebug) scene.setNavMeshDebugEnabled(true)
 
   document.addEventListener('agentshire:music', (e: Event) => {
     const { enabled } = (e as CustomEvent).detail

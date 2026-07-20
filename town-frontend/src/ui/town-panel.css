@@ -725,3 +725,41 @@
 body.has-town-panel #input-bar,
 body.has-town-panel #tab-bar { display: none; }
 body.has-town-panel #game-root { padding-bottom: 0; }
+
+/* ═══════════════════════════════════════════
+   Virtual Joystick Zone (mobile only)
+   — left-bottom 1/3 transparent layer that captures touches to spawn
+     the dynamic joystick. pointer-events:auto so it sits above NPC chat
+     bubbles (avoids bubble intercepting joystick touches).
+   — Hidden on PC (no touch) via body.no-touch.
+   ═══════════════════════════════════════════ */
+#joystick-zone {
+  position: fixed;
+  left: 0;
+  /* 触发区上移到底部输入面板上方,避免与 #town-bottom-panel 重叠。
+     #town-bottom-panel 位于 bottom:16px,高度约 80-120px(含输入行/图片预览/语音),
+     这里取 140px 确保触发区完全在输入框之上。 */
+  bottom: 140px;
+  /* 触发区覆盖整个下半屏(从屏幕垂直中线到输入框上方),
+     宽度 100vw。用户要求:手机上触发摇杆出现的位置为下半个屏幕
+     除了输入框以外的其他区域。摇杆本身仍是动态的(触摸处出现),
+     触发区只决定“按下何处出现摇杆”。 */
+  top: 50vh;
+  width: 100vw;
+  z-index: 1150; /* above npc-card(1000) & bubbles, below bottom-panel(1100) */
+  pointer-events: auto;
+  touch-action: none; /* prevent browser gestures (scroll/zoom) on joystick area */
+  background: transparent;
+}
+
+/* NPC 卡片打开时禁用摇杆触发区,避免遮挡卡片交互(关闭按钮/滚动/选中文本)。
+   #npc-card 用内联 style.display='flex' 显示,用 :has() 检测。 */
+body:has(#npc-card[style*="display: flex"]) #joystick-zone,
+body:has(#npc-card[style*="display:flex"]) #joystick-zone {
+  pointer-events: none;
+}
+
+/* PC (no touch device): hide joystick zone entirely */
+body.no-touch #joystick-zone {
+  display: none;
+}

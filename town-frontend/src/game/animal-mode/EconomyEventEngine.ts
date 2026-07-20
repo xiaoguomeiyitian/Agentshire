@@ -67,6 +67,12 @@ interface CitizenEventTracker {
   welfareGivenToday: boolean
   /** Whether mayor care was given today. */
   mayorCareGivenToday: boolean
+  /** P1-3: last game day a leave_warning event was fired (per-day throttle). */
+  lastLeaveWarningDay: number
+  /** P1-3: last game day a move_out event was fired (per-day throttle). */
+  lastMoveOutDay: number
+  /** P1-3: last game day a celebration event was fired (per-day throttle). */
+  lastCelebrationDay: number
 }
 
 export class EconomyEventEngine {
@@ -89,6 +95,9 @@ export class EconomyEventEngine {
         lastHelpRequestDay: -1,
         welfareGivenToday: false,
         mayorCareGivenToday: false,
+        lastLeaveWarningDay: -1,
+        lastMoveOutDay: -1,
+        lastCelebrationDay: -1,
       })
     }
   }
@@ -145,8 +154,11 @@ export class EconomyEventEngine {
       })
     }
 
-    // ── Mayor care: mood=0 (terrible) ──
-    if (moodState.value <= -100 && !tracker.mayorCareGivenToday) {
+    // ── Mayor care: mood <= -60 (terrible) ──
+    // Mood range is -100..+100 (0 = neutral). -100 is nearly unreachable
+    // (requires all needs at 0 + negative events); -60 is a realistic
+    // "citizen is miserable" threshold.
+    if (moodState.value <= -60 && !tracker.mayorCareGivenToday) {
       tracker.mayorCareGivenToday = true
       events.push({
         type: 'mayor_care',
@@ -171,9 +183,11 @@ export class EconomyEventEngine {
     }
 
     // ── Leave warning: belonging < 20 for 2 days ──
+    // P1-3: throttle to once per game day to avoid spamming on every check.
     if (needsSnap.needs.belonging < 20) {
       tracker.lowBelongingDays++
-      if (tracker.lowBelongingDays >= 2) {
+      if (tracker.lowBelongingDays >= 2 && this.currentDay !== tracker.lastLeaveWarningDay) {
+        tracker.lastLeaveWarningDay = this.currentDay
         events.push({
           type: 'leave_warning',
           npcId,
@@ -186,9 +200,11 @@ export class EconomyEventEngine {
     }
 
     // ── Move out: belonging < 10 for 3 days ──
+    // P1-3: throttle to once per game day.
     if (needsSnap.needs.belonging < 10) {
       tracker.criticalBelongingDays++
-      if (tracker.criticalBelongingDays >= 3) {
+      if (tracker.criticalBelongingDays >= 3 && this.currentDay !== tracker.lastMoveOutDay) {
+        tracker.lastMoveOutDay = this.currentDay
         events.push({
           type: 'move_out',
           npcId,
@@ -200,10 +216,13 @@ export class EconomyEventEngine {
       tracker.criticalBelongingDays = 0
     }
 
-    // ── Celebration: mood > 90 for 1 day ──
-    if (moodState.value > 90) {
+    // ── Celebration: mood > 60 for 1 day ──
+    // Mood range is -100..+100; > 60 means consistently happy.
+    // P1-3: throttle to once per game day.
+    if (moodState.value > 60) {
       tracker.highMoodDays++
-      if (tracker.highMoodDays >= 1) {
+      if (tracker.highMoodDays >= 1 && this.currentDay !== tracker.lastCelebrationDay) {
+        tracker.lastCelebrationDay = this.currentDay
         events.push({
           type: 'celebration',
           npcId,

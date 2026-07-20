@@ -114,6 +114,11 @@
     <img id="media-lightbox-img" src="" />
   </div>
 
+  <!-- ── Virtual Joystick Layer (mobile only, left-bottom 1/3) ──
+       Hidden by default on PC via CSS .no-touch. pointer-events:auto so it
+       sits above NPC chat bubbles (avoids bubble intercepting joystick touches). -->
+  <div id="joystick-zone" aria-hidden="true"></div>
+
   <!-- ── Bottom Input Panel (OpenClaw input bar) ── -->
   <div id="town-bottom-panel">
     <div id="town-agent-status">

@@ -5,6 +5,7 @@ export interface SettingsState {
   music: boolean
   soulMode: boolean
   animalMode: boolean
+  navDebug: boolean
 }
 
 const SETTINGS_KEY = 'agentshire_settings'
@@ -20,10 +21,11 @@ export function loadSettings(): SettingsState {
         music: s.music !== false,
         soulMode: s.soulMode !== false,
         animalMode: s.animalMode === true,
+        navDebug: s.navDebug === true,
       }
     }
   } catch { /* ignore */ }
-  return { language: 'zh-CN', music: true, soulMode: true, animalMode: true }
+  return { language: 'zh-CN', music: true, soulMode: true, animalMode: true, navDebug: false }
 }
 
 export function saveSettings(state: SettingsState): void {
@@ -34,6 +36,7 @@ export function showSettingsPanel(opts: {
   onMusicChange: (enabled: boolean) => void
   onSoulModeChange: (enabled: boolean) => void
   onAnimalModeChange?: (enabled: boolean) => void
+  onNavDebugChange?: (enabled: boolean) => void
   onReset: () => void
 }): void {
   if (document.getElementById('agentshire-settings-overlay')) return
@@ -171,6 +174,26 @@ export function showSettingsPanel(opts: {
     })))
   }
 
+  // ── Nav Mesh debug toggle (问题6:显示导航网格调试网格,红色线条) ──
+  // 运行时控制 NavMeshDebugHelper 的显隐,用于开发调试导航网格。
+
+  if (opts.onNavDebugChange) {
+    const navRow = createRow(t('settings.nav_debug'), createToggle(draft.navDebug, (v) => {
+      draft.navDebug = v
+      markDirty()
+    }))
+    // 附加描述说明(小字)
+    const navDesc = document.createElement('div')
+    Object.assign(navDesc.style, { fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' })
+    navDesc.textContent = t('settings.nav_debug_desc')
+    // 描述插在 label 下方(row 的第一个子元素是 labelEl,这里重建结构)
+    const labelWrap = document.createElement('div')
+    labelWrap.appendChild(navRow.firstChild as HTMLElement)
+    labelWrap.appendChild(navDesc)
+    navRow.insertBefore(labelWrap, navRow.lastChild)
+    card.appendChild(navRow)
+  }
+
   // ── Init Town button (full re-initialization) ──
   // Clicking opens a confirm dialog; confirming calls opts.onReset() which
   // triggers the town/init API (removes all citizen agents + workspaces,
@@ -295,6 +318,7 @@ export function showSettingsPanel(opts: {
     if (draft.music !== saved.music) opts.onMusicChange(draft.music)
     if (draft.soulMode !== saved.soulMode) opts.onSoulModeChange(draft.soulMode)
     if (draft.animalMode !== saved.animalMode && opts.onAnimalModeChange) opts.onAnimalModeChange(draft.animalMode)
+    if (draft.navDebug !== saved.navDebug && opts.onNavDebugChange) opts.onNavDebugChange(draft.navDebug)
     if (draft.language !== saved.language) {
       location.reload()
       return

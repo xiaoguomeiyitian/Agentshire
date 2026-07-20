@@ -7,6 +7,9 @@ import { t } from '../i18n'
 import { MOOD_LABELS_ZH } from '../game/animal-mode/MoodEngine'
 import { NEED_LABELS_ZH } from '../game/animal-mode/NeedsEngine'
 import { RELATIONSHIP_LABELS_ZH } from '../game/animal-mode/RelationshipEngine'
+import { ITEM_SOURCE_LABELS_ZH, ITEM_SOURCE_LABELS_EN } from '../game/animal-mode/InventoryEngine'
+import type { InventoryItem, ItemSource } from '../game/animal-mode/InventoryEngine'
+export type { InventoryItem, ItemSource } from '../game/animal-mode/InventoryEngine'
 import { getLocale } from '../i18n'
 
 /** Recent activity entry from ActivityJournal.getRecentActivities() */
@@ -84,6 +87,16 @@ export class NpcCardPanel {
     homeBuilding?: string | null;
     /** Current location display name (e.g. "广场", "西区") */
     currentLocation?: string | null;
+    /** N-2: economy state (coins, reputation, savings, work reward, frugal) */
+    economy?: {
+      coins: number;
+      reputation: number;
+      savingsGoal: number;
+      todayWorkReward: number;
+      frugal: boolean;
+    } | null;
+    /** N-2: backpack items */
+    inventory?: InventoryItem[];
   }): void {
     if (!this.npcCard) return
 
@@ -159,6 +172,8 @@ export class NpcCardPanel {
       opts.relationships ?? [],
       opts.homeBuilding ?? null,
       opts.currentLocation ?? null,
+      opts.economy ?? null,
+      opts.inventory ?? [],
     )
     this.npcCard.appendChild(tabArea)
     requestAnimationFrame(() => {
@@ -403,6 +418,98 @@ export class NpcCardPanel {
     return area
   }
 
+  /**
+   * N-2: Build the economy info area (coins, reputation, savings, work reward, frugal mode).
+   * Shown in the 状态 tab between location and mood/needs.
+   */
+  private buildEconomyArea(econ: {
+    coins: number;
+    reputation: number;
+    savingsGoal: number;
+    todayWorkReward: number;
+    frugal: boolean;
+  }): HTMLElement {
+    const area = document.createElement('div')
+    area.className = 'card-mood-area'
+    const en = getLocale() === 'en'
+    const title = document.createElement('div')
+    title.className = 'card-section-title'
+    title.textContent = en ? 'Economy' : '经济信息'
+    area.appendChild(title)
+
+    const rows: Array<[string, string]> = [
+      [en ? 'Coins' : '金币', `${econ.coins}`],
+      [en ? 'Reputation' : '声望', `${econ.reputation}`],
+      [en ? 'Savings Goal' : '储蓄目标', `${econ.savingsGoal}`],
+      [en ? 'Today Reward' : '今日报酬', `${econ.todayWorkReward}`],
+      [en ? 'Mode' : '消费模式', econ.frugal
+        ? (en ? 'Frugal' : '储蓄中')
+        : (en ? 'Normal' : '正常')],
+    ]
+    for (const [label, val] of rows) {
+      const row = document.createElement('div')
+      row.className = 'card-info-row'
+      const l = document.createElement('span')
+      l.className = 'card-info-label'
+      l.textContent = label
+      const v = document.createElement('span')
+      v.className = 'card-info-value'
+      v.textContent = val
+      row.appendChild(l)
+      row.appendChild(v)
+      area.appendChild(row)
+    }
+    return area
+  }
+
+  /**
+   * N-2: Build the backpack (inventory) area.
+   * Shows all owned items with icon, name, count, and source.
+   * Shown in the 状态 tab between economy and mood/needs.
+   */
+  private buildInventoryArea(items: InventoryItem[]): HTMLElement {
+    const area = document.createElement('div')
+    area.className = 'card-mood-area'
+    const en = getLocale() === 'en'
+    const title = document.createElement('div')
+    title.className = 'card-section-title'
+    title.textContent = en
+      ? `Backpack (${items.length})`
+      : `背包（${items.length}）`
+    area.appendChild(title)
+
+    if (items.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'card-chat-empty'
+      empty.textContent = en ? 'Empty' : '空空如也'
+      area.appendChild(empty)
+      return area
+    }
+
+    const list = document.createElement('div')
+    list.className = 'card-inventory-list'
+    for (const item of items) {
+      const row = document.createElement('div')
+      row.className = 'card-inventory-item'
+      const icon = createLucideIcon(item.icon, 16, 'rgba(255,255,255,0.7)')
+      if (icon) row.appendChild(icon)
+      const name = document.createElement('span')
+      name.className = 'card-inventory-name'
+      name.textContent = `${item.name} ×${item.count}`
+      row.appendChild(name)
+      const src = document.createElement('span')
+      src.className = 'card-inventory-source'
+      const srcLabel = en
+        ? ITEM_SOURCE_LABELS_EN[item.source as ItemSource] ?? item.source
+        : ITEM_SOURCE_LABELS_ZH[item.source as ItemSource] ?? item.source
+      src.textContent = srcLabel
+      row.appendChild(src)
+      list.appendChild(row)
+    }
+    area.appendChild(list)
+    return area
+  }
+
   private buildMoodNeedsArea(mood: MoodInfo | null, needs: NeedsInfo | null): HTMLElement {
     const area = document.createElement('div')
     area.className = 'card-mood-area'
@@ -563,6 +670,14 @@ export class NpcCardPanel {
     relationships: RelationshipInfo[] = [],
     homeBuilding: string | null = null,
     currentLocation: string | null = null,
+    economy: {
+      coins: number;
+      reputation: number;
+      savingsGoal: number;
+      todayWorkReward: number;
+      frugal: boolean;
+    } | null = null,
+    inventory: InventoryItem[] = [],
   ): HTMLElement {
     const area = document.createElement('div')
     area.className = 'card-tab-area'
@@ -613,6 +728,14 @@ export class NpcCardPanel {
     statusScroll.className = 'card-status-scroll'
     if (homeBuilding || currentLocation) {
       statusScroll.appendChild(this.buildLocationArea(homeBuilding, currentLocation))
+    }
+    // N-2: economy info (coins, reputation, savings, work reward, frugal mode)
+    if (economy) {
+      statusScroll.appendChild(this.buildEconomyArea(economy))
+    }
+    // N-2: backpack (owned items)
+    if (inventory.length > 0 || economy) {
+      statusScroll.appendChild(this.buildInventoryArea(inventory))
     }
     if (mood || needs) {
       statusScroll.appendChild(this.buildMoodNeedsArea(mood, needs))

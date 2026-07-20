@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026.7.21 — Day Counter, Steward Chat History, Joystick Zone, Door Threshold
+
+### Added: Game day counter in TimeHUD
+
+The time HUD now shows the current day number (e.g. “第 4 天” / “Day 4”) alongside the time and period, so players can see at a glance how many in-game days have elapsed.
+
+- `TimeHUD.ts` adds a `dayEl` span between the time and period, updated when `GameClock.getState().dayCount` changes.
+- New i18n keys `hud.day` (`第 {n} 天` / `Day {n}`) in `zh-CN.ts` and `en.ts`.
+
+### Fixed: Steward chat history lost after page refresh
+
+Refreshing the page used to clear the conversation with the steward (管家). Now the steward chat history is restored from the backend alongside citizen histories.
+
+- `main.ts` `requestAllCitizenHistory()` now also requests steward history (`agentId: 'steward'`) and registers it in `pendingHistoryNpcIds`.
+- `restoreCitizenHistoryFromServer()` handles steward messages with `targetNpcId='steward'` so they appear in the NPC card “聊天” tab.
+
+### Changed: Mobile joystick trigger zone expanded to full lower half
+
+The virtual joystick trigger area was previously limited to the left-bottom 50vw × 35vh. It now covers the entire lower half of the screen (from 50vh to the input panel), making it easier to spawn the joystick anywhere on mobile.
+
+- `town-panel.css` `#joystick-zone`: `width: 50vw; height: 35vh` → `top: 50vh; width: 100vw` (bottom stays at 140px to avoid the input panel).
+- Added `:has()` rule: when `#npc-card` is open, the joystick zone `pointer-events: none` so it doesn't block card interactions.
+
+### Fixed: Door entry threshold too loose
+
+The mayor used to enter buildings from 1.2m away, which felt too early. The threshold is now 0.8m so the mayor must truly touch the door.
+
+- `MainScene.ts` `checkDoorProximityForMove()`: outdoor threshold `d < 1.2` → `d < 0.8`; indoor exit threshold also tightened to 0.8m.
+
+### Changed: Removed green door markers
+
+The green dots in front of each building door were visual clutter. They are now hidden while keeping the door position data for proximity detection.
+
+- `TownBuilder.ts` door marker mesh: `door.visible = false` (position data retained for `getDoorMarkers()`).
+
 ## 2026.7.20 — Topic Persistence, Mobile Layout, Mayor Pathfinding
 
 ### Fixed: Topic state lost after page refresh

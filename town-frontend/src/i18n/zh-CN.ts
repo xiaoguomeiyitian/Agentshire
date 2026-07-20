@@ -7,6 +7,9 @@ const zhCN: Record<string, string> = {
   'period.dusk': '傍晚',
   'period.night': '夜晚',
 
+  // ── HUD: Day count ──
+  'hud.day': '第 {n} 天',
+
   // ── HUD: Weather ──
   'weather.clear': '晴',
   'weather.cloudy': '阴',
@@ -82,6 +85,8 @@ const zhCN: Record<string, string> = {
   'settings.soul_mode_desc': 'NPC 使用 AI 进行深度对话',
   'settings.auto_walk': '居民自主决策',
   'settings.auto_walk_desc': '关闭后居民不再自主决策与行动',
+  'settings.nav_debug': '显示导航网格',
+  'settings.nav_debug_desc': '用红色线条显示调试网格(开发调试用)',
   'settings.reset': '初始化',
   'settings.reset_desc': '删除所有居民并从项目目录重新同步人格文件',
   'settings.on': '开',

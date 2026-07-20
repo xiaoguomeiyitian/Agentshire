@@ -86,9 +86,11 @@ export class TimeHUD {
   private weatherLabel: HTMLSpanElement
   private dotEl: HTMLSpanElement
   private timeEl: HTMLSpanElement
+  private dayEl: HTMLSpanElement
   private periodEl: HTMLSpanElement
   private lastPeriod: TimePeriod | null = null
   private lastMinute = -1
+  private lastDayCount = -1
   private lastWeather: WeatherType | null = null
   private visible = true
 
@@ -145,6 +147,12 @@ export class TimeHUD {
     this.timeEl = document.createElement('span')
     this.timeEl.style.fontVariantNumeric = 'tabular-nums'
 
+    this.dayEl = document.createElement('span')
+    Object.assign(this.dayEl.style, {
+      opacity: '0.65',
+      fontSize: '12px',
+    })
+
     this.periodEl = document.createElement('span')
     Object.assign(this.periodEl.style, {
       opacity: '0.65',
@@ -155,6 +163,7 @@ export class TimeHUD {
     this.container.appendChild(this.weatherLabel)
     this.container.appendChild(this.dotEl)
     this.container.appendChild(this.timeEl)
+    this.container.appendChild(this.dayEl)
     this.container.appendChild(this.periodEl)
 
     document.body.appendChild(this.container)
@@ -168,6 +177,11 @@ export class TimeHUD {
     if (state.minute !== this.lastMinute) {
       this.lastMinute = state.minute
       this.timeEl.textContent = gameClock.getFormattedTime()
+    }
+
+    if (state.dayCount !== this.lastDayCount) {
+      this.lastDayCount = state.dayCount
+      this.dayEl.textContent = t('hud.day', { n: String(state.dayCount + 1) })
     }
 
     if (state.period !== this.lastPeriod) {

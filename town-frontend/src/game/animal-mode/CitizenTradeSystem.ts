@@ -18,6 +18,7 @@
 import type { EconomyEngine } from './EconomyEngine'
 import type { NeedsEngine } from './NeedsEngine'
 import type { RelationshipEngine } from './RelationshipEngine'
+import type { InventoryEngine } from './InventoryEngine'
 
 export interface TradeResult {
   success: boolean
@@ -30,6 +31,8 @@ export interface TradeResult {
 
 /** Loan record (tracked for 3-day repayment). */
 export interface LoanRecord {
+  /** P2-1: unique loan id (for multiple concurrent loans between same pair). */
+  loanId: number
   fromId: string
   toId: string
   amount: number
@@ -41,13 +44,22 @@ export class CitizenTradeSystem {
   private economy: EconomyEngine
   private needs: NeedsEngine
   private relationships: RelationshipEngine
-  /** Active loans: `${fromId}->${toId}` -> LoanRecord. */
-  private loans: Map<string, LoanRecord> = new Map()
+  /** N-1: optional inventory engine — gifts are pushed to the receiver's backpack. */
+  private inventory: InventoryEngine | null = null
+  /** Active loans: loanId -> LoanRecord. */
+  private loans: Map<number, LoanRecord> = new Map()
+  /** P2-1: auto-incrementing loan id counter. */
+  private nextLoanId = 1
 
   constructor(economy: EconomyEngine, needs: NeedsEngine, relationships: RelationshipEngine) {
     this.economy = economy
     this.needs = needs
     this.relationships = relationships
+  }
+
+  /** N-1: Inject the inventory engine so gifts can be pushed to backpacks. */
+  setInventoryEngine(inventory: InventoryEngine): void {
+    this.inventory = inventory
   }
 
   /**
@@ -135,8 +147,9 @@ export class CitizenTradeSystem {
       return { success: false, type: 'loan', from: fromId, to: toId, amount: 0, message: result.reason ?? '转账失败' }
     }
     // Record loan (due in 3 days)
-    const key = `${fromId}->${toId}`
-    this.loans.set(key, {
+    const loanId = this.nextLoanId++
+    this.loans.set(loanId, {
+      loanId,
       fromId,
       toId,
       amount,
@@ -152,21 +165,29 @@ export class CitizenTradeSystem {
   /**
    * Repay a loan. Called by the borrower when they have enough coins.
    * If overdue, relationship already penalized (checked in checkOverdueLoans).
+   * P2-1: repays the earliest outstanding loan from toId→fromId (lender→borrower).
    */
   repayLoan(fromId: string, toId: string, currentDayCount: number): TradeResult {
-    const key = `${toId}->${fromId}` // loan record: lender->borrower
-    const loan = this.loans.get(key)
-    if (!loan) {
+    // Find the earliest outstanding loan where toId is lender, fromId is borrower
+    let earliestLoan: LoanRecord | null = null
+    for (const loan of this.loans.values()) {
+      if (loan.fromId === toId && loan.toId === fromId) {
+        if (!earliestLoan || loan.dayIssued < earliestLoan.dayIssued) {
+          earliestLoan = loan
+        }
+      }
+    }
+    if (!earliestLoan) {
       return { success: false, type: 'loan', from: fromId, to: toId, amount: 0, message: '无借款记录' }
     }
-    const result = this.economy.transfer(fromId, toId, loan.amount, 'repay_loan')
+    const result = this.economy.transfer(fromId, toId, earliestLoan.amount, 'repay_loan')
     if (!result.success) {
       return { success: false, type: 'loan', from: fromId, to: toId, amount: 0, message: result.reason ?? '还款失败' }
     }
-    this.loans.delete(key)
+    this.loans.delete(earliestLoan.loanId)
     // Relationship +5 (kept promise)
     this.relationships.adjustSentiment(fromId, toId, '', 5, '按时还款')
-    return { success: true, type: 'loan', from: fromId, to: toId, amount: loan.amount, message: `${fromId}还款${loan.amount}金币` }
+    return { success: true, type: 'loan', from: fromId, to: toId, amount: earliestLoan.amount, message: `${fromId}还款${earliestLoan.amount}金币` }
   }
 
   /**
@@ -207,6 +228,18 @@ export class CitizenTradeSystem {
     this.needs.satisfy(toId, 'fun', 15)
     this.needs.satisfy(toId, 'belonging', 5)
     this.needs.satisfy(toId, 'social', 5)
+    // N-1: push the gift item into the receiver's backpack (so it's "kept on them")
+    if (this.inventory) {
+      this.inventory.addItem(toId, {
+        itemId: `gift_${occasion ?? 'general'}_${Date.now().toString(36)}`,
+        name: occasion ? `${occasion}礼物` : '礼物',
+        icon: 'gift',
+        count: 1,
+        category: 'gift',
+        effects: { mood: 15, belonging: 5 },
+        source: 'gift_received',
+      })
+    }
     // Relationship +10-20
     const relBoost = 10 + Math.floor(Math.random() * 11)
     this.relationships.adjustSentiment(fromId, toId, toName, relBoost, `赠送礼物${occasion ? `·${occasion}` : ''}`)
@@ -222,5 +255,6 @@ export class CitizenTradeSystem {
   /** Clear all state. */
   clear(): void {
     this.loans.clear()
+    this.nextLoanId = 1
   }
 }

@@ -343,8 +343,9 @@ export class AssetLoader {
     const cacheKey = `url:${url}`
     if (!this.cache.has(cacheKey)) {
       if (!this.loadingPromises.has(cacheKey)) {
+        const resolvedUrl = apiUrl(url)
         const promise = (async () => {
-          await this.loadGltfToCache(cacheKey, url)
+          await this.loadGltfToCache(cacheKey, resolvedUrl)
         })()
         this.loadingPromises.set(cacheKey, promise)
       }

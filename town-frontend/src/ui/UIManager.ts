@@ -648,6 +648,13 @@ export class UIManager {
     agentId?: string;
     homeBuilding?: string | null;
     currentLocation?: string | null;
+    /** N-2: economy info (coins, reputation, savings, work reward, frugal) */
+    economy?: {
+      coins: number; reputation: number; savingsGoal: number;
+      todayWorkReward: number; frugal: boolean;
+    } | null;
+    /** N-2: backpack items */
+    inventory?: import('./NpcCardPanel').InventoryItem[];
   }): void {
     this.npcCardPanel.show(opts)
   }

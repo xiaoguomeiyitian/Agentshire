@@ -60,6 +60,11 @@ export interface AutonomyContext {
   relationships?: Array<{ name: string; sentiment: number }>
   /** Issue 5: extra map info (sculptures / benches / props) for spatial awareness */
   extraMapInfo?: string
+  /** P0-2: economy state for context-aware decisions (avoid go_cafe when broke) */
+  coins?: number
+  frugal?: boolean
+  savingsGoal?: number
+  todayWorkReward?: number
 }
 
 export interface AutonomyDeps {
@@ -90,6 +95,15 @@ export interface AutonomyDeps {
   getRelationships?: (npcId: string, limit?: number) => Array<{ name: string; sentiment: number }>
   /** Issue 5: get extra map info (sculptures / benches / props) for spatial awareness */
   getMapInfo?: () => string
+  /** P0-2: get a citizen's economy state (coins, frugal, savings, work reward) */
+  getEconomyState?: (npcId: string) => {
+    coins: number
+    frugal: boolean
+    savingsGoal: number
+    todayWorkReward: number
+  } | null
+  /** N-1: get a citizen's backpack contents (for L2 decisions like eating from backpack) */
+  getInventory?: (npcId: string) => import('./InventoryEngine').InventoryItem[]
 }
 
 export class AutonomyEngine {
@@ -347,6 +361,11 @@ export class AutonomyEngine {
       `当前位置：${ctx.currentLocation}`,
       `最迫切的需求：${ctx.needs.lowest}（值 ${ctx.needs.needs[ctx.needs.lowest].toFixed(0)}/100）`,
       `心情：${ctx.mood.level}（${ctx.mood.value.toFixed(0)}）`,
+      // P0-2: inject economy state so LLM avoids go_cafe when broke
+      `金币：${ctx.coins ?? 0}（${ctx.frugal ? '储蓄中，消费谨慎' : '正常消费'}，储蓄目标 ${ctx.savingsGoal ?? 0}，今日报酬 ${ctx.todayWorkReward ?? 0}）`,
+      ...((ctx.coins ?? 0) < 8
+        ? ['⚠️ 你钱不够买咖啡店食物，请回家吃或向朋友求助，不要去咖啡店。']
+        : []),
     ]
     if (ctx.nearbyNpcs.length > 0) {
       lines.push(`附近的人：${ctx.nearbyNpcs.map((n) => `${n.name}(${n.distance.toFixed(1)}m)`).join('、')}`)
@@ -451,7 +470,27 @@ export class AutonomyEngine {
         }
         case 'leave_to':
         case 'walk_to':  // LLM may return "walk_to" — treat as alias for leave_to
-          if (target) return { type: 'leave_to', place: target, reason: reason ?? '' }
+          if (target) {
+            // P0-3: if the target is a cafe/market but the citizen can't afford
+            // the cheapest food, redirect to go_home (eat at home) or talk_to
+            // a nearby friend (ask for help). Prevents walking to the cafe only
+            // to find out the citizen is broke.
+            const destBuilding = BUILDING_REGISTRY.find((b) => b.key === target)
+            if (destBuilding && (destBuilding.tag === 'cafe' || destBuilding.tag === 'market')) {
+              const econ = this.deps.getEconomyState?.(ctx.npcId)
+              if (econ && econ.coins < 5) {
+                // Broke → go home to eat
+                if (ctx.homeBuildingKey) {
+                  return { type: 'go_home', reason: '没钱去咖啡店，回家吃点' }
+                }
+                // No home → ask a nearby friend for help
+                if (ctx.nearbyNpcs.length > 0) {
+                  return { type: 'talk_to', target: ctx.nearbyNpcs[0].name, topic: '借钱买食物', reason: '没钱买食物，求助' }
+                }
+              }
+            }
+            return { type: 'leave_to', place: target, reason: reason ?? '' }
+          }
           break
         case 'go_home':
           return { type: 'go_home', reason: reason ?? '回家' }
@@ -499,7 +538,8 @@ export class AutonomyEngine {
   private fallbackAction(ctx: AutonomyContext): AutonomyAction {
     // 1. If a need is urgent, satisfy it directly via NeedActionMapper (no LLM)
     for (const need of ctx.needs.urgent) {
-      const action = this.deps.needActionMapper.resolveAction(need as NeedKey, ctx.homeBuildingKey)
+      const econ = this.deps.getEconomyState?.(ctx.npcId) ?? null
+      const action = this.deps.needActionMapper.resolveAction(need as NeedKey, ctx.homeBuildingKey, econ)
       if (action) {
         return { type: 'satisfy_need', need: need as NeedKey, action }
       }
@@ -558,6 +598,8 @@ export class AutonomyEngine {
     const relationships = this.deps.getRelationships?.(npcId, 3) ?? []
     // Issue 5: extra map info (sculptures / benches / props)
     const extraMapInfo = this.deps.getMapInfo?.()
+    // P0-2: economy state for context-aware decisions
+    const econ = this.deps.getEconomyState?.(npcId) ?? null
 
     return {
       npcId,
@@ -574,6 +616,11 @@ export class AutonomyEngine {
       recentMemories,
       relationships,
       extraMapInfo,
+      // P0-2: economy state for context-aware decisions
+      coins: econ?.coins ?? 0,
+      frugal: econ?.frugal ?? false,
+      savingsGoal: econ?.savingsGoal ?? 0,
+      todayWorkReward: econ?.todayWorkReward ?? 0,
     }
   }
 

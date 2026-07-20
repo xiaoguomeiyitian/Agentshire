@@ -19,13 +19,13 @@ describe('SettingsPanel', () => {
   describe('loadSettings', () => {
     it('returns defaults when no stored settings', () => {
       const s = loadSettings()
-      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, animalMode: true })
+      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, animalMode: true, navDebug: false })
     })
 
     it('returns defaults when stored value is invalid JSON', () => {
       mockLocalStorage['agentshire_settings'] = '{invalid'
       const s = loadSettings()
-      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, animalMode: true })
+      expect(s).toEqual({ language: 'zh-CN', music: true, soulMode: true, animalMode: true, navDebug: false })
     })
 
     it('loads music=false from storage', () => {
@@ -61,14 +61,14 @@ describe('SettingsPanel', () => {
 
   describe('saveSettings', () => {
     it('persists settings to localStorage', () => {
-      saveSettings({ language: 'en', music: false, soulMode: true, animalMode: false })
+      saveSettings({ language: 'en', music: false, soulMode: true, animalMode: false, navDebug: false })
       const raw = mockLocalStorage['agentshire_settings']
       expect(raw).toBeDefined()
-      expect(JSON.parse(raw!)).toEqual({ language: 'en', music: false, soulMode: true, animalMode: false })
+      expect(JSON.parse(raw!)).toEqual({ language: 'en', music: false, soulMode: true, animalMode: false, navDebug: false })
     })
 
     it('round-trips through loadSettings', () => {
-      const original = { language: 'zh-CN', music: false, soulMode: false, animalMode: false }
+      const original = { language: 'zh-CN', music: false, soulMode: false, animalMode: false, navDebug: false }
       saveSettings(original)
       const loaded = loadSettings()
       expect(loaded).toEqual(original)

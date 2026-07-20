@@ -115,11 +115,11 @@ export class DailySettlementEngine {
           Math.floor(Math.random() * (SETTLEMENT_PARAMS.bonusMoodRestoreMax - SETTLEMENT_PARAMS.bonusMoodRestoreMin + 1))
         : 0
       const moodRestore = SETTLEMENT_PARAMS.baseMoodRestore + moodBonus
-      // Mood is computed by MoodEngine from needs; we restore the 'fun' and 'esteem'
-      // needs which feed into mood, plus apply a transient mood event.
+      // P1-2: Mood is computed by MoodEngine from needs; we restore the 'fun' and 'esteem'
+      // needs which feed into mood naturally. Removed transient moodEngine.applyEvent
+      // to avoid double-counting (mood should reflect needs state, not stacked events).
       this.needsEngine.satisfy(npcId, 'fun', moodRestore * 0.3)
       this.needsEngine.satisfy(npcId, 'esteem', moodRestore * 0.2)
-      this.moodEngine.applyEvent(npcId, moodBonus, 120_000) // transient mood boost
 
       // Social restore (daily reset)
       const socialRestore = SETTLEMENT_PARAMS.socialRestore

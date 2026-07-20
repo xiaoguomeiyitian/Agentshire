@@ -43,6 +43,9 @@ import { CrowdService, MAYOR_AGENT_PARAMS } from './nav/CrowdService'
 import { NavMeshDebugHelper } from './nav/NavMeshDebugHelper'
 import type { NavMesh, NavMeshQuery } from 'recast-navigation'
 import { SceneBootstrap } from './SceneBootstrap'
+import { MayorInputController } from './MayorInputController'
+import { VirtualJoystick } from '../ui/VirtualJoystick'
+import { isTouchDevice } from '../utils/device'
 import type { PlatformBridge } from '../platform/Bridge'
 import { CitizenChatManager } from '../npc/CitizenChatManager'
 import { ActivityJournal } from '../npc/ActivityJournal'
@@ -104,6 +107,10 @@ export class MainScene implements GameScene {
   private dialogTarget = 'steward'
   private followBehavior = new FollowBehavior()
   private playerMoveEnabled = true
+  /** 镇长连续移动控制器(摇杆/键盘,上帝视角模式)。 */
+  private mayorInput: MayorInputController | null = null
+  /** 虚拟摇杆(移动端)。PC 端为 null。 */
+  private joystick: VirtualJoystick | null = null
   private pendingDoorInteraction: { scene: SceneType; doorPos: THREE.Vector3; virtualEnter?: { buildingName: string; buildingKey: string }; buildingId?: string } | null = null
   /** Issue 2+4: virtual building entry state */
   private isVirtualEnter = false
@@ -125,6 +132,12 @@ export class MainScene implements GameScene {
    * not the first building of that type.
    */
   private lastEnteredBuildingId: string | null = null
+  /**
+   * 进入建筑时记录的门世界坐标(switchScene 进入 office/home/museum 时)。
+   * 退出回 town 时用此坐标放置镇长/管家,确保从哪个门进就从哪个门出,
+   * 避免根据 buildingId 计算网格坐标时因映射错误落到其他建筑门口。
+   */
+  private lastEnteredDoorPos: THREE.Vector3 | null = null
   /**
    * Scene-aware obstacle query: returns the active query based on currentSceneType.
    * - town: building-aware query (installed from TownMapConfig)
@@ -409,6 +422,10 @@ export class MainScene implements GameScene {
     })
 
     this.engine.input.on('drag', (gesture) => {
+      // 摇杆激活时忽略相机拖拽(避免摇杆触摸误触相机平移)。
+      // 注:摇杆区域(#joystick-zone)是独立 DOM 层,pointer 事件本不会
+      // 冒泡到 game-container,但此守卫作为额外保险。
+      if (this.joystick?.active) return
       this.cameraCtrl.onDrag(gesture.phase, gesture.delta, gesture.totalDelta)
     })
 
@@ -418,8 +435,133 @@ export class MainScene implements GameScene {
 
     this.dataSource.onGameEvent(event => this.handleGameEvent(event))
 
+    this.initMayorInput()
+
+    // 注入 NPC 可见性过滤:NavMeshDebugHelper 的 CrowdHelper 只显示
+    // 可见 NPC 的 agent 圆柱,避免居民 spawn 时 agent 已加入 Crowd
+    // 但 GLTF 模型未加载完,红色圆柱先于居民出现。
+    this.navMeshDebug.setVisibleFilter((npcId) => {
+      const npc = this.npcManager?.get(npcId)
+      return npc ? npc.mesh.visible : true
+    })
+
     this.ui.hideLoading()
     this.bootstrap.startFlow()
+  }
+
+  /**
+   * 初始化镇长连续移动控制器(摇杆/键盘,上帝视角模式)。
+   *
+   * - 移动端:创建虚拟摇杆(挂载到 #joystick-zone),实例化 MayorInputController
+   * - PC 端:不创建摇杆(joystick=null),仅启用键盘控制(WASD/方向键 + Shift)
+   * - PC 端 body 加 .no-touch class,CSS 隐藏 #joystick-zone
+   *
+   * 控制器在 update(dt) 循环中驱动镇长位移 + 朝向 + 动画,贴导航网格防穿墙。
+   * 与点击地面寻路(handleGroundTap)互斥:激活期间 playerMoveEnabled=false。
+   */
+  private initMayorInput(): void {
+    // PC 端标记 body,CSS 隐藏摇杆区域
+    if (!isTouchDevice()) {
+      document.body.classList.add('no-touch')
+    }
+
+    // 移动端创建虚拟摇杆
+    let joystick: VirtualJoystick | null = null
+    if (isTouchDevice()) {
+      const zone = document.getElementById('joystick-zone')
+      if (zone) {
+        joystick = new VirtualJoystick(zone)
+        this.joystick = joystick
+      }
+    }
+
+    this.mayorInput = new MayorInputController({
+      getMayor: () => this.npcManager?.get('user') ?? null,
+      getSteward: () => this.npcManager?.get('steward') ?? null,
+      cameraCtrl: this.cameraCtrl,
+      citizenChat: this.citizenChat,
+      followBehavior: this.followBehavior,
+      getCrowd: () => this.activeCrowd,
+      joystick,
+      setPlayerMoveEnabled: (v) => { this.playerMoveEnabled = v },
+      isInputEnabled: () => this.inputEnabled,
+      // 摇杆/键盘移动时检测门接近:走到门口 2.5m 内自动进入建筑
+      // (与点击建筑走同一条 walkToDoor 路径,支持所有有室内场景的建筑)
+      onDoorProximity: (mayorPos) => this.checkDoorProximityForMove(mayorPos),
+    })
+    this.mayorInput.start()
+  }
+
+  /**
+   * 摇杆/键盘移动时的门接近检测。
+   * 仅在 town 场景生效;遍历所有门标记,若镇长距某门 < 1.2m 且正朝门移动
+   * (移动方向与到门方向夹角 < 60°)则触发 walkToDoor 进入。
+   * 返回 true 表示已触发进入(调用方应停止本帧移动驱动)。
+   *
+   * 朝向判断避免路过建筑门口时被误触发进入(仅当玩家明确朝门走才进入)。
+   */
+  private checkDoorProximityForMove(mayorPos: THREE.Vector3): boolean {
+    // 已有待进入的门交互(点击触发的寻路中),不重复触发
+    if (this.pendingDoorInteraction) return false
+
+    // 镇长当前移动方向(由 MayorInputController 写入 mesh.rotation.y)
+    const mayor = this.npcManager?.get('user')
+    if (!mayor) return false
+    const moveDir = new THREE.Vector3(
+      Math.sin(mayor.mesh.rotation.y),
+      0,
+      Math.cos(mayor.mesh.rotation.y),
+    )
+    if (moveDir.lengthSq() < 0.01) return false // 几乎无方向(不应发生,移动中必有方向)
+    moveDir.normalize()
+
+    const toDoor = new THREE.Vector3()
+
+    // ── town 场景:遍历建筑门标记,接近则进入建筑 ──
+    if (this.currentSceneType === 'town') {
+      const markers = this.townBuilder?.getDoorMarkers()
+      if (!markers || markers.size === 0) return false
+      const doorPos = new THREE.Vector3()
+      for (const [buildingId, marker] of markers) {
+        marker.getWorldPosition(doorPos)
+        const d = mayorPos.distanceTo(doorPos)
+        // 阈值 0.8m:镇长真正碰到建筑门(接触门)才触发进入,避免远处进入。
+        // 朝向判断 dot>0.3(cos~72°)较宽容,允许斜向接近门时也触发。
+        if (d < 0.8) {
+          // 朝向判断:到门方向与移动方向夹角 < ~72°(cos > 0.3)才触发
+          toDoor.subVectors(doorPos, mayorPos).normalize()
+          const dot = moveDir.dot(toDoor)
+          if (dot > 0.3) {
+            this.walkToDoor(buildingId, doorPos)
+            return true
+          }
+        }
+      }
+      return false
+    }
+
+    // ── 室内场景(office/home):接近门则退出回 town ──
+    // 室内门是单一出口,阈值稍大(2.0m),朝向判断仍适用(避免误触)
+    let indoorDoor: THREE.Vector3 | null = null
+    if (this.currentSceneType === 'office') {
+      indoorDoor = this.officeBuilder?.doorPos ?? null
+    } else if (this.currentSceneType === 'house_a' || this.currentSceneType === 'house_b'
+      || this.currentSceneType === 'house_c' || this.currentSceneType === 'user_home') {
+      indoorDoor = this.homeBuilder?.doorPos ?? null
+    }
+    if (!indoorDoor) return false
+
+    const d = mayorPos.distanceTo(indoorDoor)
+    if (d < 0.8) {
+      // 朝向判断:正朝门走才触发退出(cos > 0.3,~72°,较宽容)
+      toDoor.subVectors(indoorDoor, mayorPos).normalize()
+      const dot = moveDir.dot(toDoor)
+      if (dot > 0.3) {
+        this.walkToDoor('exit_office', indoorDoor)
+        return true
+      }
+    }
+    return false
   }
 
   private initSubModules(): void {
@@ -1138,6 +1280,31 @@ __小镇烦恼事件测试指令:
       }
     }
 
+    // N-2: Gather economy + inventory info for the detail panel
+    let economy: {
+      coins: number; reputation: number; savingsGoal: number;
+      todayWorkReward: number; frugal: boolean;
+    } | null = null
+    let inventory: import('../ui/NpcCardPanel').InventoryItem[] = []
+    if (this.animalMode.isEnabled()) {
+      const econEngine = this.animalMode.getEconomyEngine()
+      const invEngine = this.animalMode.getInventoryEngine()
+      const econState = econEngine.getCitizen(targetId)
+      if (econState) {
+        economy = {
+          coins: econState.coins,
+          reputation: econState.reputation,
+          savingsGoal: econState.savingsGoal,
+          todayWorkReward: econState.todayWorkReward,
+          frugal: econState.frugal,
+        }
+      }
+      const invItems = invEngine.getInventory(targetId)
+      if (invItems.length > 0) {
+        inventory = invItems
+      }
+    }
+
     // Supplement workLogs with activity journal entries so the Logs tab is
     // populated for independent citizens (who have no workflow activity).
     let combinedLogs = logs && logs.length > 0 ? [...logs] : []
@@ -1188,6 +1355,8 @@ __小镇烦恼事件测试指令:
       agentId: this.getAgentIdForNpc(targetId),
       homeBuilding,
       currentLocation,
+      economy,
+      inventory,
     })
   }
 
@@ -1210,6 +1379,17 @@ __小镇烦恼事件测试指令:
         avatarUrl: c.avatarUrl,
         spawned: !!this.npcManager.get(c.id)?.mesh.visible,
       }))
+  }
+
+  /**
+   * 问题6:运行时开关导航网格调试显示(红色线条)。
+   * 由小镇设置面板「显示导航网格」开关调用,转发给 NavMeshDebugHelper。
+   * 启用时为所有已构建的场景(town/office/home/museum)创建红色线框 helper;
+   * 禁用时从所有场景移除 helper。
+   */
+  setNavMeshDebugEnabled(enabled: boolean): void {
+    this.navMeshDebug.setEnabled(enabled)
+    console.log(`[MainScene] navMeshDebug ${enabled ? 'enabled' : 'disabled'}`)
   }
 
   setMusicEnabled(enabled: boolean): void {
@@ -2968,7 +3148,8 @@ __小镇烦恼事件测试指令:
       }
 
       this.pendingDoorInteraction = null
-      this.handleGroundTap(worldPos)
+      // 两端都删除点击空地行走:PC 端用 WASD,移动端用摇杆。
+      // 两端都保留点击 NPC/建筑/门交互(已在上方处理并 return)。
     }
   }
 
@@ -3032,6 +3213,31 @@ __小镇烦恼事件测试指令:
       }
     }
 
+    // N-2: Gather economy + inventory info for the detail panel (citizens only)
+    let economy: {
+      coins: number; reputation: number; savingsGoal: number;
+      todayWorkReward: number; frugal: boolean;
+    } | null = null
+    let inventory: import('../ui/NpcCardPanel').InventoryItem[] = []
+    if (npc.id !== 'steward' && npc.id !== 'user' && this.animalMode.isEnabled()) {
+      const econEngine = this.animalMode.getEconomyEngine()
+      const invEngine = this.animalMode.getInventoryEngine()
+      const econState = econEngine.getCitizen(npc.id)
+      if (econState) {
+        economy = {
+          coins: econState.coins,
+          reputation: econState.reputation,
+          savingsGoal: econState.savingsGoal,
+          todayWorkReward: econState.todayWorkReward,
+          frugal: econState.frugal,
+        }
+      }
+      const invItems = invEngine.getInventory(npc.id)
+      if (invItems.length > 0) {
+        inventory = invItems
+      }
+    }
+
     // Gather chat messages for this NPC (filter by display name + targetNpcId)
     const allChatMessages = this.ui.getChatPanel().getChatMessages()
     const npcLabel = npc.label ?? npc.name ?? npc.id
@@ -3080,6 +3286,8 @@ __小镇烦恼事件测试指令:
       needs,
       relationships,
       chatMessages: npcChatMessages.length > 0 ? npcChatMessages : undefined,
+      economy,
+      inventory,
     })
   }
 
@@ -3141,6 +3349,10 @@ __小镇烦恼事件测试指令:
       if (virtualEnter) {
         void this.enterVirtualBuilding(virtualEnter.buildingName, virtualEnter.buildingKey, doorPos)
       } else if (targetScene) {
+        // 记录进入时的门世界坐标,退出回 town 时用此坐标放置镇长/管家,
+        // 确保从哪个门进就从哪个门出(避免根据 buildingId 计算网格坐标时
+        // 因映射错误落到其他建筑门口)。
+        this.lastEnteredDoorPos = doorPos.clone()
         void this.switchScene(targetScene, buildingId)
       }
       return
@@ -3184,23 +3396,32 @@ __小镇烦恼事件测试指令:
     await this.ui.fadeFromBlack(300)
   }
 
-  /** Issue 2+4: Exit virtual building — return mayor to door position. */
+  /** Issue 2+4: Exit virtual building — return mayor to door position.
+   * 问题1修复:退出时直接放在门标记位置(不加 +1 偏移),避免偏移后落到
+   * 相邻建筑门口(工坊2 出来跳到工坊1 门口)。镇长与管家分别在门两侧 0.6m,
+   * 贴门但不重叠。 */
   async exitVirtualBuilding(): Promise<void> {
     if (!this.isVirtualEnter) return
     await this.ui.fadeToBlack(300)
 
     const mayor = this.npcManager.get('user')
     const steward = this.npcManager.get('steward')
+    // 退出虚拟建筑后回到 town Crowd,需同步 Crowd agent 位置(teleportAgent),
+    // 否则 agent 还在进入前的旧位置,NavMeshDebugHelper 红色圆柱与 mesh 脱节,
+    // 且后续点击寻路时 agent 从旧位置开始,路径异常。
+    const townCrowd = this.getCrowdForScene('town')
     if (mayor) {
       mayor.mesh.visible = true
       mayor.stopMoving()
-      mayor.mesh.position.set(this.virtualEnterPos.x + 1, 0, this.virtualEnterPos.z + 1)
+      mayor.mesh.position.set(this.virtualEnterPos.x + 0.6, 0, this.virtualEnterPos.z)
+      townCrowd?.teleportAgent('user', { x: this.virtualEnterPos.x + 0.6, y: 0, z: this.virtualEnterPos.z })
       mayor.playAnim('idle')
     }
     if (steward) {
       steward.mesh.visible = true
       steward.stopMoving()
-      steward.mesh.position.set(this.virtualEnterPos.x - 1, 0, this.virtualEnterPos.z + 1)
+      steward.mesh.position.set(this.virtualEnterPos.x - 0.6, 0, this.virtualEnterPos.z)
+      townCrowd?.teleportAgent('steward', { x: this.virtualEnterPos.x - 0.6, y: 0, z: this.virtualEnterPos.z })
       steward.playAnim('idle')
     }
 
@@ -3400,6 +3621,11 @@ __小镇烦恼事件测试指令:
     this.animalMode.restoreEconomyState(economy)
   }
 
+  /** N-1: Restore citizen inventory state (backpacks) from plugin. */
+  restoreInventoryState(inventory: { citizens: Record<string, any>; savedAt: number } | null): void {
+    this.animalMode.restoreInventoryState(inventory as any)
+  }
+
   /**
    * Apply runtime state (NPC positions, indoor visibility, topic) to spawned NPCs.
    * Extracted from restoreAnimalState so it can be called lazily from onNpcSpawn.
@@ -3465,6 +3691,10 @@ __小镇烦恼事件测试指令:
 
   update(deltaTime: number): void {
     if (!this.cameraCtrl) return
+
+    // 镇长连续移动控制(摇杆/键盘,上帝视角模式)。在 pendingDoorInteraction
+    // 处理之前,确保镇长移动期间也能触发门交互检测。
+    this.mayorInput?.update(deltaTime)
 
     if (this.pendingDoorInteraction) {
       const mayor = this.npcManager.get('user')
@@ -3757,33 +3987,32 @@ __小镇烦恼事件测试指令:
       // 只迁移进入 office 的 NPC
       this.migrateCrowdAgents(this.previousSceneType, scene, visitNpcIds)
 
-      // Position NPCs at the office door, then walk them inside
+      // 问题4修复:进入室内场景时,镇长与管家直接站在门口位置,不再
+      // 走到室内 z=12 处。玩家可自行用摇杆/键盘走入室内。
       const OFFICE_DOOR = this.officeBuilder.doorPos
       const officeCrowd = this.getCrowdForScene('office')
-      const movePromises: Promise<unknown>[] = []
       for (const id of visitNpcIds) {
         const npc = this.npcManager.get(id)
         if (npc) {
-          const doorX = OFFICE_DOOR.x + (id === 'user' ? 1.5 : -1.5)
+          const doorX = OFFICE_DOOR.x + (id === 'user' ? 0.6 : -0.6)
           npc.mesh.position.set(doorX, 0, OFFICE_DOOR.z)
           // teleport Crowd agent to door (migrateCrowdAgents added it at the
           // old town position; without teleport it tries to path from town
           // coords into the office NavMesh and gets stuck in a corner)
           officeCrowd?.teleportAgent(id, { x: doorX, y: 0, z: OFFICE_DOOR.z })
-          npc.playAnim('walk')
-          movePromises.push(
-            npc.moveTo({ x: doorX, z: 12 }, 2.5)
-            .then(() => npc.playAnim('idle')),
-          )
+          npc.playAnim('idle')
         }
       }
-      Promise.allSettled(movePromises).then(() => {
-        this.inputEnabled = true
-      })
+
+      // 立即启用输入,镇长可在室内行走。
+      this.inputEnabled = true
 
       // Issue 3: show back button in office so the mayor can return to town.
       this.ui.showBackButton(true)
+      // 问题5修复:室内相机照向镇长(跟随),而非锁在固定点。
       this.cameraCtrl.enterOfficeMode()
+      const officeMayor = this.npcManager.get('user')
+      if (officeMayor) this.cameraCtrl.follow(officeMayor.mesh)
     } else if (scene === 'house_a' || scene === 'house_b' || scene === 'house_c' || scene === 'user_home') {
       // Issue 4: residential indoor scene — reuse the shared home scene.
       // The home scene is a furniture-only variant (no desks) so the mayor
@@ -3801,56 +4030,30 @@ __小镇烦恼事件测试指令:
       this.migrateCrowdAgents(this.previousSceneType, scene, visitNpcIds)
 
       const HOME_DOOR = this.homeBuilder.doorPos
-      // Issue 2: walk to z=10 (center of room) so NPCs appear in the upper
-      // portion of the screen, visible above the input bar. Previously they
-      // walked to z=12 which landed at the screen bottom, hidden behind the
-      // chat input bar.
-      //
-      // Issue 2 (round 4): the direct path from the door (15, 25) to (15, 10)
-      // passes straight through the sofa (x≈15, z≈18) and coffee table
-      // (x≈15, z≈15.5), causing NPCs to get stuck. Route NPCs around the
-      // furniture: steward to the left (x≈10), user to the right (x≈20),
-      // resident to the right-center. All targets at z=12 (just past the
-      // coffee table, in open floor) so they end up visible and unblocked.
-      const HOME_WALK_Z = 12
+      // 问题4修复:进入 home 场景时,镇长/管家/居民直接站在门口,不再
+      // 走到室内 z=12 处(此前 moveTo 会卡在家具上,且违背"直接站门口"需求)。
       const homeCrowd = this.getCrowdForScene(scene)
-      const movePromises: Promise<unknown>[] = []
       for (const id of visitNpcIds) {
         const npc = this.npcManager.get(id)
         if (!npc) continue
-        // Stagger entry positions to avoid overlap, and route around furniture.
-        // Door is at x=15; sofa+coffee table block x∈[12.2,17.8] between z=14.6 and z=18.7.
-        // Left lane (x≈10) and right lane (x≈20) are clear.
-        const targetX = id === 'user' ? 20
-          : id === 'steward' ? 10
-          : 18 // resident: right-center, past the coffee table
-        const doorOffset = id === 'user' ? 1.5 : id === 'steward' ? -1.5 : 0
+        const doorOffset = id === 'user' ? 0.6 : id === 'steward' ? -0.6 : 0
         const doorX = HOME_DOOR.x + doorOffset
         npc.mesh.position.set(doorX, 0, HOME_DOOR.z)
         // teleport Crowd agent to door (migrateCrowdAgents added it at the
         // old town position; without teleport it gets stuck in a corner)
         homeCrowd?.teleportAgent(id, { x: doorX, y: 0, z: HOME_DOOR.z })
         npc.mesh.visible = true
-        npc.playAnim('walk')
-        movePromises.push(
-          npc.moveTo({ x: targetX, z: HOME_WALK_Z }, 2.5)
-          .then(() => npc.playAnim('idle')),
-        )
+        npc.playAnim('idle')
       }
-      Promise.allSettled(movePromises).then(() => {
-        // Animation done; input was already enabled below for responsiveness.
-      })
 
-      // Issue 4: enable input immediately so the mayor can walk around the
-      // home scene without waiting for the entry walk animation to finish.
-      // (Previously this was inside the allSettled callback, which could hang
-      // if the moveTo got stuck on furniture obstacles.)
+      // 立即启用输入,镇长可在室内行走。
       this.inputEnabled = true
 
       this.ui.showBackButton(true)
-      // Issue 2: use home camera mode (looks at z=10) so NPCs appear in the
-      // upper-center of the screen, visible above the chat input bar.
+      // 问题5修复:室内相机照向镇长(跟随),而非锁在固定点。
       this.cameraCtrl.enterHomeMode()
+      const homeMayor = this.npcManager.get('user')
+      if (homeMayor) this.cameraCtrl.follow(homeMayor.mesh)
     } else if (scene === 'museum') {
       targetScene = this.museumScene
       this.vfx?.setScene(this.museumScene)
@@ -3870,39 +4073,40 @@ __小镇烦恼事件测试指令:
       this.weatherSystem?.setEnabled(true)
 
       // Find the door position to return to.
-      // Issue 7+8: return to the entrance of the specific building the mayor
-      // just exited (e.g. "橙子家", not the first building_B). Prefer the
-      // recorded lastEnteredBuildingId; fall back to the first building of the
-      // previous scene's modelKey if not recorded.
-      const mapConfig = this.townBuilder.getMapConfig()
+      // 优先用进入时记录的门世界坐标(lastEnteredDoorPos),确保从哪个门进
+      // 就从哪个门出。若未记录(旧路径/刷新),回退到根据 buildingId 计算。
       let returnPos = { x: WAYPOINTS.plaza_center?.x ?? 18, z: WAYPOINTS.plaza_center?.z ?? 13 }
 
-      const sceneToModelKey: Partial<Record<SceneType, string>> = {
-        office: 'building_A',
-        house_a: 'building_B',
-        house_b: 'building_C',
-        house_c: 'building_D',
-        market: 'building_E',
-        cafe: 'building_F',
-        user_home: 'building_G',
-        museum: 'building_H',
-      }
-      const prevSceneType = this.previousSceneType
-      const fallbackModelKey = (prevSceneType && sceneToModelKey[prevSceneType]) || 'building_A'
-
-      if (mapConfig) {
-        // Prefer the exact building the mayor entered (Issue 7+8 fix).
-        let targetBuilding = this.lastEnteredBuildingId
-          ? mapConfig.buildings.find(b => b.id === this.lastEnteredBuildingId)
-          : undefined
-        // Fall back to the first building of the previous scene's modelKey.
-        if (!targetBuilding) {
-          targetBuilding = mapConfig.buildings.find(b => b.modelKey === fallbackModelKey)
+      if (this.lastEnteredDoorPos) {
+        returnPos = { x: this.lastEnteredDoorPos.x, z: this.lastEnteredDoorPos.z }
+      } else {
+        // 回退:根据 buildingId 查找建筑门位置
+        const mapConfig = this.townBuilder.getMapConfig()
+        const sceneToModelKey: Partial<Record<SceneType, string>> = {
+          office: 'building_A',
+          house_a: 'building_B',
+          house_b: 'building_C',
+          house_c: 'building_D',
+          market: 'building_E',
+          cafe: 'building_F',
+          user_home: 'building_G',
+          museum: 'building_H',
         }
-        if (targetBuilding) {
-          returnPos = {
-            x: targetBuilding.gridX + targetBuilding.widthCells / 2,
-            z: targetBuilding.gridZ + targetBuilding.depthCells + 1,
+        const prevSceneType = this.previousSceneType
+        const fallbackModelKey = (prevSceneType && sceneToModelKey[prevSceneType]) || 'building_A'
+
+        if (mapConfig) {
+          let targetBuilding = this.lastEnteredBuildingId
+            ? mapConfig.buildings.find(b => b.id === this.lastEnteredBuildingId)
+            : undefined
+          if (!targetBuilding) {
+            targetBuilding = mapConfig.buildings.find(b => b.modelKey === fallbackModelKey)
+          }
+          if (targetBuilding) {
+            returnPos = {
+              x: targetBuilding.gridX + targetBuilding.widthCells / 2,
+              z: targetBuilding.gridZ + targetBuilding.depthCells + 1,
+            }
           }
         }
       }
@@ -3959,6 +4163,7 @@ __小镇烦恼事件测试指令:
       // Clear the recorded building id after using it (must be after the
       // resident repositioning above, which relies on lastEnteredBuildingId).
       this.lastEnteredBuildingId = null
+      this.lastEnteredDoorPos = null
       this.cameraCtrl.leaveOfficeMode()
       this.cameraCtrl.setAutoPilot(false)
       this.cameraCtrl.moveTo({ x: returnPos.x, z: returnPos.z + 4 })

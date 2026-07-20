@@ -31,6 +31,11 @@ import {
   loadEconomyState,
 } from "./economy-state.js";
 import type { EconomyState } from "./economy-state.js";
+import {
+  saveInventoryState,
+  loadInventoryState,
+} from "./inventory-state.js";
+import type { InventoryState } from "./inventory-state.js";
 
 export interface TownWsServerOptions {
   port: number;
@@ -766,22 +771,33 @@ export function startTownWsServer(opts: TownWsServerOptions): void {
             `${sessionLogPrefix(townSessionId)} WS ← economy_state_save citizens=${Object.keys(state.citizens ?? {}).length}`,
           );
         } else if (msg.type === "animal_state_load") {
-          // Frontend requests all persisted state (snapshots + clock + runtime + economy) on reconnect.
+          // Frontend requests all persisted state (snapshots + clock + runtime + economy + inventory) on reconnect.
           const townSessionId = getClientSessionId(ws);
           const snapshots = loadAllActivityJournalSnapshots();
           const clock = loadClockState();
           const runtime = loadTownRuntimeState();
           const economy = loadEconomyState();
+          const inventory = loadInventoryState();
           const payload = JSON.stringify({
             type: "animal_state",
             snapshots,
             clock,
             runtime,
             economy,
+            inventory,
           });
           if (ws.readyState === WebSocket.OPEN) ws.send(payload);
           console.log(
-            `${sessionLogPrefix(townSessionId)} WS → animal_state snapshots=${snapshots.length} clock=${clock ? "yes" : "no"} runtime=${runtime ? "yes" : "no"} economy=${economy ? "yes" : "no"}`,
+            `${sessionLogPrefix(townSessionId)} WS → animal_state snapshots=${snapshots.length} clock=${clock ? "yes" : "no"} runtime=${runtime ? "yes" : "no"} economy=${economy ? "yes" : "no"} inventory=${inventory ? "yes" : "no"}`,
+          );
+        } else if (msg.type === "inventory_state_save" && typeof msg.state === "object") {
+          // N-1: Frontend reports citizen inventory state (backpacks).
+          // Persisted to stateDir/agents/animal-inventory.json
+          const townSessionId = getClientSessionId(ws);
+          const state = msg.state as InventoryState;
+          saveInventoryState(state);
+          console.log(
+            `${sessionLogPrefix(townSessionId)} WS ← inventory_state_save citizens=${Object.keys(state.citizens ?? {}).length}`,
           );
         } else if (msg.type === "animal_memory_clear_all") {
           // Frontend requests clearing all memories (e.g., Animal Mode disabled).

@@ -1,6 +1,6 @@
 {
   "name": "agentshire",
-  "version": "2026.7.20",
+  "version": "2026.7.21",
   "description": "OpenClaw/QClaw plugin for building a living 3D town with social NPCs, a map editor, a character workshop, and citizen spatial-aware AI tools.",
   "main": "./index.ts",
   "exports": {

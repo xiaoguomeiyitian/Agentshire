@@ -35,7 +35,7 @@ export type { FestivalType, FestivalState, FestivalConfig } from './FestivalEngi
 export { MoveEngine } from './MoveEngine'
 export type { MoveCandidate, MoveConfig, MoveEvent } from './MoveEngine'
 
-export { EconomyEngine, CAFE_MENU, DAILY_SETTLEMENT } from './EconomyEngine'
+export { EconomyEngine, CAFE_MENU, DAILY_SETTLEMENT, cafeItemToInventoryItem } from './EconomyEngine'
 export type { CitizenEconomy, EconomySnapshot, SpendResult, CafeMenuItem } from './EconomyEngine'
 
 export { DailySettlementEngine } from './DailySettlementEngine'
@@ -46,3 +46,6 @@ export type { TradeResult, LoanRecord } from './CitizenTradeSystem'
 
 export { EconomyEventEngine } from './EconomyEventEngine'
 export type { EconomyEvent, EconomyEventType, EconomyEventEngineDeps } from './EconomyEventEngine'
+
+export { InventoryEngine, ITEM_SOURCE_LABELS_ZH, ITEM_SOURCE_LABELS_EN } from './InventoryEngine'
+export type { InventoryItem, InventorySnapshot, ItemCategory, ItemSource } from './InventoryEngine'

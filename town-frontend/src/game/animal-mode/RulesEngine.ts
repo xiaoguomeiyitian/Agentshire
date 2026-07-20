@@ -6,7 +6,9 @@
  * at runtime. It is cached after first load.
  */
 
-const RULES_URL = '/town-data/animal-rules.md'
+import { apiUrl } from '@/utils/api-base'
+
+const RULES_URL = apiUrl('/town-data/animal-rules.md')
 
 export class RulesEngine {
   private rulesText: string | null = null

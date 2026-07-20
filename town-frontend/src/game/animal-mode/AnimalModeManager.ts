@@ -34,6 +34,8 @@ import { DailySettlementEngine } from './DailySettlementEngine'
 import { CitizenTradeSystem } from './CitizenTradeSystem'
 import { EconomyEventEngine } from './EconomyEventEngine'
 import type { EconomyEvent } from './EconomyEventEngine'
+import { InventoryEngine } from './InventoryEngine'
+import type { InventorySnapshot } from './InventoryEngine'
 import type { MemoryEventReporter } from './MemoryStore'
 import type { GameClock } from '../GameClock'
 import type { TimePeriod } from '../../types'
@@ -64,11 +66,13 @@ export class AnimalModeManager {
   private dailySettlementEngine = new DailySettlementEngine()
   private tradeSystem: CitizenTradeSystem | null = null
   private eventEngine = new EconomyEventEngine()
+  private inventoryEngine = new InventoryEngine()
   private gameClock: GameClock | null = null
   private dataSource: IWorldDataSource | null = null
   private lastTickHour = -1
   private lastSettlementDay = -1
   private economyReportTimer: number | null = null
+  private inventoryReportTimer: number | null = null
   private eventCheckTimer: number | null = null
   private pruneTimer: number | null = null
   private clockReportTimer: number | null = null
@@ -170,6 +174,15 @@ export class AnimalModeManager {
       getRelationships: (npcId, limit = 3) => {
         return this.relationshipEngine.getTopRelationships(npcId, limit)
       },
+      // P0-2: inject economy state for context-aware L2 decisions
+      getEconomyState: (npcId) => {
+        const c = this.economyEngine.getCitizen(npcId)
+        return c
+          ? { coins: c.coins, frugal: c.frugal, savingsGoal: c.savingsGoal, todayWorkReward: c.todayWorkReward }
+          : null
+      },
+      // N-1: inject inventory access for L2 decisions (e.g. eat from backpack)
+      getInventory: (npcId) => this.inventoryEngine.getInventory(npcId),
     }
     this.autonomyEngine = new AutonomyEngine(deps)
     console.log('[AnimalMode] AutonomyEngine built with deps (memories + relationships injected)')
@@ -215,8 +228,9 @@ export class AnimalModeManager {
       this.needsEngine.registerCitizen(id)
       this.economyEngine.registerCitizen(id)
       this.eventEngine.registerCitizen(id)
+      this.inventoryEngine.registerCitizen(id)
     }
-    console.log(`[AnimalMode] registered ${citizenIds.length} citizens in NeedsEngine + EconomyEngine`)
+    console.log(`[AnimalMode] registered ${citizenIds.length} citizens in NeedsEngine + EconomyEngine + InventoryEngine`)
     // Build AutonomyEngine with current deps + gameClock
     this.buildAutonomyEngine()
     // Wire FestivalEngine with IndoorTracker
@@ -231,6 +245,8 @@ export class AnimalModeManager {
     this.dailySettlementEngine.setEngines(this.needsEngine, this.moodEngine, this.economyEngine, this.indoorTracker)
     // Wire CitizenTradeSystem with economy + needs + relationships
     this.tradeSystem = new CitizenTradeSystem(this.economyEngine, this.needsEngine, this.relationshipEngine)
+    // N-1: inject inventory engine so gifts are pushed to the receiver's backpack
+    this.tradeSystem.setInventoryEngine(this.inventoryEngine)
     // Wire EconomyEventEngine with all engines
     this.eventEngine.setDeps({
       economy: this.economyEngine,
@@ -255,6 +271,8 @@ export class AnimalModeManager {
     console.log('[AnimalMode] L2 decision loop started (30s interval)')
     // Start periodic economy state reporting (every 60s)
     this.economyReportTimer = window.setInterval(() => this.reportEconomyState(), 60_000)
+    // N-1: Start periodic inventory state reporting (every 60s)
+    this.inventoryReportTimer = window.setInterval(() => this.reportInventoryState(), 60_000)
     // Start periodic economy event checking (every 60s)
     this.eventCheckTimer = window.setInterval(() => this.checkEconomyEvents(), 60_000)
     console.log('[AnimalMode] economy reporting + event checking started')
@@ -310,6 +328,7 @@ export class AnimalModeManager {
     this.tradeSystem?.clear()
     this.tradeSystem = null
     this.eventEngine.clear()
+    this.inventoryEngine.clear()
     this.lastSettlementDay = -1
     if (this.pruneTimer !== null) {
       clearInterval(this.pruneTimer)
@@ -330,6 +349,10 @@ export class AnimalModeManager {
     if (this.economyReportTimer !== null) {
       clearInterval(this.economyReportTimer)
       this.economyReportTimer = null
+    }
+    if (this.inventoryReportTimer !== null) {
+      clearInterval(this.inventoryReportTimer)
+      this.inventoryReportTimer = null
     }
     if (this.eventCheckTimer !== null) {
       clearInterval(this.eventCheckTimer)
@@ -386,7 +409,8 @@ export class AnimalModeManager {
     this.needsEngine.registerCitizen(npcId)
     this.economyEngine.registerCitizen(npcId)
     this.eventEngine.registerCitizen(npcId)
-    console.log(`[AnimalMode] late-registered citizen ${npcId} in NeedsEngine + EconomyEngine`)
+    this.inventoryEngine.registerCitizen(npcId)
+    console.log(`[AnimalMode] late-registered citizen ${npcId} in NeedsEngine + EconomyEngine + InventoryEngine`)
   }
 
   /** Called every frame from MainScene.update(). Advances needs by game-time.
@@ -413,38 +437,37 @@ export class AnimalModeManager {
     if (deltaHours >= 0.1) {
       this.needsEngine.tick(deltaHours, frozenCitizens)
       this.lastTickHour = currentHour
-      // Issue 6: citizens at home slowly recover all needs (rest, eat, clean).
-      // Being home is a restorative state — hunger, fatigue, hygiene, safety
-      // all improve passively while indoors.
+      // Issue 6: citizens at home slowly recover fatigue/hygiene/safety (rest,
+      // clean, shelter). Being home is a restorative state.
+      // P1-1: hunger recovery removed from indoor logic — breakfast is now
+      // the single hunger restore path (DailySettlementEngine at 06:00, +40
+      // only when at home). Cafe purchases go into the backpack and restore
+      // hunger when the item is used (see InventoryEngine.useItem).
       // Issue 2: citizens in commercial buildings (cafe/market) also recover
-      // hunger (and a bit of social/fun) while inside.
+      // social/fun while inside (but NOT hunger — that requires buying food).
       for (const npcId of this.needsEngine.getCitizens()) {
         if (frozenCitizens?.has(npcId)) continue
         if (this.indoorTracker.isIndoor(npcId)) {
           const indoorLoc = this.indoorTracker.getIndoorLocation(npcId)
           const homeKey = this.homeBuildings.get(npcId)
-          // At own home: full recovery (rest, eat, clean, safety)
+          // At own home: full recovery (rest, clean, safety) — no hunger
           if (indoorLoc && indoorLoc === homeKey) {
             this.needsEngine.satisfy(npcId, 'fatigue', deltaHours * 12)
-            this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 8)
             this.needsEngine.satisfy(npcId, 'hygiene', deltaHours * 10)
             this.needsEngine.satisfy(npcId, 'safety', deltaHours * 8)
           } else {
             // Check if inside a commercial building (cafe/market)
             const indoorBuilding = BUILDING_REGISTRY.find((b) => b.key === indoorLoc)
             if (indoorBuilding && indoorBuilding.category === 'commercial') {
-              // Issue 2: cafe/market recovery — hunger (eating), social, fun
+              // Issue 2: cafe/market recovery — social, fun (hunger via backpack items only)
               if (indoorBuilding.tag === 'cafe') {
-                this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 10)
                 this.needsEngine.satisfy(npcId, 'social', deltaHours * 4)
                 this.needsEngine.satisfy(npcId, 'fun', deltaHours * 3)
               } else if (indoorBuilding.tag === 'market') {
-                this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 7)
                 this.needsEngine.satisfy(npcId, 'fun', deltaHours * 3)
               }
             } else {
-              // Visiting another citizen's home: partial recovery (eat, rest)
-              this.needsEngine.satisfy(npcId, 'hunger', deltaHours * 6)
+              // Visiting another citizen's home: partial recovery (rest, safety)
               this.needsEngine.satisfy(npcId, 'fatigue', deltaHours * 5)
               this.needsEngine.satisfy(npcId, 'safety', deltaHours * 5)
             }
@@ -512,6 +535,7 @@ export class AnimalModeManager {
   getDailySettlementEngine(): DailySettlementEngine { return this.dailySettlementEngine }
   getTradeSystem(): CitizenTradeSystem | null { return this.tradeSystem }
   getEventEngine(): EconomyEventEngine { return this.eventEngine }
+  getInventoryEngine(): InventoryEngine { return this.inventoryEngine }
   getMoveEngine(): MoveEngine { return this.moveEngine }
 
   // ── Plugin persistence reporting ──
@@ -562,10 +586,66 @@ export class AnimalModeManager {
     const snapshot = this.economyEngine.getSnapshot()
     this.dataSource.sendAction({ type: 'economy_state_save', state: snapshot })
   }
+  /** N-1: Report current inventory state to plugin (called periodically). */
+  reportInventoryState(): void {
+    if (!this.dataSource) return
+    const snapshot = this.inventoryEngine.getSnapshot()
+    this.dataSource.sendAction({ type: 'inventory_state_save', state: snapshot } as any)
+  }
 
+  /**
+   * N-1: Buy a café item and put it into the citizen's backpack.
+   * Combines EconomyEngine.buyCafeItem (deduct coins + cooldown) with
+   * InventoryEngine.addItem (push to backpack). The citizen can later
+   * consume the item via InventoryEngine.useItem to restore hunger/energy/mood.
+   * Returns the purchased item, or null if the purchase failed.
+   */
+  buyCafeItemToBackpack(npcId: string, itemId: string): import('./InventoryEngine').InventoryItem | null {
+    const item = this.economyEngine.buyCafeItem(npcId, itemId)
+    if (!item) return null
+    const invItem = this.inventoryEngine.addItem(npcId, {
+      itemId: item.id,
+      name: item.name,
+      icon: 'coffee',
+      count: 1,
+      category: 'food',
+      effects: item.effects,
+      source: 'cafe_purchase',
+    })
+    console.log(`[AnimalMode] ${npcId} bought ${item.name} → backpack (coins=${this.economyEngine.getCoins(npcId)})`)
+    return invItem
+  }
+
+  /**
+   * N-1: Consume a food item from the citizen's backpack to restore hunger.
+   * Called by AutonomyEngine when a citizen decides to eat from their backpack
+   * (e.g. hunger urgent and they own food). Returns the consumed item or null.
+   */
+  consumeFoodFromBackpack(npcId: string): import('./InventoryEngine').InventoryItem | null {
+    const inv = this.inventoryEngine.getInventory(npcId)
+    const food = inv.find((i) => i.category === 'food' && i.count > 0)
+    if (!food) return null
+    return this.inventoryEngine.useItem(npcId, food.itemId, this.needsEngine)
+  }
+
+  /** N-1: Restore inventory state received from plugin. Called by MainScene on reconnect. */
+  restoreInventoryState(inventory: InventorySnapshot | null): void {
+    if (!inventory) {
+      console.log('[AnimalMode] restoreInventoryState: no saved inventory, using defaults')
+      return
+    }
+    this.inventoryEngine.restoreSnapshot(inventory)
+    console.log(`[AnimalMode] restoreInventoryState: ${Object.keys(inventory.citizens ?? {}).length} citizens restored`)
+  }
   /** Check all citizens for economy-triggered events and dispatch them. */
   private checkEconomyEvents(): void {
     if (!this.enabled) return
+    // P1-4: when L2 is paused (topic mode / steward task), skip all economy
+    // events. The frozenCitizens set from update() may lag behind the actual
+    // pause state because checkEconomyEvents runs on an independent 60s timer.
+    // Checking l2Paused directly ensures we freeze immediately when the topic
+    // starts, even before the next update() call populates frozenCitizens.
+    if (this.l2Paused) return
     const events = this.eventEngine.checkAll()
     for (const evt of events) {
       // Skip citizens frozen by an active topic (their economy should pause).

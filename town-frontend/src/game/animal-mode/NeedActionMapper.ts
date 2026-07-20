@@ -82,10 +82,32 @@ export class NeedActionMapper {
    * Resolve a need to a concrete action for a citizen.
    * @param need The urgent need to satisfy
    * @param homeBuildingKey The citizen's home building key (e.g. 'house_a_door')
+   * @param economy Optional economy state (P2-3: hunger+coins<5 → go home)
    * @returns The action to perform, or null if no suitable building found
    */
-  resolveAction(need: NeedKey, homeBuildingKey: string | null): NeedAction | null {
+  resolveAction(
+    need: NeedKey,
+    homeBuildingKey: string | null,
+    economy?: { coins: number } | null,
+  ): NeedAction | null {
     const tag = NEED_TO_BUILDING_TAG[need]
+
+    // P2-3: hunger + broke (coins < 5) → redirect to home (eat breakfast)
+    // instead of going to the cafe where they can't afford food.
+    if (need === 'hunger' && economy && economy.coins < 5 && homeBuildingKey) {
+      const home = BUILDING_REGISTRY.find((b) => b.key === homeBuildingKey)
+      if (home) {
+        return {
+          need,
+          targetPlace: homeBuildingKey,
+          anim: 'sitting',
+          goIndoor: true,
+          satisfyAmount: 30, // breakfast at home (smaller than cafe)
+          satisfyDurationMs: 15_000,
+          label: '回家用餐',
+        }
+      }
+    }
 
     // For home-based needs, use the citizen's own home
     if (tag === 'home') {

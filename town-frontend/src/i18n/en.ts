@@ -7,6 +7,9 @@ const en: Record<string, string> = {
   'period.dusk': 'Dusk',
   'period.night': 'Night',
 
+  // ── HUD: Day count ──
+  'hud.day': 'Day {n}',
+
   // ── HUD: Weather ──
   'weather.clear': 'Clear',
   'weather.cloudy': 'Cloudy',
@@ -82,6 +85,8 @@ const en: Record<string, string> = {
   'settings.soul_mode_desc': 'NPC AI conversations',
   'settings.auto_walk': 'Citizen Autonomy',
   'settings.auto_walk_desc': 'Disable autonomous citizen decisions',
+  'settings.nav_debug': 'Show Nav Mesh',
+  'settings.nav_debug_desc': 'Show debug grid with red lines (for development)',
   'settings.reset': '初始化',
   'settings.reset_desc': 'Remove all citizens and re-sync personality files from project',
   'settings.on': 'ON',

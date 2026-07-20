@@ -232,6 +232,12 @@ export function clearAllRuntimeData(): ClearStats {
   }
   stats.economyCleared = true;
 
+  // 6b) N-1: Clear the inventory state (animal-inventory.json)
+  const inventoryPath = join(agentsDir, "animal-inventory.json");
+  if (existsSync(inventoryPath)) {
+    try { unlinkSync(inventoryPath); } catch { /* ignore */ }
+  }
+
   // 7) Clear all group-chat history
   const groupChatsDir = join(agentsDir, "group-chats");
   if (existsSync(groupChatsDir)) {

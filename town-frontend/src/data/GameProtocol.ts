@@ -220,6 +220,22 @@ export type GameAction =
       savedAt: number
     } }
 
+  // N-1: Inventory (backpack) state persistence (World → Plugin via WS)
+  | { type: 'inventory_state_save'; state: {
+      citizens: Record<string, Array<{
+        id: string
+        itemId: string
+        name: string
+        icon: string
+        count: number
+        category: 'food' | 'gift' | 'craft' | 'misc'
+        effects?: { hunger?: number; energy?: number; mood?: number; belonging?: number }
+        obtainedAt: number
+        source: string
+      }>>
+      savedAt: number
+    } }
+
   // Context compaction (World → Plugin via WS)
   // Actively trigger /compact for a citizen's chat session at lifecycle
   // moments (sleep, action end, dialog end) to manage context without

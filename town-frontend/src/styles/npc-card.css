@@ -392,6 +392,25 @@ body.embedded-mode #npc-card { top: 10px; bottom: 134px; }
   text-align: right; margin-left: 12px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ── N-2: Backpack (inventory) list ── */
+#npc-card .card-inventory-list {
+  display: flex; flex-direction: column; gap: 6px;
+}
+#npc-card .card-inventory-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.04); border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+#npc-card .card-inventory-name {
+  flex: 1; font-size: 12px; color: rgba(255, 255, 255, 0.85); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#npc-card .card-inventory-source {
+  font-size: 10px; color: rgba(255, 255, 255, 0.4); font-weight: 500;
+  flex-shrink: 0;
+}
 #npc-card .card-mood-row {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 10px;

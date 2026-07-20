@@ -37,7 +37,7 @@ export interface CharacterModelEntry {
 }
 
 const BASE = apiUrl(import.meta.env.BASE_URL + 'assets/models')
-const EXT_BASE = '/ext-assets'
+const EXT_BASE = apiUrl('/ext-assets')
 const SHARED_ANIM_URL = `${EXT_BASE}/Characters_1/gLTF/Animations/Animations.glb`
 
 let _builtinModels: CharacterModelEntry[] | null = null

@@ -88,7 +88,7 @@ const DEFAULT_GESTURE_CONFIG: GestureConfig = {
   longPressMinDuration: 500,
   swipeMinDistance: 50,
   swipeMinVelocity: 200,
-  pinchMinDistance: 10,
+  pinchMinDistance: 3,
   rotateMinAngle: 5,
   dragThreshold: 8,
 }

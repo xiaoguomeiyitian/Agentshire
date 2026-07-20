@@ -159,7 +159,7 @@ export class MediaPreview {
     const getHttpOpenUrl = (item: DeliverableItem): string => {
       const httpUrl = item.httpUrl || item.url || ''
       const ext = (item.name || item.filePath || '').split('.').pop()?.toLowerCase() ?? ''
-      if (ext === 'md') return `/viewer.html?file=${encodeURIComponent(httpUrl)}`
+      if (ext === 'md') return apiUrl(`/viewer.html?file=${encodeURIComponent(httpUrl)}`)
       return apiUrl(httpUrl)
     }
 

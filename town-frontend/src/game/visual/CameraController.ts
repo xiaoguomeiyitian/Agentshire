@@ -28,7 +28,8 @@ export class CameraController {
   private static readonly DRAG_SCALE = 0.06
   private static readonly AUTO_PILOT_LERP = 0.01
   private static readonly ZOOM_MIN = 0.5
-  private static readonly ZOOM_MAX = 1.6
+  /** 拉远(拉高)上限提升至 2.2,让玩家能获得更高的俯视角(相机最高约 40 单位)。 */
+  private static readonly ZOOM_MAX = 2.2
   private zoomLevel = 1.0
 
   /** Default town pan bounds (matches the original 40×24 map). Updated via setMapBounds(). */
@@ -172,9 +173,19 @@ export class CameraController {
     }
   }
 
-  /** Called by Input system's pinch gesture */
+  /**
+   * Called by Input system's pinch gesture.
+   *
+   * 按 deltaScale(本帧两指距离 / 上一帧距离)比例缩放,而非固定步长,
+   * 让大幅捏合快速缩放、微调捏合精细缩放,提升移动端灵敏度。
+   * 反转方向以符合手机相册直觉:
+   * deltaScale>1(两指拉开)→ zoomLevel 减小(相机拉近,画面放大);
+   * deltaScale<1(两指捏合)→ zoomLevel 增大(相机拉远,画面缩小)。
+   */
   onPinch(deltaScale: number): void {
-    this.applyZoom(deltaScale > 1 ? 0.96 : 1.04)
+    // 反转:用 1/deltaScale 作为缩放因子,clamp 在 [0.85, 1.15] 防止抖动
+    const factor = Math.max(0.85, Math.min(1.15, 1 / deltaScale))
+    this.applyZoom(factor)
     this.lastInteractionTime = performance.now()
   }
 
@@ -275,6 +286,15 @@ export class CameraController {
   }
 
   updateOfficePan(_deltaTime: number): void {
+    // 室内场景也支持跟随镇长(摇杆/键盘移动时 cameraCtrl.follow(mayor.mesh) 设置 followTarget)
+    if (this.followTarget) {
+      this.targetLookAt.set(
+        this.followTarget.position.x,
+        0,
+        this.followTarget.position.z,
+      )
+      // 室内场景不 clamp bounds(房间范围小,clamp 会把镜头锁死)
+    }
     this.currentLookAt.lerp(this.targetLookAt, this.lerpSpeed)
     const offset = this.officeBaseOffset.clone().multiplyScalar(this.zoomLevel)
     const pos = this.currentLookAt.clone().add(offset)

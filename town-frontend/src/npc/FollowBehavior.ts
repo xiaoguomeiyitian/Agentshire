@@ -13,13 +13,14 @@ export class FollowBehavior {
   private stopDistance = 1.2
   private offsetAngle = Math.PI * 0.75
   private followerSpeed = 3.5
-  private recheckInterval = 150
+  /** 检查间隔增大:避免频繁中断 moveTo 导致动画抖动(walking→idle→walking 反复) */
+  private recheckInterval = 400
   private timeSinceCheck = 0
   /** 上次记录的 leader 位置(用于位移阈值判断,避免频繁 requestMoveTarget) */
   private lastLeaderX = 0
   private lastLeaderZ = 0
-  /** leader 位移超过此阈值才重新下发跟随目标 */
-  private static readonly LEADER_MOVE_THRESHOLD = 0.3
+  /** leader 位移超过此阈值才重新下发跟随目标(增大阈值减少频繁中断) */
+  private static readonly LEADER_MOVE_THRESHOLD = 0.8
 
   setTarget(leader: NPC | null, follower: NPC | null): void {
     this.leader = leader
@@ -68,6 +69,13 @@ export class FollowBehavior {
       this.lastLeaderX = leaderPos.x
       this.lastLeaderZ = leaderPos.z
       if (leaderMoveDist < FollowBehavior.LEADER_MOVE_THRESHOLD) return
+
+      // 管家正在 walking 时,若当前目标仍在前方合理范围内,不中断重新下发,
+      // 避免 moveTo 反复中断导致动画 walking→idle→walking 抖动。
+      // 仅当管家 idle(已到达上一目标)或距离过远(目标已严重偏离)时才重新下发。
+      if (this.follower.state === 'walking' && dist < this.followDistance * 2.5) {
+        return
+      }
 
       const leaderAngle = Math.atan2(
         this.leader.mesh.rotation.y ? -Math.sin(this.leader.mesh.rotation.y) : 0,

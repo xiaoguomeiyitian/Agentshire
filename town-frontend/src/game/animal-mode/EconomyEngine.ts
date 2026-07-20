@@ -64,6 +64,27 @@ export const CAFE_MENU: CafeMenuItem[] = [
   { id: 'combo',     name: '套餐',   price: 20, effects: { hunger: 50, energy: 20, mood: 10 },            cooldownMs: 6 * 3600_000 },
 ]
 
+/**
+ * N-1: Convert a café menu item into an inventory item payload (for the
+ * InventoryEngine.addItem call). The caller (AnimalModeManager or
+ * AutonomyEngine) buys the item, then pushes it into the citizen's backpack.
+ * The citizen later calls InventoryEngine.useItem to consume it and restore
+ * hunger/energy/mood.
+ */
+export function cafeItemToInventoryItem(
+  item: CafeMenuItem,
+): { itemId: string; name: string; icon: string; count: number; category: 'food'; effects: CafeMenuItem['effects']; source: 'cafe_purchase' } {
+  return {
+    itemId: item.id,
+    name: item.name,
+    icon: 'coffee',  // lucide 'coffee' icon; could be specialized per item
+    count: 1,
+    category: 'food',
+    effects: item.effects,
+    source: 'cafe_purchase',
+  }
+}
+
 /** Daily settlement parameters (see design doc §2.1). */
 export const DAILY_SETTLEMENT = {
   baseSalary: 20,
@@ -223,8 +244,14 @@ export class EconomyEngine {
   runDailySettlement(): Array<{ npcId: string; salary: number; workReward: number; repBonus: number; total: number }> {
     const results: Array<{ npcId: string; salary: number; workReward: number; repBonus: number; total: number }> = []
     for (const [npcId, c] of this.citizens) {
+      // P2-2: frugal citizens have a lower hoarding threshold (0.6x) — they
+      // are already saving aggressively, so the anti-hoarding salary reduction
+      // kicks in sooner to prevent excessive coin accumulation.
+      const hoardingThreshold = c.frugal
+        ? Math.floor(DAILY_SETTLEMENT.hoardingThreshold * 0.6)
+        : DAILY_SETTLEMENT.hoardingThreshold
       // Base salary (halved if hoarding)
-      const salary = c.coins > DAILY_SETTLEMENT.hoardingThreshold
+      const salary = c.coins > hoardingThreshold
         ? Math.floor(DAILY_SETTLEMENT.baseSalary / 2)
         : DAILY_SETTLEMENT.baseSalary
       // Work reward (accumulated today)

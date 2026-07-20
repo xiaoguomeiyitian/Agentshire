@@ -277,10 +277,12 @@ export class TownBuilder {
         this.modelMap.set(b.id, m)
       }).catch(e => console.warn('[TownBuilder] addBuilding async load failed:', e))
     }
-    // Door marker
+    // Door marker — 保留位置用于门检测(getWorldPosition),但不可见
+    // (用户要求删除建筑门口前的绿色圆点)。
     const door = new THREE.Mesh(TownBuilder.DOOR_GEO, TownBuilder.DOOR_MAT)
     door.position.set(b.gridX + b.widthCells / 2, 0.05, b.gridZ + b.depthCells + 0.5)
     door.name = `door_${b.id}`
+    door.visible = false
     this.townGroup.add(door)
     this.doorMarkers.set(b.id, door)
 
